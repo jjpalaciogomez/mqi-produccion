@@ -12,7 +12,7 @@ export default function Catalogos({ perfil }) {
     <div>
       <div className="titulo-pagina"><h1>Catálogos</h1><BotonAyuda clave="catalogos" rol={perfil?.rol} /></div>
       <div className="segmentado pestañas">
-        {[['personas', 'Personas y PIN'], ['procesos', 'Procesos y tiempos'], ['productos', 'Productos y rutas'], ['real', 'Estándar real']].map(([k, t]) => (
+        {[['personas', 'Personas'], ['procesos', 'Procesos y tiempos'], ['productos', 'Productos y rutas'], ['real', 'Estándar real']].map(([k, t]) => (
           <button key={k} className={tab === k ? 'sel' : ''} onClick={() => setTab(k)}>{t}</button>
         ))}
       </div>
@@ -27,7 +27,6 @@ export default function Catalogos({ perfil }) {
 function Personas() {
   const [lista, setLista] = useState(null)
   const [error, setError] = useState('')
-  const [pinDe, setPinDe] = useState(null)
   const [nueva, setNueva] = useState({ nombre: '', area: 'METAL', rol: 'operario' })
   const cargar = useCallback(() => q(sb.from('v_personas').select('*').order('area').order('nombre')).then(setLista).catch((e) => setError(e.message)), [])
   useEffect(() => { cargar() }, [cargar])
@@ -43,16 +42,14 @@ function Personas() {
   return (
     <div>
       <Aviso>{error}</Aviso>
-      <p className="tenue">El PIN de 4 dígitos es lo que cada operario escribe en la tablet. Tras 5 intentos fallidos se bloquea; asignar un PIN nuevo lo desbloquea.</p>
+      <p className="tenue">Los operarios activos aparecen en la tablet de su área (y en todas, los de Pintura) para registrar su tiempo.</p>
       <table className="tabla">
-        <thead><tr><th>Nombre</th><th>Área</th><th>Rol</th><th>PIN</th><th>Activo</th><th /></tr></thead>
+        <thead><tr><th>Nombre</th><th>Área</th><th>Rol</th><th>Activo</th></tr></thead>
         <tbody>
           {lista.map((p) => (
             <tr key={p.id} className={p.activo ? '' : 'omitida'}>
               <td>{p.nombre}</td><td>{p.area || '—'}</td><td>{ROLES[p.rol]}</td>
-              <td>{p.rol !== 'operario' ? <span className="tenue">—</span> : p.intentos_fallidos >= 5 ? <Badge tone="bad">Bloqueado</Badge> : p.tiene_pin ? <Badge tone="ok">Asignado</Badge> : <Badge tone="warn">Sin PIN</Badge>}</td>
               <td><button className="btn-link" onClick={() => activar(p)}>{p.activo ? 'Sí' : 'No'}</button></td>
-              <td>{p.rol === 'operario' && <button className="btn btn-sm" onClick={() => setPinDe(p)}>Asignar PIN</button>}</td>
             </tr>
           ))}
         </tbody>
@@ -63,33 +60,7 @@ function Personas() {
         <label>Rol<select value={nueva.rol} onChange={(e) => setNueva({ ...nueva, rol: e.target.value })}>{Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         <button className="btn">Agregar persona</button>
       </form>
-      {pinDe && <AsignarPin persona={pinDe} onClose={() => { setPinDe(null); cargar() }} />}
     </div>
-  )
-}
-
-function AsignarPin({ persona, onClose }) {
-  const [pin, setPin] = useState('')
-  const [msg, setMsg] = useState('')
-  const [ok, setOk] = useState(false)
-  const guardar = async (e) => {
-    e.preventDefault()
-    const { error } = await sb.rpc('asignar_pin', { p_persona: persona.id, p_pin: pin })
-    if (error) setMsg(error.message); else { setOk(true); setMsg('') }
-  }
-  return (
-    <Modal titulo={`PIN de ${persona.nombre}`} onClose={onClose} ancho={420}>
-      {ok ? (
-        <div><p>PIN guardado. Entrégaselo a {persona.nombre.split(' ')[0]} en persona; el sistema no lo vuelve a mostrar.</p>
-          <div className="acciones"><button className="btn" onClick={onClose}>Listo</button></div></div>
-      ) : (
-        <form className="form" onSubmit={guardar}>
-          <label>PIN nuevo (4 dígitos)<input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" required pattern="[0-9]{4}" autoFocus /></label>
-          <Aviso>{msg}</Aviso>
-          <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn" disabled={pin.length !== 4}>Guardar PIN</button></div>
-        </form>
-      )}
-    </Modal>
   )
 }
 

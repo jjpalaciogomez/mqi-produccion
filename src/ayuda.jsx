@@ -78,7 +78,7 @@ const AYUDA = {
     titulo: 'Catálogos',
     proposito: 'Administrar las personas y los datos base con que el sistema calcula tiempos.',
     puntos: [
-      ['Personas y PIN', 'Agrega operarios y asigna su PIN de 4 dígitos. Si alguien se bloquea (5 intentos fallidos), asígnale un PIN nuevo. Usa "Activo" para retirar a alguien sin borrar su historial.'],
+      ['Personas', 'Agrega operarios: aparecen en la tablet de su área para registrar su tiempo. Usa "Activo" para retirar a alguien sin borrar su historial.'],
       ['Procesos y tiempos', 'Ajusta el tiempo estándar por unidad. Aplica solo a los pasos que se creen desde ese momento.'],
       ['Productos y rutas', 'Consulta qué pasos tiene cada producto estándar y qué productos comerciales incluye.'],
       ['Estándar real', 'Compara el estándar vigente con lo que miden las tablets.'],
@@ -87,19 +87,19 @@ const AYUDA = {
   },
   'tablet.tablet': {
     titulo: 'Cómo registrar en la tablet',
-    proposito: 'Marcar cuándo empiezas y terminas cada tarea. Con eso la planta sabe cómo va cada pedido.',
+    proposito: 'Anotar cuánto tiempo trabajaste en cada tarea y cuánto hiciste. Con eso la planta sabe cómo va cada pedido.',
     pasos: [
-      'Iniciar: toca "Iniciar" en la tarea → toca tu nombre → escribe tu PIN.',
-      'Pausar: toca "Pausar" y elige el motivo (alimentación, servicio a instalaciones, falta de material…).',
-      'Reanudar: toca "Reanudar" cuando vuelvas a la tarea.',
-      'Terminar: toca "Terminar" y confirma la cantidad que hiciste.',
-      'Reportar paro: úsalo cuando no estés en ninguna tarea (reunión, aseo, falta de material). Al volver, "Terminar paro".',
+      'Toca "Registrar" en la tarea en la que trabajaste.',
+      'Toca tu nombre.',
+      'Escribe el tiempo que trabajaste (o toca un atajo: 30 min, 1 h, 2 h…) y la cantidad que hiciste.',
+      'Si la tarea quedó lista, toca "Guardar y terminé la tarea". Si la sigues después, "Guardar · sigo después".',
+      'Si estuviste parado (reunión, falta de material, apoyo a instalaciones), toca "Registrar paro", elige el motivo y el tiempo.',
     ],
     puntos: [
-      ['Qué aparece', 'Arriba: lo que está en curso o pausado. Abajo: lo que ya se puede empezar, en orden de prioridad.'],
-      ['PIN bloqueado', 'Después de 5 intentos fallidos. Pide a Dirección de Producción uno nuevo.'],
+      ['Qué aparece', 'Arriba: tareas que ya empezaste. Abajo: las que ya se pueden empezar, en orden de prioridad.'],
+      ['Tus horas del día', 'Al tocar tu nombre ves cuánto llevas registrado hoy. Al final del día debería sumar tu jornada.'],
     ],
-    consejo: 'Registra en el momento, no al final del día. Si sales a ayudar a otra área o a instalaciones, pausa con ese motivo.',
+    consejo: 'Registra cada vez que cambies de tarea, no al final del día: así el tiempo sale exacto.',
   },
 }
 

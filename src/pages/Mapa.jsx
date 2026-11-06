@@ -79,7 +79,7 @@ export default function Mapa({ orden, items, comps, tareas, productos }) {
   return (
     <div>
       <div className="leyenda">
-        {[['lista', 'Lista para iniciar'], ['en_curso', 'En curso'], ['pausada', 'Pausada'], ['terminada', 'Terminada'], ['espera', 'Esperando pasos anteriores']].map(([k, t]) => (
+        {[['lista', 'Lista para empezar'], ['en_curso', 'En proceso'], ['pausada', 'Pausada'], ['terminada', 'Terminada'], ['espera', 'Esperando pasos anteriores']].map(([k, t]) => (
           <span key={k}><i style={{ background: COLOR[k].bg, borderColor: COLOR[k].borde }} />{t}</span>
         ))}
       </div>
@@ -93,4 +93,4 @@ export default function Mapa({ orden, items, comps, tareas, productos }) {
   )
 }
 
-const etiqueta = (e) => ({ lista: 'lista', espera: 'en espera', en_curso: 'en curso', pausada: 'pausada', terminada: 'terminada' }[e] || e)
+const etiqueta = (e) => ({ lista: 'lista', espera: 'en espera', en_curso: 'en proceso', pausada: 'pausada', terminada: 'terminada' }[e] || e)

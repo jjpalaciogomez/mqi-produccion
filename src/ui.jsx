@@ -12,7 +12,7 @@ export const ESTADO_OP = {
   borrador: 'Borrador', en_planta: 'En planta', terminada: 'Terminada', entregada: 'Entregada', anulada: 'Anulada',
 }
 export const ESTADO_TAREA = {
-  pendiente: ['Pendiente', 'muted'], en_curso: ['En curso', 'info'], pausada: ['Pausada', 'warn'],
+  pendiente: ['Pendiente', 'muted'], en_curso: ['En proceso', 'info'], pausada: ['Pausada', 'warn'],
   terminada: ['Terminada', 'ok'], omitida: ['Omitida', 'ghost'],
 }
 

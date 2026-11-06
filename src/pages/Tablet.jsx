@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
-import { Aviso, EstadoTarea, Modal, PinPad, fmtFecha, fmtNum } from '../ui.jsx'
+import { Aviso, Modal, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 
 // Pantalla de la tablet de un área. Muestra las tareas de su área y de Pintura
-// (Pintura no tiene tablet propia). El operario se identifica con su nombre + PIN.
+// (Pintura no tiene tablet propia). El operario toca su nombre y escribe cuánto trabajó.
+
+// Jornada en minutos según el día (hora de Colombia): lunes a jueves 8,5 h, viernes 8 h
+const jornadaHoy = () => {
+  const dia = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' })).getDay()
+  return dia === 5 ? 480 : dia >= 1 && dia <= 4 ? 510 : 0
+}
+
 export default function Tablet({ perfil }) {
   const area = perfil.area
   const areas = area ? [area, 'PINTURA'] : null
   const [tareas, setTareas] = useState(null)
   const [personas, setPersonas] = useState([])
   const [motivos, setMotivos] = useState([])
-  const [paros, setParos] = useState([])
   const [error, setError] = useState('')
-  const [accion, setAccion] = useState(null) // {tipo, tarea}
+  const [accion, setAccion] = useState(null) // {tipo: 'registrar'|'paro', tarea}
   const [msg, setMsg] = useState('')
   const [hora, setHora] = useState(new Date())
 
@@ -23,12 +29,8 @@ export default function Tablet({ perfil }) {
       if (areas) c = c.in('area', areas)
       let cp = sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre')
       if (areas) cp = cp.in('area', areas)
-      const [t, p, m, pa] = await Promise.all([
-        q(c), q(cp),
-        q(sb.from('motivos_paro').select('*').order('codigo')),
-        q(sb.from('paros').select('id, persona_id, motivo, inicio').is('fin', null)),
-      ])
-      setTareas(t); setPersonas(p); setMotivos(m); setParos(pa); setError('')
+      const [t, p, m] = await Promise.all([q(c), q(cp), q(sb.from('motivos_paro').select('*').order('codigo'))])
+      setTareas(t); setPersonas(p); setMotivos(m); setError('')
     } catch (e) { setError(`Sin conexión con el sistema: ${e.message}`) }
   }, [area]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -37,16 +39,14 @@ export default function Tablet({ perfil }) {
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(''), 5000); return () => clearTimeout(t) }, [msg])
 
   const orden = (a, b) => (a.prioridad - b.prioridad) || String(a.fecha_compromiso || '9').localeCompare(String(b.fecha_compromiso || '9'))
-  const { activas, listas, espera } = useMemo(() => {
+  const { enProceso, listas, espera } = useMemo(() => {
     const ts = tareas || []
     return {
-      activas: ts.filter((t) => ['en_curso', 'pausada'].includes(t.estado)).sort(orden),
+      enProceso: ts.filter((t) => ['en_curso', 'pausada'].includes(t.estado)).sort(orden),
       listas: ts.filter((t) => t.estado === 'pendiente' && !t.bloqueada).sort(orden),
       espera: ts.filter((t) => t.estado === 'pendiente' && t.bloqueada).length,
     }
   }, [tareas])
-  const nombre = (id) => personas.find((p) => p.id === id)?.nombre || ''
-  const parosArea = paros.filter((p) => personas.some((x) => x.id === p.persona_id))
 
   return (
     <div className="tablet">
@@ -54,8 +54,7 @@ export default function Tablet({ perfil }) {
         <div><div className="tablet-area">{area ? `Tablet ${area}` : 'Tablet de planta'}</div>
           <div className="tenue-claro">{hora.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</div></div>
         <div className="tablet-botones">
-          <button className="btn btn-paro" onClick={() => setAccion({ tipo: 'paro' })}>Reportar paro</button>
-          {parosArea.length > 0 && <button className="btn btn-sec" onClick={() => setAccion({ tipo: 'fin_paro' })}>Terminar paro</button>}
+          <button className="btn btn-paro" onClick={() => setAccion({ tipo: 'paro' })}>Registrar paro</button>
           <button className="btn btn-sec" onClick={cargar}>Actualizar</button>
           <BotonAyuda clave="tablet" rol="tablet" etiqueta="¿Cómo registro?" claro />
         </div>
@@ -63,20 +62,17 @@ export default function Tablet({ perfil }) {
 
       {msg && <div className="toast">{msg}</div>}
       <Aviso>{error}</Aviso>
-      {parosArea.length > 0 && (
-        <div className="aviso aviso-warn">En paro: {parosArea.map((p) => `${nombre(p.persona_id).split(' ')[0]} (${motivos.find((m) => m.codigo === p.motivo)?.descripcion.toLowerCase() || ''})`).join(' · ')}</div>
-      )}
 
       <section>
-        <h2 className="tablet-h2">En curso y pausadas <span className="cuenta">{activas.length}</span></h2>
-        {activas.length === 0 ? <div className="vacio">Nada en curso.</div> : (
-          <div className="tarjetas">{activas.map((t) => <TarjetaTarea key={t.id} t={t} onAccion={(tipo) => setAccion({ tipo, tarea: t })} />)}</div>
+        <h2 className="tablet-h2">En proceso <span className="cuenta">{enProceso.length}</span></h2>
+        {enProceso.length === 0 ? <div className="vacio">Ninguna tarea empezada.</div> : (
+          <div className="tarjetas">{enProceso.map((t) => <TarjetaTarea key={t.id} t={t} onRegistrar={() => setAccion({ tipo: 'registrar', tarea: t })} />)}</div>
         )}
       </section>
       <section>
-        <h2 className="tablet-h2">Listas para iniciar <span className="cuenta">{listas.length}</span></h2>
+        <h2 className="tablet-h2">Listas para empezar <span className="cuenta">{listas.length}</span></h2>
         {tareas === null ? <div className="vacio">Cargando…</div> : listas.length === 0 ? <div className="vacio">No hay tareas listas para esta área.</div> : (
-          <div className="tarjetas">{listas.map((t) => <TarjetaTarea key={t.id} t={t} onAccion={(tipo) => setAccion({ tipo, tarea: t })} />)}</div>
+          <div className="tarjetas">{listas.map((t) => <TarjetaTarea key={t.id} t={t} onRegistrar={() => setAccion({ tipo: 'registrar', tarea: t })} />)}</div>
         )}
         {espera > 0 && <p className="nota">{espera} tarea(s) más esperan que terminen pasos anteriores.</p>}
       </section>
@@ -87,7 +83,7 @@ export default function Tablet({ perfil }) {
       </footer>
 
       {accion && (
-        <FlujoAccion accion={accion} personas={personas} motivos={motivos} paros={parosArea}
+        <FlujoRegistro accion={accion} personas={personas} motivos={motivos}
           onClose={() => setAccion(null)}
           onHecho={(texto) => { setAccion(null); setMsg(texto); cargar() }} />
       )}
@@ -95,94 +91,127 @@ export default function Tablet({ perfil }) {
   )
 }
 
-function TarjetaTarea({ t, onAccion }) {
+function TarjetaTarea({ t, onRegistrar }) {
+  const empezada = Number(t.min_reales) > 0
   return (
     <div className={`tarea tarea-${t.estado}`}>
       <div className="tarea-op">OP {t.op_numero} · {t.cliente}</div>
       <div className="tarea-proceso">{t.proceso_nombre}</div>
       <div className="tarea-det">{t.item_descripcion}{t.producto ? ` · ${t.producto}` : ' · ensamble final'}</div>
       <div className="tarea-det">Cantidad: <b>{t.cantidad ? `${fmtNum(t.cantidad, 2)} ${t.unidad}` : 'ver plano'}</b> · Entrega OP: {fmtFecha(t.fecha_compromiso)}</div>
+      {empezada && (
+        <div className="tarea-avance">Registrado: <b>{fmtMin(t.min_reales)}</b>{Number(t.cantidad_registrada) > 0 && <> · hecho <b>{fmtNum(t.cantidad_registrada, 2)}{t.cantidad ? ` de ${fmtNum(t.cantidad, 2)}` : ''} {t.unidad}</b></>}</div>
+      )}
       <div className="tarea-pie">
-        <EstadoTarea estado={t.estado} />
-        <div className="tarea-botones">
-          {t.estado === 'pendiente' && <button className="btn btn-grande" onClick={() => onAccion('iniciar')}>Iniciar</button>}
-          {t.estado === 'pausada' && <button className="btn btn-grande" onClick={() => onAccion('iniciar')}>Reanudar</button>}
-          {t.estado === 'en_curso' && <button className="btn btn-sec btn-grande" onClick={() => onAccion('pausar')}>Pausar</button>}
-          {['en_curso', 'pausada'].includes(t.estado) && <button className="btn btn-ok btn-grande" onClick={() => onAccion('terminar')}>Terminar</button>}
-        </div>
+        <span className={`badge ${empezada ? 'badge-info' : 'badge-muted'}`}>{empezada ? 'En proceso' : 'Sin empezar'}</span>
+        <button className="btn btn-grande" onClick={onRegistrar}>Registrar</button>
       </div>
     </div>
   )
 }
 
-const TITULOS = { iniciar: 'Iniciar tarea', pausar: 'Pausar tarea', terminar: 'Terminar tarea', paro: 'Reportar paro', fin_paro: 'Terminar paro' }
+const ATAJOS = [15, 30, 60, 90, 120, 180, 240, 480]
 
-function FlujoAccion({ accion, personas, motivos, paros, onClose, onHecho }) {
+function FlujoRegistro({ accion, personas, motivos, onClose, onHecho }) {
   const { tipo, tarea } = accion
+  const pendiente = tarea?.cantidad ? Math.max(Number(tarea.cantidad) - Number(tarea.cantidad_registrada || 0), 0) : ''
   const [persona, setPersona] = useState(null)
+  const [hoy, setHoy] = useState(null)
+  const [horas, setHoras] = useState('')
+  const [minutos, setMinutos] = useState('')
+  const [cantidad, setCantidad] = useState(pendiente === '' ? '' : String(pendiente))
   const [motivo, setMotivo] = useState('')
-  const [cantidad, setCantidad] = useState(tarea?.cantidad ?? '')
-  const [paso, setPaso] = useState('persona')
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
-  const necesitaDatos = tipo === 'pausar' || tipo === 'terminar' || tipo === 'paro'
-  const candidatos = tipo === 'fin_paro' ? personas.filter((p) => paros.some((x) => x.persona_id === p.id)) : personas
 
-  const enviar = useCallback(async (pin) => {
+  const elegir = async (p) => {
+    setPersona(p)
+    const { data } = await sb.rpc('minutos_hoy', { p_persona: p.id })
+    setHoy(Number(data) || 0)
+  }
+  const total = (Number(horas) || 0) * 60 + (Number(minutos) || 0)
+  const atajo = (m) => { setHoras(String(Math.floor(m / 60))); setMinutos(String(m % 60)) }
+  const jornada = jornadaHoy()
+  const conEste = (hoy || 0) + total
+
+  const guardar = async (termino) => {
+    if (total <= 0) { setError('Escribe cuánto tiempo trabajaste.'); return }
+    if (tipo === 'paro' && !motivo) { setError('Elige el motivo del paro.'); return }
     setEnviando(true); setError('')
-    let r
-    if (tipo === 'iniciar') r = await sb.rpc('iniciar_tarea', { p_tarea: tarea.id, p_persona: persona.id, p_pin: pin })
-    if (tipo === 'pausar') r = await sb.rpc('pausar_tarea', { p_tarea: tarea.id, p_persona: persona.id, p_pin: pin, p_motivo: Number(motivo) })
-    if (tipo === 'terminar') r = await sb.rpc('terminar_tarea', { p_tarea: tarea.id, p_persona: persona.id, p_pin: pin, p_cantidad: cantidad === '' ? null : Number(String(cantidad).replace(',', '.')) })
-    if (tipo === 'paro') r = await sb.rpc('iniciar_paro', { p_persona: persona.id, p_pin: pin, p_motivo: Number(motivo) })
-    if (tipo === 'fin_paro') r = await sb.rpc('terminar_paro', { p_persona: persona.id, p_pin: pin })
+    const r = tipo === 'paro'
+      ? await sb.rpc('registrar_paro', { p_persona: persona.id, p_motivo: Number(motivo), p_minutos: total })
+      : await sb.rpc('registrar_avance', {
+        p_tarea: tarea.id, p_persona: persona.id, p_minutos: total,
+        p_cantidad: cantidad === '' ? null : Number(String(cantidad).replace(',', '.')), p_termino: termino,
+      })
     setEnviando(false)
     const fallo = r.error?.message || r.data
     if (fallo) { setError(fallo); return }
     const n = persona.nombre.split(' ')[0]
-    onHecho({ iniciar: `${n} inició ${tarea?.proceso_nombre}`, pausar: 'Tarea pausada', terminar: `${n} terminó ${tarea?.proceso_nombre}`, paro: 'Paro registrado', fin_paro: 'Paro terminado' }[tipo])
-  }, [tipo, tarea, persona, motivo, cantidad, onHecho])
+    onHecho(tipo === 'paro' ? 'Paro registrado' : termino ? `${n} terminó ${tarea.proceso_nombre}` : `Avance de ${n} registrado`)
+  }
 
   return (
-    <Modal titulo={TITULOS[tipo]} onClose={onClose} ancho={560}>
+    <Modal titulo={tipo === 'paro' ? 'Registrar paro' : 'Registrar tiempo'} onClose={onClose} ancho={600}>
       {tarea && <p className="tenue">OP {tarea.op_numero} · {tarea.proceso_nombre} · {tarea.item_descripcion}</p>}
-      {paso === 'persona' && (
+      {!persona ? (
         <div>
           <p className="paso-tit">¿Quién eres?</p>
           <div className="personas">
-            {candidatos.map((p) => (
-              <button key={p.id} className="persona" onClick={() => { setPersona(p); setPaso(necesitaDatos ? 'datos' : 'pin') }}>
-                {p.nombre}<span>{p.area}</span>
-              </button>
+            {personas.map((p) => (
+              <button key={p.id} className="persona" onClick={() => elegir(p)}>{p.nombre}<span>{p.area}</span></button>
             ))}
-            {candidatos.length === 0 && <p>No hay personas para esta tablet.</p>}
+            {personas.length === 0 && <p>No hay personas para esta tablet.</p>}
           </div>
         </div>
-      )}
-      {paso === 'datos' && (
-        <form className="form" onSubmit={(e) => { e.preventDefault(); setPaso('pin') }}>
-          {(tipo === 'pausar' || tipo === 'paro') && (
+      ) : (
+        <div className="form">
+          <div className="quien">
+            <b>{persona.nombre}</b>
+            <button className="btn-link" onClick={() => { setPersona(null); setHoy(null) }}>Cambiar</button>
+          </div>
+          {hoy !== null && <div className="hoy">Hoy llevas registrado: <b>{fmtMin(hoy)}</b>{jornada ? ` de ${fmtMin(jornada)} de jornada` : ''}</div>}
+
+          {tipo === 'paro' && (
             <label className="paso-tit">Motivo
-              <select value={motivo} onChange={(e) => setMotivo(e.target.value)} required className="select-grande">
+              <select value={motivo} onChange={(e) => setMotivo(e.target.value)} className="select-grande">
                 <option value="">Selecciona el motivo…</option>
                 {motivos.map((m) => <option key={m.codigo} value={m.codigo}>{m.descripcion}</option>)}
               </select>
             </label>
           )}
-          {tipo === 'terminar' && (
-            <label className="paso-tit">Cantidad hecha ({tarea.unidad})
-              <input className="input-grande" value={cantidad} onChange={(e) => setCantidad(e.target.value)} inputMode="decimal" />
+
+          <div>
+            <p className="paso-tit">{tipo === 'paro' ? '¿Cuánto duró el paro?' : '¿Cuánto tiempo trabajaste en esta tarea?'}</p>
+            <div className="atajos">
+              {ATAJOS.map((m) => (
+                <button key={m} type="button" className={total === m ? 'sel' : ''} onClick={() => atajo(m)}>{m < 60 ? `${m} min` : `${fmtNum(m / 60, 1)} h`}</button>
+              ))}
+            </div>
+            <div className="tiempo">
+              <label>Horas<input className="input-grande" value={horas} onChange={(e) => setHoras(e.target.value.replace(/\D/g, '').slice(0, 2))} inputMode="numeric" placeholder="0" /></label>
+              <label>Minutos<input className="input-grande" value={minutos} onChange={(e) => setMinutos(e.target.value.replace(/\D/g, '').slice(0, 3))} inputMode="numeric" placeholder="0" /></label>
+            </div>
+            {jornada > 0 && total > 0 && conEste > jornada && (
+              <Aviso tipo="warn">Con este registro llevarías {fmtMin(conEste)} hoy, más que la jornada ({fmtMin(jornada)}). Revisa el tiempo; si incluye horas extra, continúa.</Aviso>
+            )}
+          </div>
+
+          {tipo === 'registrar' && (
+            <label className="paso-tit">¿Cuánto hiciste? ({tarea.unidad})
+              <input className="input-grande" value={cantidad} onChange={(e) => setCantidad(e.target.value)} inputMode="decimal" placeholder="Cantidad" />
             </label>
           )}
-          <div className="acciones"><button type="button" className="btn btn-sec btn-grande" onClick={() => setPaso('persona')}>Atrás</button><button className="btn btn-grande">Continuar</button></div>
-        </form>
-      )}
-      {paso === 'pin' && (
-        <div>
-          <p className="paso-tit">{persona.nombre}: escribe tu PIN</p>
-          <PinPad onCompleto={enviar} deshabilitado={enviando} />
+
           <Aviso>{error}</Aviso>
-          <div className="acciones"><button className="btn btn-sec btn-grande" onClick={() => { setError(''); setPaso('persona') }}>Cambiar persona</button></div>
+          {tipo === 'paro' ? (
+            <div className="acciones"><button className="btn btn-grande" disabled={enviando} onClick={() => guardar(false)}>Guardar paro</button></div>
+          ) : (
+            <div className="acciones acciones-registro">
+              <button className="btn btn-sec btn-grande" disabled={enviando} onClick={() => guardar(false)}>Guardar · sigo después</button>
+              <button className="btn btn-ok btn-grande" disabled={enviando} onClick={() => guardar(true)}>Guardar y terminé la tarea</button>
+            </div>
+          )}
         </div>
       )}
     </Modal>
