@@ -181,3 +181,10 @@ tr.omitida td { opacity: .45; }
 .ayuda dt { font-weight: 700; } .ayuda dd { margin: 2px 0 0; color: var(--tinta-2); }
 .ayuda-consejo { margin: 16px 0 14px; padding: 10px 14px; background: #fffbea; border: 1px solid #f3e3a1; border-radius: 8px; }
 .ayuda-grande { font-size: 17px; } .ayuda-grande .ayuda-proposito { font-size: 18px; } .ayuda-grande ol { gap: 10px; }
+
+/* Modo prueba (solo Administrador) */
+.ver-como { flex-direction: row; align-items: center; gap: 8px; color: #cfd6df; font-size: 13px; font-weight: 600; }
+.ver-como select { padding: 5px 8px; font-size: 13.5px; border-radius: 7px; border-color: #4b5563; background: #2c3a4b; color: #fff; }
+.aviso-prueba { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 20px; background: #fff3c4; color: #5c4400; border-bottom: 1px solid #f1d797; font-size: 14px; }
+.barra-prueba-tablet { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 18px; background: #111827; }
+.barra-prueba-tablet .aviso-prueba { flex: 1; border-radius: 8px; border: none; padding: 6px 12px; }
