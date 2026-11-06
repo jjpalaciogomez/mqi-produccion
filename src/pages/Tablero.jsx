@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, Semaforo, fmtFecha, fmtMin } from '../ui.jsx'
+import { BotonAyuda } from '../ayuda.jsx'
 
 const ORDEN_SEM = { vencida: 0, en_riesgo: 1, a_tiempo: 2, sin_fecha: 3, incumplida: 4, cumplida: 5 }
 
-export default function Tablero({ gestor }) {
+export default function Tablero({ gestor, rol }) {
   const [ordenes, setOrdenes] = useState(null)
   const [error, setError] = useState('')
   const [filtro, setFiltro] = useState('activas')
@@ -45,7 +46,10 @@ export default function Tablero({ gestor }) {
     <div>
       <div className="titulo-pagina">
         <h1>Tablero de planta</h1>
-        {gestor && <a className="btn" href="#/nueva">+ Nueva OP</a>}
+        <div className="titulo-acciones">
+          <BotonAyuda clave="tablero" rol={rol} />
+          {gestor && <a className="btn" href="#/nueva">+ Nueva OP</a>}
+        </div>
       </div>
 
       {filtro === 'activas' && ordenes && (

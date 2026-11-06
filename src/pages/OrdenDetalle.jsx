@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, EstadoTarea, Modal, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import Mapa from './Mapa.jsx'
+import { BotonAyuda } from '../ayuda.jsx'
 
 const AREAS_PLANTA = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
 
@@ -39,7 +40,10 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
           <h1>OP {orden.numero} · {orden.cliente}</h1>
           <div className="tenue">{orden.proyecto}{orden.comercial ? ` · Comercial: ${orden.comercial}` : ''}</div>
         </div>
-        {gestor && <button className="btn btn-sec" onClick={() => setModal('editar')}>Editar datos</button>}
+        <div className="titulo-acciones">
+          <BotonAyuda clave={vista === 'mapa' ? 'mapa' : 'op'} rol={perfil.rol} />
+          {gestor && <button className="btn btn-sec" onClick={() => setModal('editar')}>Editar datos</button>}
+        </div>
       </div>
 
       <div className="kpis">

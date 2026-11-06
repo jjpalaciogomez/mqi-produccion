@@ -59,9 +59,9 @@ function Shell({ perfil }) {
   let pagina
   const m = ruta.match(/^\/op\/([0-9a-f-]+)/)
   if (m) pagina = <OrdenDetalle id={m[1]} perfil={perfil} gestor={gestor} />
-  else if (ruta === '/nueva' && gestor) pagina = <NuevaOP />
+  else if (ruta === '/nueva' && gestor) pagina = <NuevaOP rol={perfil.rol} />
   else if (ruta === '/catalogos' && gestor) pagina = <Catalogos perfil={perfil} />
-  else pagina = <Tablero gestor={gestor} />
+  else pagina = <Tablero gestor={gestor} rol={perfil.rol} />
 
   const link = (r, txt) => (
     <a href={`#${r}`} className={(ruta === r || (r === '/' && ruta.startsWith('/op/'))) ? 'activo' : ''}>{txt}</a>

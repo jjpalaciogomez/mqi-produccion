@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, EstadoTarea, Modal, PinPad, fmtFecha, fmtNum } from '../ui.jsx'
+import { BotonAyuda } from '../ayuda.jsx'
 
 // Pantalla de la tablet de un área. Muestra las tareas de su área y de Pintura
 // (Pintura no tiene tablet propia). El operario se identifica con su nombre + PIN.
@@ -56,6 +57,7 @@ export default function Tablet({ perfil }) {
           <button className="btn btn-paro" onClick={() => setAccion({ tipo: 'paro' })}>Reportar paro</button>
           {parosArea.length > 0 && <button className="btn btn-sec" onClick={() => setAccion({ tipo: 'fin_paro' })}>Terminar paro</button>}
           <button className="btn btn-sec" onClick={cargar}>Actualizar</button>
+          <BotonAyuda clave="tablet" rol="tablet" etiqueta="¿Cómo registro?" claro />
         </div>
       </header>
 

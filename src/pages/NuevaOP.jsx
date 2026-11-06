@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { sb } from '../supabase.js'
 import { Aviso } from '../ui.jsx'
+import { BotonAyuda } from '../ayuda.jsx'
 
-export default function NuevaOP() {
+export default function NuevaOP({ rol }) {
   const [f, setF] = useState({ numero: '', cliente: '', proyecto: '', comercial: '', fecha_compromiso: '', prioridad: 3, notas: '' })
   const [error, setError] = useState('')
   const [guardando, setGuardando] = useState(false)
@@ -20,7 +21,7 @@ export default function NuevaOP() {
 
   return (
     <div className="angosto">
-      <h1>Nueva orden de producción</h1>
+      <div className="titulo-pagina"><h1>Nueva orden de producción</h1><BotonAyuda clave="nueva" rol={rol} /></div>
       <p className="tenue">Primero los datos generales. En el siguiente paso agregas los ítems y sus productos.</p>
       <form className="tarjeta form" onSubmit={guardar}>
         <div className="fila2">

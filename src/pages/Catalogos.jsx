@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Badge, Cargando, Modal, fmtNum } from '../ui.jsx'
+import { BotonAyuda } from '../ayuda.jsx'
 
 const AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
 const ROLES = { operario: 'Operario', direccion: 'Dirección', consulta: 'Consulta', admin: 'Administrador' }
 
-export default function Catalogos() {
+export default function Catalogos({ perfil }) {
   const [tab, setTab] = useState('personas')
   return (
     <div>
-      <h1>Catálogos</h1>
+      <div className="titulo-pagina"><h1>Catálogos</h1><BotonAyuda clave="catalogos" rol={perfil?.rol} /></div>
       <div className="segmentado pestañas">
         {[['personas', 'Personas y PIN'], ['procesos', 'Procesos y tiempos'], ['productos', 'Productos y rutas'], ['real', 'Estándar real']].map(([k, t]) => (
           <button key={k} className={tab === k ? 'sel' : ''} onClick={() => setTab(k)}>{t}</button>
