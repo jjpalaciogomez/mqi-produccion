@@ -198,3 +198,7 @@ tr.omitida td { opacity: .45; }
 .atajos button.sel { background: var(--tinta); color: #fff; border-color: var(--tinta); }
 .tiempo { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .acciones-registro { justify-content: stretch; } .acciones-registro .btn { flex: 1; }
+
+/* Las ventanas siempre con texto oscuro, sin heredar el color de la barra donde se abren */
+.modal { color: var(--tinta); text-align: left; font-weight: 400; text-transform: none; letter-spacing: normal; }
+.ayuda li, .ayuda-consejo { color: var(--tinta); }
