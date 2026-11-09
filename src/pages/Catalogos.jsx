@@ -81,6 +81,19 @@ function useCatalogo() {
 }
 
 // Productos con su ruta y estándar por área
+// Lleva los estándares y dificultades vigentes a las OPs abiertas (los pasos terminados no cambian)
+function AplicarEstandares({ onOk, onError }) {
+  const [aplicando, setAplicando] = useState(false)
+  const aplicar = async () => {
+    if (!window.confirm('¿Aplicar los estándares vigentes a todas las OPs abiertas? Se recalculan los pasos que no han terminado; los terminados conservan su estándar.')) return
+    setAplicando(true)
+    const { data, error } = await sb.rpc('recalcular_estandares', {})
+    setAplicando(false)
+    if (error) onError(error.message); else onOk(`Estándares aplicados: se recalcularon ${data} ítems de las OPs abiertas.`)
+  }
+  return <button className="btn btn-sec" onClick={aplicar} disabled={aplicando}>{aplicando ? 'Aplicando…' : 'Aplicar a OPs abiertas'}</button>
+}
+
 function Productos() {
   const { d, error, setError, cargar } = useCatalogo()
   const [form, setForm] = useState(null) // null | 'nuevo' | producto
@@ -93,7 +106,7 @@ function Productos() {
       <div className="titulo-acciones" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
         <p className="tenue" style={{ margin: 0 }}>El estándar de cada proceso es para <b>una unidad del tamaño de referencia en dificultad media</b>.
           El del producto en cada área es la suma de sus procesos. En terceros el valor son días.</p>
-        <button className="btn" onClick={() => setForm('nuevo')}>+ Nuevo producto</button>
+        <span className="titulo-acciones"><AplicarEstandares onOk={setOk} onError={setError} /><button className="btn" onClick={() => setForm('nuevo')}>+ Nuevo producto</button></span>
       </div>
       <table className="tabla tabla-std">
         <thead><tr><th>Producto</th><th>Medida y referencia</th><th>Ruta</th><th>Estándar por área</th><th /></tr></thead>
@@ -376,6 +389,7 @@ function Dificultad() {
   return (
     <div>
       <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
+      <div style={{ float: 'right' }}><AplicarEstandares onOk={setOk} onError={setError} /></div>
       <p className="tenue">El tiempo estándar del producto se multiplica por este valor según la dificultad que se elija al agregarlo a un ítem. Media es la predeterminada.</p>
       <table className="tabla tabla-dif">
         <thead><tr><th>Dificultad</th><th>Multiplicador</th><th>Efecto</th><th>Referencia o descripción (cuándo usar este nivel)</th></tr></thead>

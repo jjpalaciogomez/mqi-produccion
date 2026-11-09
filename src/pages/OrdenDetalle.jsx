@@ -48,6 +48,11 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         </div>
         <div className="titulo-acciones">
           <BotonAyuda clave={vista === 'mapa' ? 'mapa' : 'op'} rol={perfil.rol} />
+          {gestor && <button className="btn btn-sec" title="Aplica los estándares y dificultades vigentes a los pasos que no han terminado" onClick={async () => {
+            if (!window.confirm('¿Recalcular el tiempo estándar de esta OP con los estándares vigentes? Los pasos ya terminados no cambian.')) return
+            const { error } = await sb.rpc('recalcular_estandares', { p_orden: orden.id })
+            if (error) setError(error.message); else cargar()
+          }}>Recalcular estándares</button>}
           {gestor && <button className="btn btn-sec" onClick={() => setModal('editar')}>Editar datos</button>}
           {gestor && <button className="btn btn-sec peligro-txt" onClick={() => setModal('eliminar')}>Eliminar OP</button>}
         </div>
