@@ -53,6 +53,8 @@ const AYUDA = {
     ],
     puntos: [
       ['Editar datos', 'Cambia fecha compromiso, prioridad, estado y fecha de entrega real.'],
+      ['Corregir tiempos', '"Registros (n)" en un paso muestra los tiempos registrados: puedes corregir minutos y cantidad o borrarlos. "Reabrir" vuelve a abrir un paso terminado.'],
+      ['Eliminar OP', 'Borra la OP con todo lo registrado. Pide escribir el número para confirmar y no se puede deshacer.'],
       ['Estados', 'Pendiente · En espera (falta un paso anterior) · En curso · Pausada · Terminada.'],
     ],
     consejo: 'Un paso solo aparece en la tablet cuando terminan los anteriores. Sin medidas, el paso queda sin estándar y no cuenta para medir eficiencia.',

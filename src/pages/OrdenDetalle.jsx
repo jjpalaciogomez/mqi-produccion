@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, EstadoTarea, Modal, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import Mapa from './Mapa.jsx'
@@ -24,7 +24,11 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         q(sb.from('dificultades').select('*').order('orden')),
       ])
       if (!orden) { setError('No se encontró la OP.'); return }
-      setD({ orden, items, comps, tareas, productos, rutas, difs }); setError('')
+      const ids = tareas.map((t) => t.id)
+      const registros = ids.length ? await q(sb.from('registros')
+        .select('id, tarea_id, inicio, fin, minutos, cantidad, observacion, lote, motivo_pausa, personas(nombre)')
+        .in('tarea_id', ids).is('motivo_pausa', null).order('inicio')) : []
+      setD({ orden, items, comps, tareas, productos, rutas, difs, registros }); setError('')
     } catch (e) { setError(e.message) }
   }, [id])
 
@@ -45,6 +49,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         <div className="titulo-acciones">
           <BotonAyuda clave={vista === 'mapa' ? 'mapa' : 'op'} rol={perfil.rol} />
           {gestor && <button className="btn btn-sec" onClick={() => setModal('editar')}>Editar datos</button>}
+          {gestor && <button className="btn btn-sec peligro-txt" onClick={() => setModal('eliminar')}>Eliminar OP</button>}
         </div>
       </div>
 
@@ -65,9 +70,10 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
 
       {vista === 'mapa'
         ? <Mapa orden={orden} items={d.items} comps={d.comps} tareas={d.tareas} productos={d.productos} />
-        : <Estructura d={d} gestor={gestor} perfil={perfil} recargar={cargar} setError={setError} />}
+        : <RegistrosCtx.Provider value={d.registros}><Estructura d={d} gestor={gestor} perfil={perfil} recargar={cargar} setError={setError} /></RegistrosCtx.Provider>}
 
       {modal === 'editar' && <EditarOP orden={orden} onClose={() => setModal(null)} onSaved={() => { setModal(null); cargar() }} />}
+      {modal === 'eliminar' && <EliminarOP orden={orden} nRegistros={d.registros.length} onClose={() => setModal(null)} />}
     </div>
   )
 }
@@ -183,7 +189,11 @@ function Componente({ c, it, prod, tareas, productos, rutas, difs, gestor, perfi
   )
 }
 
+const RegistrosCtx = createContext([])
+
 function TablaTareas({ tareas, gestor, perfil, accion }) {
+  const registros = useContext(RegistrosCtx)
+  const [abierta, setAbierta] = useState(null)
   const cambiarEstado = (t, estado) => accion(() => q(sb.from('tareas').update({ estado }).eq('id', t.id)))
   const alternar = (t) => {
     // Activa esta alternativa y omite las demás del mismo paso
@@ -208,7 +218,9 @@ function TablaTareas({ tareas, gestor, perfil, accion }) {
     <table className="tabla tabla-tareas">
       <thead><tr><th>Paso</th><th>Proceso</th><th>Área</th><th>Cantidad</th><th>Estándar</th><th>Real</th><th>Quién</th><th>Estado</th>{gestor && <th />}</tr></thead>
       <tbody>
-        {tareas.map((t) => (
+        {tareas.map((t) => {
+          const regs = registros.filter((r) => r.tarea_id === t.id)
+          return [
           <tr key={t.id} className={t.estado === 'omitida' ? 'omitida' : ''}>
             <td className="centrado">{t.paso === 999 ? 'Final' : t.paso}</td>
             <td>{t.proceso && <b>{t.proceso} </b>}{t.proceso_nombre}{t.opcional && <span className="etq">opcional</span>}{t.alternativa && <span className="etq">alternativa</span>}</td>
@@ -229,11 +241,19 @@ function TablaTareas({ tareas, gestor, perfil, accion }) {
                 {esTerceros(t) && t.estado === 'en_curso' && <button className="btn btn-sm" onClick={() => tercero(t, 'recibir')}>Recibido</button>}
                 {t.alternativa && t.estado === 'omitida' && <button className="btn-link" onClick={() => alternar(t)}>Usar esta</button>}
                 {t.opcional && t.estado === 'pendiente' && <button className="btn-link" onClick={() => cambiarEstado(t, 'omitida')}>Omitir</button>}
-                {t.opcional && !t.alternativa && t.estado === 'omitida' && <button className="btn-link" onClick={() => cambiarEstado(t, 'pendiente')}>Incluir</button>}
+                {!t.alternativa && t.estado === 'omitida' && <button className="btn-link" onClick={() => cambiarEstado(t, 'pendiente')}>Incluir</button>}
+                {!esTerceros(t) && regs.length > 0 && <button className="btn-link" onClick={() => setAbierta(abierta === t.id ? null : t.id)}>{abierta === t.id ? 'Ocultar' : `Registros (${regs.length})`}</button>}
+                {t.estado === 'terminada' && <button className="btn-link" onClick={() => accion(() => q(sb.rpc('reabrir_tarea', { p_tarea: t.id })))}>Reabrir</button>}
               </td>
             )}
-          </tr>
-        ))}
+          </tr>,
+          gestor && abierta === t.id && (
+            <tr key={t.id + '-r'} className="fila-registros"><td colSpan={9}>
+              <ListaRegistros regs={regs} accion={accion} />
+            </td></tr>
+          ),
+          ]
+        })}
       </tbody>
     </table>
   )
@@ -375,6 +395,74 @@ function FormComponente({ item, productos, rutas, difs, inicial, onClose, accion
         <button className="btn">{inicial ? 'Guardar y recalcular pasos' : 'Agregar y crear pasos'}</button>
       </div>
     </form>
+  )
+}
+
+// Registros de tiempo de un paso: Administración y Dirección pueden corregirlos o borrarlos
+function ListaRegistros({ regs, accion }) {
+  const [edit, setEdit] = useState({})
+  const num = (v) => (v === '' || v === null || v === undefined ? null : Number(String(v).replace(',', '.')))
+  const guardar = (r) => {
+    const e = edit[r.id] || {}
+    const minutos = num(e.minutos ?? r.minutos), cantidad = num(e.cantidad ?? r.cantidad)
+    accion(() => q(sb.rpc('editar_registro', { p_registro: r.id, p_minutos: minutos, p_cantidad: cantidad })))
+  }
+  const borrar = (r, lote) => {
+    const txt = lote ? '¿Borrar este registro en TODOS los ítems del proyecto donde se repartió?' : '¿Borrar este registro de tiempo?'
+    if (!window.confirm(txt)) return
+    accion(() => q(sb.rpc('eliminar_registro', { p_registro: r.id, p_todo_el_lote: lote })))
+  }
+  const minutosDe = (r) => r.minutos ?? (r.fin ? Math.round((new Date(r.fin) - new Date(r.inicio)) / 60000) : null)
+  return (
+    <div className="registros">
+      <table className="tabla">
+        <thead><tr><th>Fecha</th><th>Quién</th><th>Minutos</th><th>Cantidad</th><th>Nota</th><th /></tr></thead>
+        <tbody>{regs.map((r) => (
+          <tr key={r.id}>
+            <td className="pequeño">{new Date(r.inicio).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+            <td>{r.personas?.nombre?.split(' ').slice(0, 2).join(' ')}</td>
+            <td><input className="input-cant" defaultValue={fmtNum(minutosDe(r), 0)} onChange={(e) => setEdit({ ...edit, [r.id]: { ...edit[r.id], minutos: e.target.value } })} inputMode="decimal" /></td>
+            <td><input className="input-cant" defaultValue={r.cantidad ?? ''} onChange={(e) => setEdit({ ...edit, [r.id]: { ...edit[r.id], cantidad: e.target.value } })} inputMode="decimal" /></td>
+            <td className="tenue pequeño">{r.lote ? 'Parte de un registro de todo el proyecto' : ''}{r.observacion ? ` ${r.observacion}` : ''}</td>
+            <td className="acciones-fila">
+              {edit[r.id] && <button className="btn btn-sm" onClick={() => guardar(r)}>Guardar</button>}
+              <button className="btn-link peligro" onClick={() => borrar(r, false)}>Borrar</button>
+              {r.lote && <button className="btn-link peligro" onClick={() => borrar(r, true)}>Borrar en todo el proyecto</button>}
+            </td>
+          </tr>
+        ))}</tbody>
+      </table>
+      <p className="tenue pequeño">Si borras todos los registros de un paso, vuelve a quedar pendiente. Para reabrir un paso terminado usa "Reabrir".</p>
+    </div>
+  )
+}
+
+function EliminarOP({ orden, nRegistros, onClose }) {
+  const [txt, setTxt] = useState('')
+  const [error, setError] = useState('')
+  const [borrando, setBorrando] = useState(false)
+  const eliminar = async (e) => {
+    e.preventDefault()
+    setBorrando(true)
+    const { error } = await sb.from('ordenes').delete().eq('id', orden.id)
+    if (error) { setError(error.message); setBorrando(false); return }
+    location.hash = '#/'
+  }
+  return (
+    <Modal titulo={`Eliminar OP ${orden.numero}`} onClose={onClose}>
+      <form className="form" onSubmit={eliminar}>
+        <p>Se borrarán la OP <b>{orden.numero}</b> ({orden.proyecto}), todos sus ítems y pasos
+          {nRegistros > 0 ? <> y <b>{nRegistros} registros de tiempo</b></> : ''}. <b>No se puede deshacer.</b></p>
+        <label>Para confirmar, escribe el número de la OP
+          <input value={txt} onChange={(e) => setTxt(e.target.value)} placeholder={orden.numero} autoFocus />
+        </label>
+        <Aviso>{error}</Aviso>
+        <div className="acciones">
+          <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-peligro" disabled={txt.trim() !== String(orden.numero) || borrando}>{borrando ? 'Eliminando…' : 'Eliminar definitivamente'}</button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
