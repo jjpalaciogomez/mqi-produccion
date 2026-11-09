@@ -100,12 +100,12 @@ export default function Tablet({ perfil }) {
       {vista.nivel === 'op' && op && (
         <section>
           <div className="tablet-tit">
-            <h2 className="tablet-h2">OP {op.numero} · {op.cliente}</h2>
+            <h2 className="tablet-h2">OP {op.numero} · {op.proyecto}<span className="tablet-cliente">{op.cliente}</span></h2>
             <button className="btn btn-grande btn-sec" onClick={() => setAccion({ tipo: 'elegir', op })}>Registrar un proceso de todo el proyecto</button>
           </div>
           <p className="tenue">Elige el ítem en el que trabajaste.</p>
           <div className="tarjetas">
-            {items.map((i) => <TarjetaGrupo key={i.id} titulo={`Ítem ${i.numero}`} sup={i.descripcion} ts={i.tareas}
+            {items.map((i) => <TarjetaGrupo key={i.id} titulo={i.descripcion} sup={`Ítem ${i.numero}`} ts={i.tareas} grande
               onClick={() => setVista({ nivel: 'item', opId: op.id, itemId: i.id })} />)}
           </div>
         </section>
@@ -113,7 +113,7 @@ export default function Tablet({ perfil }) {
 
       {vista.nivel === 'item' && item && (
         <section>
-          <h2 className="tablet-h2">Ítem {item.numero} · {item.descripcion}</h2>
+          <h2 className="tablet-h2 item-tit"><small>Ítem {item.numero}</small>{item.descripcion}</h2>
           <p className="tenue">Toca "Registrar" en el proceso en el que trabajaste.</p>
           <ListaProcesos ts={item.tareas} onRegistrar={(t) => setAccion({ tipo: 'registrar', tarea: t })} />
         </section>
@@ -145,10 +145,10 @@ function contar(ts) {
   }
 }
 
-function TarjetaGrupo({ titulo, sup, sub, ts, onClick }) {
+function TarjetaGrupo({ titulo, sup, sub, ts, onClick, grande }) {
   const c = contar(ts)
   return (
-    <button className="tarea tarea-grupo" onClick={onClick}>
+    <button className={`tarea tarea-grupo${grande ? ' grupo-item' : ''}`} onClick={onClick}>
       <div className="tarea-op">{sup}</div>
       <div className="tarea-proceso">{titulo}</div>
       {sub && <div className="tarea-det">{sub}</div>}

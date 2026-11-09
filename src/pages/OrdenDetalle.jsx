@@ -111,7 +111,7 @@ function Item({ it, cs, tareas, prodPorCod, productos, rutas, difs, gestor, perf
     <section className="tarjeta item">
       {editando ? <FormItem inicial={it} onClose={() => setEditando(false)} accion={accion} /> : (
         <div className="item-cab">
-          <h2>Ítem {it.numero} · {it.descripcion} <span className="tenue">× {fmtNum(it.cantidad, 2)}</span></h2>
+          <h2 className="item-tit"><small>Ítem {it.numero}</small>{it.descripcion} <span className="tenue">× {fmtNum(it.cantidad, 2)}</span></h2>
           {gestor && <button className="btn-link" onClick={() => setEditando(true)}>Editar ítem</button>}
           {gestor && (
             <button className="btn-link peligro" onClick={() => {

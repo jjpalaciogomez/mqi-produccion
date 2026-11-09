@@ -293,4 +293,10 @@ h1, h2, h3, .tablet-area, .tarea-proceso, .kpi b, .modal-cab h3, .login-tit { fo
 
 /* Aviso de versión nueva */
 #aviso-version { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 9999; background: #111827; color: #fff; padding: 12px 16px; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.25); display: flex; gap: 12px; align-items: center; font-size: 14px; }
+/* Nombre del ítem destacado; la numeración, pequeña */
+.item-tit small { display: block; font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .4px; }
+.item-tit { font-weight: 800; }
+.grupo-item .tarea-op { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; }
+.grupo-item .tarea-proceso { font-size: 22px; font-weight: 800; line-height: 1.2; }
+.tablet-cliente { display: block; font-size: 14px; font-weight: 500; color: #6b7280; margin-top: 2px; }
 #aviso-version button { background: #fbbf24; color: #111827; border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 700; cursor: pointer; }
