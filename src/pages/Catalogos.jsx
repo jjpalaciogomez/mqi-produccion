@@ -366,17 +366,25 @@ function Dificultad() {
     try { await q(sb.from('dificultades').update({ multiplicador: v }).eq('nivel', d.nivel)); setOk(`Dificultad ${d.nombre.toLowerCase()} actualizada`); cargar() }
     catch (e) { setError(e.message) }
   }
+  const guardarDesc = async (d, v) => {
+    v = v.trim()
+    if (v === (d.descripcion || '')) return
+    try { await q(sb.from('dificultades').update({ descripcion: v || null }).eq('nivel', d.nivel)); setOk(`Referencia de dificultad ${d.nombre.toLowerCase()} guardada`); cargar() }
+    catch (e) { setError(e.message) }
+  }
   if (!lista) return <Cargando />
   return (
     <div>
       <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
       <p className="tenue">El tiempo estándar del producto se multiplica por este valor según la dificultad que se elija al agregarlo a un ítem. Media es la predeterminada.</p>
-      <table className="tabla" style={{ maxWidth: 480 }}>
-        <thead><tr><th>Dificultad</th><th>Multiplicador</th><th>Efecto</th></tr></thead>
+      <table className="tabla tabla-dif">
+        <thead><tr><th>Dificultad</th><th>Multiplicador</th><th>Efecto</th><th>Referencia o descripción (cuándo usar este nivel)</th></tr></thead>
         <tbody>{lista.map((d) => (
           <tr key={d.nivel}><td><b>{d.nombre}</b></td>
             <td><input className="input-cant" defaultValue={d.multiplicador} onBlur={(e) => guardar(d, e.target.value)} inputMode="decimal" /></td>
-            <td className="tenue">{Number(d.multiplicador) === 1 ? 'igual al estándar' : `${Number(d.multiplicador) > 1 ? '+' : ''}${fmtNum((Number(d.multiplicador) - 1) * 100, 0)}% de tiempo`}</td></tr>
+            <td className="tenue">{Number(d.multiplicador) === 1 ? 'igual al estándar' : `${Number(d.multiplicador) > 1 ? '+' : ''}${fmtNum((Number(d.multiplicador) - 1) * 100, 0)}% de tiempo`}</td>
+            <td><textarea className="dif-desc" rows={3} defaultValue={d.descripcion || ''} onBlur={(e) => guardarDesc(d, e.target.value)}
+              placeholder={{ BAJO: 'Ej. piezas rectas, pocos cortes, sin acabados especiales', MEDIO: 'Ej. trabajo habitual de la planta', ALTO: 'Ej. curvas, muchos detalles, acabados finos, materiales delicados' }[d.nivel]} /></td></tr>
         ))}</tbody>
       </table>
     </div>

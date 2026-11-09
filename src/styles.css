@@ -301,6 +301,9 @@ h1, h2, h3, .tablet-area, .tarea-proceso, .kpi b, .modal-cab h3, .login-tit { fo
 .tablet-cliente { display: block; font-size: 14px; font-weight: 500; color: #6b7280; margin-top: 2px; }
 .tab-proyecto { font-weight: 800; font-size: 15px; color: var(--tinta); }
 .tab-cliente { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; margin-top: 2px; }
+.tabla-dif { max-width: 980px; }
+.tabla-dif td { vertical-align: top; }
+.dif-desc { width: 100%; min-width: 280px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; resize: vertical; }
 #aviso-version button { background: #fbbf24; color: #111827; border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 700; cursor: pointer; }
 
 /* Corrección de registros y eliminar OP */

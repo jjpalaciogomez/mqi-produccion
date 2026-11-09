@@ -374,6 +374,9 @@ function FormComponente({ item, productos, rutas, difs, inicial, onClose, accion
           <label>Detalle (opcional)<input value={f.descripcion} onChange={set('descripcion')} placeholder="Ej. base de mesa, tubo 1½" /></label>
         </div>
       )}
+      {prod && difs.find((d) => d.nivel === f.dificultad)?.descripcion && (
+        <p className="nota">Dificultad {difs.find((d) => d.nivel === f.dificultad).nombre.toLowerCase()}: {difs.find((d) => d.nivel === f.dificultad).descripcion}</p>
+      )}
 
       {prod && (
         <div className="previa-std">
