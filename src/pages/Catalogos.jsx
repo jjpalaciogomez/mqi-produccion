@@ -11,7 +11,7 @@ export default function Catalogos({ perfil }) {
   const [tab, setTab] = useState('personas')
   return (
     <div>
-      <div className="titulo-pagina"><h1>Catálogos</h1><BotonAyuda clave="catalogos" rol={perfil?.rol} /></div>
+      <div className="titulo-pagina"><h1>Configuraciones</h1><BotonAyuda clave="catalogos" rol={perfil?.rol} /></div>
       <div className="segmentado pestañas">
         {[['personas', 'Personas'], ['productos', 'Productos y rutas'], ['procesos', 'Procesos'], ['dificultad', 'Dificultad'], ['real', 'Estándar real']].map(([k, t]) => (
           <button key={k} className={tab === k ? 'sel' : ''} onClick={() => setTab(k)}>{t}</button>

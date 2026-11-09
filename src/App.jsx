@@ -115,7 +115,7 @@ function Shell({ perfil, prueba }) {
         <div className="marca"><img src="./logo-mqi.png" alt="MQI" className="logo" /><span>Producción</span></div>
         <nav>
           {link('/', 'Tablero de planta')}
-          {gestor && link('/catalogos', 'Catálogos')}
+          {gestor && link('/catalogos', 'Configuraciones')}
         </nav>
         <div className="usuario">
           {prueba && <SelectorVista {...prueba} />}

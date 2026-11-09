@@ -79,13 +79,13 @@ export default function Tablero({ gestor, rol }) {
         <div className="tabla-cont">
           <table className="tabla tabla-click">
             <thead>
-              <tr><th>OP</th><th>Cliente / proyecto</th><th>Compromiso</th><th>Cumplimiento</th><th style={{ width: 170 }}>Avance</th><th>Pasos</th><th>Estado</th><th>Prior.</th></tr>
+              <tr><th>OP</th><th>Proyecto / cliente</th><th>Compromiso</th><th>Cumplimiento</th><th style={{ width: 170 }}>Avance</th><th>Pasos</th><th>Estado</th><th>Prior.</th></tr>
             </thead>
             <tbody>
               {lista.map((o) => (
                 <tr key={o.id} onClick={() => { window.location.hash = `/op/${o.id}` }}>
                   <td><b>{o.numero}</b></td>
-                  <td><div>{o.cliente}</div><div className="tenue">{o.proyecto}</div></td>
+                  <td><div className="tab-proyecto">{o.proyecto}</div><div className="tab-cliente">{o.cliente}</div></td>
                   <td>{fmtFecha(o.fecha_compromiso)}</td>
                   <td><Semaforo valor={o.semaforo} /></td>
                   <td><Barra pct={o.avance_pct} /></td>

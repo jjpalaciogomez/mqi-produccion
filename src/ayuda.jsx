@@ -79,7 +79,7 @@ const AYUDA = {
     consejo: 'Busca la fila más larga o con más pasos en gris: esa es la ruta que define la fecha de entrega.',
   },
   'catalogos.gestor': {
-    titulo: 'Catálogos',
+    titulo: 'Configuraciones',
     proposito: 'Administrar las personas y los datos base con que el sistema calcula tiempos.',
     puntos: [
       ['Personas', 'Agrega operarios: aparecen en la tablet de su área para registrar su tiempo. Usa "Activo" para retirar a alguien sin borrar su historial.'],
