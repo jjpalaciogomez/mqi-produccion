@@ -112,7 +112,7 @@ function Shell({ perfil, prueba }) {
   return (
     <div className="shell">
       <header className="barra-sup">
-        <div className="marca"><img src="./icon.svg" alt="" /> MQI Producción</div>
+        <div className="marca"><img src="./logo-mqi.png" alt="MQI" className="logo" /><span>Producción</span></div>
         <nav>
           {link('/', 'Tablero de planta')}
           {gestor && link('/nueva', 'Nueva OP')}

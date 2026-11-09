@@ -51,8 +51,8 @@ export default function Tablet({ perfil }) {
   return (
     <div className="tablet">
       <header className="tablet-cab">
-        <div><div className="tablet-area">{area ? `Tablet ${area}` : 'Tablet de planta'}</div>
-          <div className="tenue-claro">{hora.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</div></div>
+        <div className="tablet-marca"><img src="./logo-mqi.png" alt="MQI" className="logo" /><div><div className="tablet-area">{area ? `Tablet ${area}` : 'Tablet de planta'}</div>
+          <div className="tenue-claro">{hora.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</div></div></div>
         <div className="tablet-botones">
           <button className="btn btn-paro" onClick={() => setAccion({ tipo: 'paro' })}>Registrar paro</button>
           <button className="btn btn-sec" onClick={cargar}>Actualizar</button>

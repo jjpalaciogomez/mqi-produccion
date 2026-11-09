@@ -18,8 +18,9 @@ export default function Login() {
 
   return (
     <div className="centro login">
+      <img src="./logo-mqi.png" alt="MQI Más Que Impresos" className="login-logo" />
       <form className="tarjeta login-caja" onSubmit={entrar}>
-        <div className="marca grande"><img src="./icon.svg" alt="" /> MQI Producción</div>
+        <h1 className="login-tit">Control de Producción</h1>
         <p className="sub">Sistema de control de planta</p>
         <label>Correo<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" /></label>
         <label>Contraseña<input type="password" value={clave} onChange={(e) => setClave(e.target.value)} required autoComplete="current-password" /></label>

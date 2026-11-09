@@ -202,3 +202,23 @@ tr.omitida td { opacity: .45; }
 /* Las ventanas siempre con texto oscuro, sin heredar el color de la barra donde se abren */
 .modal { color: var(--tinta); text-align: left; font-weight: 400; text-transform: none; letter-spacing: normal; }
 .ayuda li, .ayuda-consejo { color: var(--tinta); }
+
+/* ===== Identidad visual MQI (masqueimpresos.com.co): negro, blanco, grises, acento ámbar; Manrope + Inter ===== */
+:root { --tinta: #111827; --acento: #fbbf24; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+h1, h2, h3, .tablet-area, .tarea-proceso, .kpi b, .modal-cab h3, .login-tit { font-family: Manrope, Inter, sans-serif; letter-spacing: -.2px; }
+.barra-sup, .tablet-cab, .barra-prueba-tablet { background: #000; }
+.barra-sup { border-bottom: 1px solid #1f2937; }
+.marca { gap: 12px; }
+.marca .logo { height: 30px; width: auto; display: block; }
+.marca span { font-family: Manrope, Inter, sans-serif; font-weight: 700; font-size: 15px; color: #d1d5db; border-left: 1px solid #374151; padding-left: 12px; }
+.barra-sup nav a.activo { background: rgba(255,255,255,.14); box-shadow: inset 0 -2px 0 var(--acento); }
+.ver-como select { background: #1f2937; border-color: #374151; }
+.tablet-marca { display: flex; align-items: center; gap: 14px; }
+.tablet-marca .logo { height: 34px; width: auto; display: block; padding-right: 14px; border-right: 1px solid #374151; }
+.btn-ayuda:hover { border-color: var(--acento); }
+/* Inicio de sesión: banda negra diagonal entre líneas blancas, como el banner de la marca */
+.login { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 26px;
+  background: linear-gradient(-6deg, #161616 0 21%, #e5e7eb 21% 21.4%, #000 21.4% 78.6%, #e5e7eb 78.6% 79%, #161616 79% 100%); }
+.login-logo { width: min(320px, 72vw); height: auto; }
+.login-tit { font-size: 22px; margin: 0; }
+.login-caja .sub { margin-top: -10px; }
