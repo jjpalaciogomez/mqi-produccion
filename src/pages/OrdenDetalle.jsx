@@ -3,9 +3,8 @@ import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, EstadoTarea, Modal, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import Mapa from './Mapa.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
-import { DIF_NOMBRE, ETIQUETA_MEDIDA, stdUnidad, textoMedidas } from '../estandar.js'
+import { AREAS_PLANTA, DIF_NOMBRE, ETIQUETA_MEDIDA, esTerceros, pasosPrincipales, stdPaso, textoMedidas } from '../estandar.js'
 
-const AREAS_PLANTA = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
 
 export default function OrdenDetalle({ id, perfil, gestor }) {
   const [d, setD] = useState(null)
@@ -15,17 +14,17 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
 
   const cargar = useCallback(async () => {
     try {
-      const [orden, items, comps, tareas, productos, etapas, difs] = await Promise.all([
+      const [orden, items, comps, tareas, productos, rutas, difs] = await Promise.all([
         q(sb.from('v_ordenes').select('*').eq('id', id).maybeSingle()),
         q(sb.from('items').select('*').eq('orden_id', id).order('numero')),
         q(sb.from('componentes').select('*, items!inner(orden_id)').eq('items.orden_id', id)),
-        q(sb.from('v_tareas').select('*').eq('orden_id', id).order('paso')),
-        q(sb.from('productos').select('*').eq('activo', true).order('codigo')),
-        q(sb.from('etapas_producto').select('*').order('paso').order('id')),
+        q(sb.from('v_tareas').select('*').eq('orden_id', id).order('paso').order('creado')),
+        q(sb.from('productos').select('*').order('codigo')),
+        q(sb.from('rutas').select('*, procesos(nombre, area)').order('paso').order('id')),
         q(sb.from('dificultades').select('*').order('orden')),
       ])
       if (!orden) { setError('No se encontró la OP.'); return }
-      setD({ orden, items, comps, tareas, productos, etapas, difs }); setError('')
+      setD({ orden, items, comps, tareas, productos, rutas, difs }); setError('')
     } catch (e) { setError(e.message) }
   }, [id])
 
@@ -74,9 +73,10 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
 }
 
 function Estructura({ d, gestor, perfil, recargar, setError }) {
-  const { orden, items, comps, tareas, productos, etapas, difs } = d
+  const { orden, items, comps, tareas, productos, rutas, difs } = d
   const [nuevoItem, setNuevoItem] = useState(false)
   const prodPorCod = useMemo(() => Object.fromEntries(productos.map((p) => [p.codigo, p])), [productos])
+  const activos = useMemo(() => productos.filter((p) => p.activo), [productos])
 
   const accion = async (fn) => { try { await fn(); await recargar() } catch (e) { setError(e.message) } }
 
@@ -90,55 +90,80 @@ function Estructura({ d, gestor, perfil, recargar, setError }) {
           dentro de cada ítem agregas los productos estándar que lo forman.
         </div>
       )}
-      {items.map((it) => {
-        const cs = comps.filter((c) => c.item_id === it.id)
-        const ens = tareas.find((t) => t.item_id === it.id && !t.componente_id)
-        return (
-          <section key={it.id} className="tarjeta item">
-            <div className="item-cab">
-              <h2>Ítem {it.numero} · {it.descripcion} <span className="tenue">× {fmtNum(it.cantidad, 2)}</span></h2>
-              <div className="tenue">Ensamble final: {it.area_ensamble || '—'}</div>
-              {gestor && (
-                <button className="btn-link peligro" onClick={() => {
-                  if (tareas.some((t) => t.item_id === it.id && ['en_curso', 'pausada', 'terminada'].includes(t.estado))) {
-                    setError('No se puede borrar un ítem con pasos ya iniciados.'); return
-                  }
-                  accion(() => q(sb.from('items').delete().eq('id', it.id)))
-                }}>Borrar ítem</button>
-              )}
-            </div>
-
-            {cs.map((c) => (
-              <Componente key={c.id} c={c} it={it} prod={prodPorCod[c.producto]} tareas={tareas.filter((t) => t.componente_id === c.id)}
-                productos={productos} etapas={etapas} difs={difs} gestor={gestor} perfil={perfil} accion={accion} setError={setError} />
-            ))}
-
-            {ens && (
-              <div className="componente ensamble">
-                <div className="comp-cab"><b>Ensamble final del ítem</b><span className="tenue"> · empieza cuando terminan todos los productos</span></div>
-                <TablaTareas tareas={[ens]} gestor={gestor} perfil={perfil} accion={accion} setError={setError} />
-              </div>
-            )}
-
-            {gestor && <AgregarComponente item={it} productos={productos} etapas={etapas} difs={difs} nComps={cs.length} accion={accion} />}
-          </section>
-        )
-      })}
+      {items.map((it) => (
+        <Item key={it.id} it={it} cs={comps.filter((c) => c.item_id === it.id)} tareas={tareas.filter((t) => t.item_id === it.id)}
+          prodPorCod={prodPorCod} productos={activos} rutas={rutas} difs={difs} gestor={gestor} perfil={perfil} accion={accion} setError={setError} />
+      ))}
       {gestor && (nuevoItem
-        ? <AgregarItem orden={orden} items={items} onClose={() => setNuevoItem(false)} accion={accion} />
+        ? <FormItem orden={orden} items={items} onClose={() => setNuevoItem(false)} accion={accion} />
         : <button className="btn" onClick={() => setNuevoItem(true)}>+ Agregar ítem</button>)}
     </div>
   )
 }
 
-function Componente({ c, it, prod, tareas, productos, etapas, difs, gestor, perfil, accion, setError }) {
+function Item({ it, cs, tareas, prodPorCod, productos, rutas, difs, gestor, perfil, accion, setError }) {
+  const [editando, setEditando] = useState(false)
+  const ens = tareas.find((t) => !t.componente_id)
+  const sincronizar = () => q(sb.rpc('sincronizar_item', { p_item: it.id }))
+  const iniciado = tareas.some((t) => ['en_curso', 'pausada', 'terminada'].includes(t.estado))
+
+  return (
+    <section className="tarjeta item">
+      {editando ? <FormItem inicial={it} onClose={() => setEditando(false)} accion={accion} /> : (
+        <div className="item-cab">
+          <h2>Ítem {it.numero} · {it.descripcion} <span className="tenue">× {fmtNum(it.cantidad, 2)}</span></h2>
+          {gestor && <button className="btn-link" onClick={() => setEditando(true)}>Editar ítem</button>}
+          {gestor && (
+            <button className="btn-link peligro" onClick={() => {
+              if (iniciado) { setError('No se puede borrar un ítem con pasos ya iniciados.'); return }
+              if (!window.confirm(`¿Borrar el ítem ${it.numero} (${it.descripcion}) y todos sus pasos?`)) return
+              accion(() => q(sb.from('items').delete().eq('id', it.id)))
+            }}>Borrar ítem</button>
+          )}
+        </div>
+      )}
+
+      {cs.map((c) => (
+        <Componente key={c.id} c={c} it={it} prod={prodPorCod[c.producto]} tareas={tareas.filter((t) => t.componente_id === c.id)}
+          productos={productos} rutas={rutas} difs={difs} gestor={gestor} perfil={perfil} accion={accion} sincronizar={sincronizar} />
+      ))}
+
+      {ens && (
+        <div className="componente ensamble">
+          <div className="comp-cab">
+            <b>Ensamble final</b><span className="tenue"> · el ítem lleva productos de varias familias; empieza cuando terminan todos</span>
+            {gestor && ens.estado !== 'terminada' ? (
+              <span className="ens-ctrl">
+                <label>Área
+                  <select value={it.area_ensamble || ''} onChange={(e) => accion(async () => { await q(sb.from('items').update({ area_ensamble: e.target.value }).eq('id', it.id)); await sincronizar() })}>
+                    {AREAS_PLANTA.filter((a) => a !== 'PINTURA').map((a) => <option key={a}>{a}</option>)}
+                  </select>
+                </label>
+                <label>Dificultad
+                  <select value={it.dificultad_ensamble} onChange={(e) => accion(async () => { await q(sb.from('items').update({ dificultad_ensamble: e.target.value }).eq('id', it.id)); await sincronizar() })}>
+                    {difs.map((d) => <option key={d.nivel} value={d.nivel}>{d.nombre} (×{fmtNum(d.multiplicador, 2)})</option>)}
+                  </select>
+                </label>
+              </span>
+            ) : <span className={`etq dif-${it.dificultad_ensamble}`}>Dificultad {DIF_NOMBRE[it.dificultad_ensamble]?.toLowerCase()}</span>}
+          </div>
+          <TablaTareas tareas={[ens]} gestor={gestor} perfil={perfil} accion={accion} />
+        </div>
+      )}
+
+      {gestor && <AgregarComponente item={it} productos={productos} rutas={rutas} difs={difs} accion={accion} sincronizar={sincronizar} />}
+    </section>
+  )
+}
+
+function Componente({ c, it, prod, tareas, productos, rutas, difs, gestor, perfil, accion, sincronizar }) {
   const [editando, setEditando] = useState(false)
   const iniciado = tareas.some((t) => ['en_curso', 'pausada', 'terminada'].includes(t.estado))
   const medidas = textoMedidas(prod?.medida, c.ancho, c.profundidad, c.alto)
   const total = Number(c.cantidad || 1) * Number(it.cantidad || 1)
   if (editando) {
-    return <FormComponente item={it} productos={productos} etapas={etapas} difs={difs} inicial={c}
-      onClose={() => setEditando(false)} accion={accion} />
+    return <FormComponente item={it} productos={productos} rutas={rutas} difs={difs} inicial={c}
+      onClose={() => setEditando(false)} accion={accion} sincronizar={sincronizar} />
   }
   return (
     <div className="componente">
@@ -150,10 +175,10 @@ function Componente({ c, it, prod, tareas, productos, etapas, difs, gestor, perf
         {c.descripcion && <span className="tenue"> · {c.descripcion}</span>}
         {gestor && <button className="btn-link" onClick={() => setEditando(true)}>Editar</button>}
         {gestor && !iniciado && (
-          <button className="btn-link peligro" onClick={() => accion(() => q(sb.from('componentes').delete().eq('id', c.id)))}>Quitar</button>
+          <button className="btn-link peligro" onClick={() => accion(async () => { await q(sb.from('componentes').delete().eq('id', c.id)); await sincronizar() })}>Quitar</button>
         )}
       </div>
-      <TablaTareas tareas={tareas} gestor={gestor} perfil={perfil} accion={accion} setError={setError} />
+      <TablaTareas tareas={tareas} gestor={gestor} perfil={perfil} accion={accion} />
     </div>
   )
 }
@@ -181,25 +206,27 @@ function TablaTareas({ tareas, gestor, perfil, accion }) {
 
   return (
     <table className="tabla tabla-tareas">
-      <thead><tr><th>Paso</th><th>Área</th><th>Cantidad</th><th>Estándar</th><th>Real</th><th>Estado</th>{gestor && <th />}</tr></thead>
+      <thead><tr><th>Paso</th><th>Proceso</th><th>Área</th><th>Cantidad</th><th>Estándar</th><th>Real</th><th>Quién</th><th>Estado</th>{gestor && <th />}</tr></thead>
       <tbody>
         {tareas.map((t) => (
           <tr key={t.id} className={t.estado === 'omitida' ? 'omitida' : ''}>
             <td className="centrado">{t.paso === 999 ? 'Final' : t.paso}</td>
-            <td><b>{t.area}</b>{t.opcional && <span className="etq">opcional</span>}{t.alternativa && <span className="etq">alternativa</span>}</td>
+            <td>{t.proceso && <b>{t.proceso} </b>}{t.proceso_nombre}{t.opcional && <span className="etq">opcional</span>}{t.alternativa && <span className="etq">alternativa</span>}</td>
+            <td>{t.area}</td>
             <td className="celda-cant">
-              {t.estado === 'terminada' && t.cantidad_hecha !== null ? fmtNum(t.cantidad_hecha, 2) : fmtNum(t.cantidad, 2)}
-              <span className="unidad">{t.unidad === 'UND' ? 'und' : t.unidad}</span>
+              {t.estado !== 'terminada' && Number(t.cantidad_registrada) > 0 ? `${fmtNum(t.cantidad_registrada, 2)} de ${fmtNum(t.cantidad, 2)}` : fmtNum(t.cantidad_hecha ?? t.cantidad, 2)}
+              <span className="unidad">und</span>
             </td>
-            <td>{t.proceso === 'TER-1' ? `${fmtNum(t.tiempo_std_unit, 0)} días`
+            <td>{esTerceros(t) ? `${fmtNum(t.tiempo_std_unit, 0)} días`
               : t.tiempo_std_unit !== null ? <>{fmtMin(t.min_std)}{Number(t.cantidad) > 1 && <span className="tenue pequeño"> ({fmtMin(t.tiempo_std_unit)} c/u)</span>}</>
               : <span className="tenue">{t.componente_id ? 'faltan medidas' : 'sin estándar'}</span>}</td>
-            <td>{Number(t.min_reales) > 0 ? fmtMin(t.min_reales) : '—'}</td>
+            <td>{Number(t.min_reales) > 0 ? (esTerceros(t) ? `${fmtNum(Number(t.min_reales) / 1440, 1)} días` : fmtMin(t.min_reales)) : '—'}</td>
+            <td className="tenue pequeño">{t.personas || ''}</td>
             <td><EstadoTarea estado={t.estado} bloqueada={t.bloqueada} /></td>
             {gestor && (
               <td className="acciones-fila">
-                {t.proceso === 'TER-1' && t.estado === 'pendiente' && !t.bloqueada && <button className="btn btn-sm" onClick={() => tercero(t, 'enviar')}>Enviado al tercero</button>}
-                {t.proceso === 'TER-1' && t.estado === 'en_curso' && <button className="btn btn-sm" onClick={() => tercero(t, 'recibir')}>Recibido</button>}
+                {esTerceros(t) && t.estado === 'pendiente' && !t.bloqueada && <button className="btn btn-sm" onClick={() => tercero(t, 'enviar')}>Enviado al tercero</button>}
+                {esTerceros(t) && t.estado === 'en_curso' && <button className="btn btn-sm" onClick={() => tercero(t, 'recibir')}>Recibido</button>}
                 {t.alternativa && t.estado === 'omitida' && <button className="btn-link" onClick={() => alternar(t)}>Usar esta</button>}
                 {t.opcional && t.estado === 'pendiente' && <button className="btn-link" onClick={() => cambiarEstado(t, 'omitida')}>Omitir</button>}
                 {t.opcional && !t.alternativa && t.estado === 'omitida' && <button className="btn-link" onClick={() => cambiarEstado(t, 'pendiente')}>Incluir</button>}
@@ -212,40 +239,46 @@ function TablaTareas({ tareas, gestor, perfil, accion }) {
   )
 }
 
-function AgregarItem({ orden, items, onClose, accion }) {
-  const [f, setF] = useState({ descripcion: '', cantidad: 1, area_ensamble: 'METAL' })
+// Crear o editar un ítem (lo que se entrega al cliente)
+function FormItem({ orden, items, inicial, onClose, accion }) {
+  const [f, setF] = useState({ descripcion: inicial?.descripcion || '', cantidad: inicial ? String(inicial.cantidad) : '1' })
   const guardar = (e) => {
     e.preventDefault()
-    const numero = Math.max(0, ...items.map((i) => i.numero)) + 1
-    accion(() => q(sb.from('items').insert({ ...f, cantidad: Number(f.cantidad), orden_id: orden.id, numero }))).then(onClose)
+    const cantidad = Number(String(f.cantidad).replace(',', '.'))
+    if (!(cantidad > 0)) return
+    accion(async () => {
+      if (inicial) {
+        await q(sb.from('items').update({ descripcion: f.descripcion.trim(), cantidad }).eq('id', inicial.id))
+        await q(sb.rpc('sincronizar_item', { p_item: inicial.id }))
+      } else {
+        const numero = Math.max(0, ...items.map((i) => i.numero)) + 1
+        await q(sb.from('items').insert({ descripcion: f.descripcion.trim(), cantidad, orden_id: orden.id, numero }))
+      }
+    }).then(onClose)
   }
   return (
-    <form className="tarjeta form" onSubmit={guardar}>
-      <h3>Nuevo ítem</h3>
-      <label>Descripción *<input value={f.descripcion} onChange={(e) => setF({ ...f, descripcion: e.target.value })} required placeholder="Ej. Mesas para clientes" autoFocus /></label>
+    <form className={inicial ? 'agregar-comp' : 'tarjeta form'} onSubmit={guardar}>
+      <h3>{inicial ? `Editar ítem ${inicial.numero}` : 'Nuevo ítem'}</h3>
       <div className="fila2">
-        <label>Cantidad<input type="number" min="0" step="any" value={f.cantidad} onChange={(e) => setF({ ...f, cantidad: e.target.value })} /></label>
-        <label>Área del ensamble final
-          <select value={f.area_ensamble} onChange={(e) => setF({ ...f, area_ensamble: e.target.value })}>
-            {AREAS_PLANTA.map((a) => <option key={a}>{a}</option>)}
-          </select>
-        </label>
+        <label>Descripción *<input value={f.descripcion} onChange={(e) => setF({ ...f, descripcion: e.target.value })} required placeholder="Ej. Mesas para clientes" autoFocus /></label>
+        <label>Cantidad<input value={f.cantidad} onChange={(e) => setF({ ...f, cantidad: e.target.value })} inputMode="decimal" required /></label>
       </div>
-      <p className="nota">El ensamble final se crea solo cuando el ítem tiene dos o más productos.</p>
-      <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn">Agregar ítem</button></div>
+      <p className="nota">{inicial ? 'Al cambiar la cantidad se recalculan las unidades y el tiempo de los pasos que no han terminado.'
+        : 'Si el ítem lleva productos de varias familias (ej. Metal y Madera), el ensamble final se agrega solo.'}</p>
+      <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn">{inicial ? 'Guardar' : 'Agregar ítem'}</button></div>
     </form>
   )
 }
 
-function AgregarComponente({ item, productos, etapas, difs, nComps, accion }) {
+function AgregarComponente({ item, productos, rutas, difs, accion, sincronizar }) {
   const [abierto, setAbierto] = useState(false)
   if (!abierto) return <button className="btn btn-sec btn-sm" onClick={() => setAbierto(true)}>+ Agregar producto a este ítem</button>
-  return <FormComponente item={item} productos={productos} etapas={etapas} difs={difs} nComps={nComps}
-    onClose={() => setAbierto(false)} accion={accion} />
+  return <FormComponente item={item} productos={productos} rutas={rutas} difs={difs}
+    onClose={() => setAbierto(false)} accion={accion} sincronizar={sincronizar} />
 }
 
-// Formulario para agregar o editar un producto dentro de un ítem: medidas, dificultad y unidades
-function FormComponente({ item, productos, etapas, difs, nComps = 0, inicial, onClose, accion }) {
+// Agregar o editar un producto dentro de un ítem: medidas, dificultad y unidades
+function FormComponente({ item, productos, rutas, difs, inicial, onClose, accion, sincronizar }) {
   const [f, setF] = useState({
     producto: inicial?.producto || '', cantidad: inicial ? String(inicial.cantidad) : '1', descripcion: inicial?.descripcion || '',
     ancho: inicial?.ancho ?? '', profundidad: inicial?.profundidad ?? '', alto: inicial?.alto ?? '', dificultad: inicial?.dificultad || 'MEDIO',
@@ -256,10 +289,21 @@ function FormComponente({ item, productos, etapas, difs, nComps = 0, inicial, on
     for (const p of productos) (g[p.familia] ||= []).push(p)
     return g
   }, [productos])
-  const prod = productos.find((p) => p.codigo === f.producto)
+  const prod = productos.find((p) => p.codigo === f.producto) || (inicial && { codigo: inicial.producto, medida: 'UNIDAD' })
   const mult = difs.find((d) => d.nivel === f.dificultad)?.multiplicador
   const unidades = (Number(String(f.cantidad).replace(',', '.')) || 0) * Number(item.cantidad || 1)
-  const pasos = etapas.filter((e) => e.producto === f.producto)
+  const pasos = rutas.filter((r) => r.producto === f.producto)
+  const porArea = useMemo(() => {
+    const g = {}
+    for (const r of pasosPrincipales(pasos)) {
+      const area = r.procesos?.area
+      const u = stdPaso(prod, r, area, f, mult)
+      const x = (g[area] ||= { area, min: 0, falta: false, procesos: [] })
+      x.procesos.push(r.procesos?.nombre?.toLowerCase())
+      if (u === null) x.falta = true; else x.min += u
+    }
+    return Object.values(g)
+  }, [pasos, prod, f, mult])
   const num = (v) => (v === '' || v === null ? null : Number(String(v).replace(',', '.')))
 
   const guardar = (e) => {
@@ -271,11 +315,9 @@ function FormComponente({ item, productos, etapas, difs, nComps = 0, inicial, on
       alto: prod?.medida === 'UNIDAD' ? null : num(f.alto),
     }
     accion(async () => {
-      let id = inicial?.id
-      if (id) await q(sb.from('componentes').update(fila).eq('id', id))
-      else id = (await q(sb.from('componentes').insert({ ...fila, item_id: item.id }).select('id').single())).id
-      await q(sb.rpc('generar_tareas', { p_componente: id }))
-      if (!inicial && nComps + 1 >= 2) await q(sb.rpc('generar_ensamble', { p_item: item.id }))
+      if (inicial) await q(sb.from('componentes').update(fila).eq('id', inicial.id))
+      else await q(sb.from('componentes').insert({ ...fila, item_id: item.id }))
+      await sincronizar()
     }).then(onClose)
   }
 
@@ -284,6 +326,7 @@ function FormComponente({ item, productos, etapas, difs, nComps = 0, inicial, on
       <label>Producto estándar
         <select value={f.producto} onChange={set('producto')} required autoFocus disabled={!!inicial}>
           <option value="">Selecciona…</option>
+          {inicial && !productos.some((p) => p.codigo === inicial.producto) && <option value={inicial.producto}>{inicial.producto}</option>}
           {Object.entries(familias).map(([fam, ps]) => (
             <optgroup key={fam} label={fam}>
               {ps.map((p) => <option key={p.codigo} value={p.codigo}>{p.codigo} · {p.nombre}</option>)}
@@ -291,7 +334,7 @@ function FormComponente({ item, productos, etapas, difs, nComps = 0, inicial, on
           ))}
         </select>
       </label>
-      {prod && !inicial && <p className="nota">Incluye: {prod.incluye}</p>}
+      {prod?.incluye && !inicial && <p className="nota">Incluye: {prod.incluye}</p>}
 
       {prod && prod.medida !== 'UNIDAD' && (
         <div className="fila3">
@@ -317,15 +360,12 @@ function FormComponente({ item, productos, etapas, difs, nComps = 0, inicial, on
           <div className="tenue pequeño">{ETIQUETA_MEDIDA[prod.medida]} · referencia: {prod.ref_descripcion || '—'} · total {fmtNum(unidades, 2)} und</div>
           {pasos.length === 0 ? <div className="tenue">Este producto no tiene ruta: no se crearán pasos.</div> : (
             <ul>
-              {pasos.map((e) => {
-                const u = stdUnidad(prod, e, f, mult)
-                return (
-                  <li key={e.id}><b>{e.area}</b>{e.alternativa && ' (alternativa)'}{e.opcional && ' (opcional)'}: {' '}
-                    {e.area === 'TERCEROS' ? 'en días' : u === null ? <span className="tenue">{e.min_ref === null ? 'sin estándar' : 'escribe las medidas'}</span>
-                      : <>{fmtMin(u)} c/u · <b>{fmtMin(u * unidades)}</b></>}
-                  </li>
-                )
-              })}
+              {porArea.map((a) => (
+                <li key={a.area}><b>{a.area}</b>: {a.area === 'TERCEROS' ? `${fmtNum(a.min, 0)} días`
+                  : a.falta ? <span className="tenue">escribe las medidas</span>
+                  : <>{fmtMin(a.min)} c/u · <b>{fmtMin(a.min * unidades)}</b></>}
+                  <span className="tenue pequeño"> ({a.procesos.join(', ')})</span></li>
+              ))}
             </ul>
           )}
         </div>

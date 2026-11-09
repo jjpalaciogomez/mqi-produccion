@@ -1,77 +1,134 @@
-import { textoMedidas } from '../estandar.js'
 import { useMemo } from 'react'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { fmtFecha, fmtNum } from '../ui.jsx'
+import { fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
+import { DIF_NOMBRE, esTerceros, textoMedidas } from '../estandar.js'
 
-// Colores por estado de cada paso
+// Mapa del proyecto: OP → ítems → productos (con la lista de sus procesos) → ensamble final.
 const COLOR = {
-  terminada: { bg: '#e3f4ea', borde: '#2f9e5b' },
-  en_curso: { bg: '#e4effc', borde: '#2f6fd1' },
-  pausada: { bg: '#fdf3dc', borde: '#d49a16' },
-  lista: { bg: '#ffffff', borde: '#1f2a37' },
-  espera: { bg: '#f3f4f6', borde: '#b8bec7' },
+  terminada: { bg: '#eaf7ef', borde: '#2f9e5b' },
+  en_curso: { bg: '#eaf2fd', borde: '#2f6fd1' },
+  lista: { bg: '#ffffff', borde: '#111827' },
+  espera: { bg: '#f5f6f8', borde: '#b8bec7' },
 }
-const W = 190, H = 64, GX = 230, GY = 90
+const ICONO = { terminada: '✓', en_curso: '●', pausada: '●', lista: '○', espera: '·' }
+const TXT_EST = { terminada: 'terminado', en_curso: 'en proceso', pausada: 'en proceso', lista: 'listo para empezar', espera: 'en espera' }
+const GX = 300, ANCHO = { op: 230, item: 230, comp: 330 }
+
+const estTarea = (t) => (t.estado === 'pendiente' ? (t.bloqueada ? 'espera' : 'lista') : t.estado)
+
+// Estado del bloque según sus pasos
+function estBloque(ts) {
+  if (ts.length && ts.every((t) => t.estado === 'terminada')) return 'terminada'
+  if (ts.some((t) => ['en_curso', 'pausada', 'terminada'].includes(t.estado))) return 'en_curso'
+  if (ts.some((t) => estTarea(t) === 'lista')) return 'lista'
+  return 'espera'
+}
+
+function resumen(ts) {
+  const planta = ts.filter((t) => !esTerceros(t))
+  const std = planta.reduce((s, t) => s + Number(t.min_std || 0), 0)
+  const real = planta.reduce((s, t) => s + Number(t.min_reales || 0), 0)
+  const stdHecho = planta.filter((t) => t.estado === 'terminada').reduce((s, t) => s + Number(t.min_std || 0), 0)
+  return { std, real, stdHecho, hechos: ts.filter((t) => t.estado === 'terminada').length, total: ts.length }
+}
+
+function Tiempo({ real, std, dias }) {
+  if (dias) return <span className="mp-t">{real > 0 ? `${fmtNum(real / 1440, 1)} / ` : ''}{fmtNum(std, 0)} d</span>
+  const alto = std > 0 && real > std * 1.2
+  return <span className={`mp-t${alto ? ' mp-alto' : ''}`}>{real > 0 ? fmtMin(real) : '—'} / {std > 0 ? fmtMin(std) : '—'}</span>
+}
+
+function ListaPasos({ ts }) {
+  return (
+    <ul className="mp-pasos">
+      {ts.map((t) => {
+        const e = estTarea(t)
+        return (
+          <li key={t.id} className={`mp-${e}`} title={`${TXT_EST[e]}${t.personas ? ' · ' + t.personas : ''}`}>
+            <span className="mp-ic">{ICONO[e]}</span>
+            <span className="mp-nom">{t.proceso_nombre}{t.alternativa ? ' (alt.)' : ''}<small>{t.area}{t.personas ? ` · ${t.personas}` : ''}</small></span>
+            <Tiempo real={Number(t.min_reales)} std={esTerceros(t) ? Number(t.tiempo_std_unit) : Number(t.min_std)} dias={esTerceros(t)} />
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
 
 export default function Mapa({ orden, items, comps, tareas, productos }) {
   const { nodes, edges } = useMemo(() => {
     const nodes = [], edges = []
     const prod = Object.fromEntries(productos.map((p) => [p.codigo, p]))
-    const est = (t) => (t.estado === 'pendiente' ? (t.bloqueada ? 'espera' : 'lista') : t.estado)
-    const caja = (id, x, y, titulo, sub, tipo, extra = {}) => {
-      const c = COLOR[tipo] || { bg: '#fff', borde: '#1f2a37' }
+    const nodo = (id, x, y, tipo, estado, label) => {
+      const c = COLOR[estado] || { bg: '#fff', borde: '#111827' }
       nodes.push({
-        id, position: { x, y }, draggable: false, connectable: false,
-        data: { label: <div className="nodo"><b>{titulo}</b><span>{sub}</span></div> },
-        style: { width: W, minHeight: H, background: c.bg, border: `${tipo === 'lista' ? 2 : 1.5}px solid ${c.borde}`, borderRadius: 10, padding: 6, ...extra },
+        id, position: { x, y }, draggable: false, connectable: false, data: { label },
+        style: { width: ANCHO[tipo] || 300, background: c.bg, border: `${estado === 'lista' ? 2 : 1.5}px solid ${c.borde}`, borderRadius: 10, padding: 8, textAlign: 'left', ...(tipo === 'op' ? { background: '#000', color: '#fff', border: '2px solid #fbbf24' } : {}) },
         sourcePosition: 'right', targetPosition: 'left',
       })
     }
-    const flecha = (a, b, punteada) => edges.push({
-      id: `${a}-${b}`, source: a, target: b, type: 'smoothstep',
-      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-      style: punteada ? { strokeDasharray: '4 4' } : undefined,
-    })
+    const flecha = (a, b) => edges.push({ id: `${a}-${b}`, source: a, target: b, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 } })
+    const alto = (n) => 84 + n * 34
 
     let y = 0
-    const filasItem = []
+    const ys = []
     for (const it of items) {
       const cs = comps.filter((c) => c.item_id === it.id)
+      const tsItem = tareas.filter((t) => t.item_id === it.id && t.estado !== 'omitida')
+      const ens = tsItem.find((t) => !t.componente_id)
       const y0 = y
-      let maxPasos = 0
-      cs.forEach((c, i) => {
-        const ts = tareas.filter((t) => t.componente_id === c.id && t.estado !== 'omitida').sort((a, b) => a.paso - b.paso)
-        maxPasos = Math.max(maxPasos, ts.length)
-        const cy = y0 + i * GY
-        caja(`c-${c.id}`, GX * 2, cy, c.producto, `${prod[c.producto]?.nombre || ''}${textoMedidas(prod[c.producto]?.medida, c.ancho, c.profundidad, c.alto) ? ' · ' + textoMedidas(prod[c.producto]?.medida, c.ancho, c.profundidad, c.alto) : ''}`, 'comp',
-          { background: '#f8f9fb', border: '1px dashed #8a93a0' })
+      let yc = y0
+      cs.forEach((c) => {
+        const ts = tsItem.filter((t) => t.componente_id === c.id).sort((a, b) => a.paso - b.paso)
+        const p = prod[c.producto]
+        const r = resumen(ts)
+        const sig = ts.find((t) => estTarea(t) === 'lista')
+        nodo(`c-${c.id}`, GX * 2, yc, 'comp', estBloque(ts), (
+          <div className="mp">
+            <div className="mp-cab"><b>{c.producto}</b> {p?.nombre}</div>
+            <div className="mp-sub">{textoMedidas(p?.medida, c.ancho, c.profundidad, c.alto) || 'sin medidas'} · {fmtNum(Number(c.cantidad) * Number(it.cantidad), 2)} und · dif. {DIF_NOMBRE[c.dificultad]?.toLowerCase()}</div>
+            <ListaPasos ts={ts} />
+            <div className="mp-pie">{r.hechos}/{r.total} pasos · real <Tiempo real={r.real} std={r.std} />{sig && <> · sigue: <b>{sig.proceso_nombre?.toLowerCase()}</b></>}</div>
+          </div>
+        ))
         flecha(`i-${it.id}`, `c-${c.id}`)
-        let prev = `c-${c.id}`
-        ts.forEach((t, k) => {
-          const nid = `t-${t.id}`
-          caja(nid, GX * (3 + k), cy, t.area, `${fmtNum(t.cantidad, 2)} und · ${etiqueta(est(t))}`, est(t))
-          flecha(prev, nid, k === 0)
-          prev = nid
-        })
-        c._ultimo = prev
+        yc += alto(ts.length) + 24
       })
-      const alto = Math.max(1, cs.length)
-      const iy = y0 + ((alto - 1) * GY) / 2
-      caja(`i-${it.id}`, GX, iy, `Ítem ${it.numero}`, `${it.descripcion} × ${fmtNum(it.cantidad, 2)}`, 'item',
-        { background: '#1f2a37', color: '#fff', border: '1px solid #1f2a37' })
-      const ens = tareas.find((t) => t.item_id === it.id && !t.componente_id)
+      const altoItem = Math.max(yc - y0 - 24, 90)
+      const r = resumen(tsItem)
+      const iy = y0 + altoItem / 2 - 50
+      nodo(`i-${it.id}`, GX, iy, 'item', estBloque(tsItem), (
+        <div className="mp">
+          <div className="mp-cab"><b>Ítem {it.numero}</b> · {it.descripcion} × {fmtNum(it.cantidad, 2)}</div>
+          <div className="mp-barra"><i style={{ width: `${r.std ? Math.round((100 * r.stdHecho) / r.std) : 0}%` }} /></div>
+          <div className="mp-sub">{r.hechos}/{r.total} pasos · {r.std ? Math.round((100 * r.stdHecho) / r.std) : 0}% del estándar</div>
+          <div className="mp-sub">Tiempo real <Tiempo real={r.real} std={r.std} /></div>
+        </div>
+      ))
       if (ens) {
-        const nid = `t-${ens.id}`
-        caja(nid, GX * (3 + maxPasos), iy, 'Ensamble final', `${ens.area} · ${etiqueta(est(ens))}`, est(ens))
-        cs.forEach((c) => flecha(c._ultimo, nid))
+        nodo(`e-${it.id}`, GX * 3 + 60, iy - 10, 'comp', estBloque([ens]), (
+          <div className="mp">
+            <div className="mp-cab"><b>Ensamble final</b> · {ens.area}</div>
+            <div className="mp-sub">dif. {DIF_NOMBRE[ens.dificultad_ensamble]?.toLowerCase()} · {ens.bloqueada ? 'espera que terminen los productos' : TXT_EST[estTarea(ens)]}</div>
+            <ListaPasos ts={[ens]} />
+          </div>
+        ))
+        cs.forEach((c) => flecha(`c-${c.id}`, `e-${it.id}`))
       }
-      filasItem.push(iy)
-      y = y0 + alto * GY + 40
+      ys.push(iy)
+      y = y0 + altoItem + 60
     }
-    const oy = filasItem.length ? (filasItem[0] + filasItem[filasItem.length - 1]) / 2 : 0
-    caja('op', 0, oy, `OP ${orden.numero}`, `${orden.cliente} · entrega ${fmtFecha(orden.fecha_compromiso)}`, 'op',
-      { background: '#f5b400', border: '1px solid #c99100' })
+    const r = resumen(tareas.filter((t) => t.estado !== 'omitida'))
+    const oy = ys.length ? (ys[0] + ys[ys.length - 1]) / 2 : 0
+    nodo('op', 0, oy, 'op', 'op', (
+      <div className="mp">
+        <div className="mp-cab"><b>OP {orden.numero}</b></div>
+        <div className="mp-sub">{orden.cliente}</div>
+        <div className="mp-sub">Entrega {fmtFecha(orden.fecha_compromiso)} · avance {orden.avance_pct}%</div>
+        <div className="mp-sub">Real {fmtMin(r.real)} de {fmtMin(r.std)} estándar</div>
+      </div>
+    ))
     items.forEach((it) => flecha('op', `i-${it.id}`))
     return { nodes, edges }
   }, [orden, items, comps, tareas, productos])
@@ -80,12 +137,14 @@ export default function Mapa({ orden, items, comps, tareas, productos }) {
   return (
     <div>
       <div className="leyenda">
-        {[['lista', 'Lista para empezar'], ['en_curso', 'En proceso'], ['pausada', 'Pausada'], ['terminada', 'Terminada'], ['espera', 'Esperando pasos anteriores']].map(([k, t]) => (
-          <span key={k}><i style={{ background: COLOR[k].bg, borderColor: COLOR[k].borde }} />{t}</span>
-        ))}
+        <span><i style={{ background: COLOR.lista.bg, borderColor: COLOR.lista.borde }} />○ Listo para empezar</span>
+        <span><i style={{ background: COLOR.en_curso.bg, borderColor: COLOR.en_curso.borde }} />● En proceso</span>
+        <span><i style={{ background: COLOR.terminada.bg, borderColor: COLOR.terminada.borde }} />✓ Terminado</span>
+        <span><i style={{ background: COLOR.espera.bg, borderColor: COLOR.espera.borde }} />· En espera</span>
+        <span className="tenue">Tiempos: real / estándar. En rojo, 20% o más por encima del estándar.</span>
       </div>
       <div className="mapa">
-        <ReactFlow nodes={nodes} edges={edges} fitView minZoom={0.2} nodesDraggable={false} nodesConnectable={false}>
+        <ReactFlow nodes={nodes} edges={edges} fitView minZoom={0.15} nodesDraggable={false} nodesConnectable={false}>
           <Background gap={24} size={1} />
           <Controls showInteractive={false} />
         </ReactFlow>
@@ -93,5 +152,3 @@ export default function Mapa({ orden, items, comps, tareas, productos }) {
     </div>
   )
 }
-
-const etiqueta = (e) => ({ lista: 'lista', espera: 'en espera', en_curso: 'en proceso', pausada: 'pausada', terminada: 'terminada' }[e] || e)

@@ -20,13 +20,15 @@ export default function Tablet({ perfil }) {
   const [personas, setPersonas] = useState([])
   const [motivos, setMotivos] = useState([])
   const [error, setError] = useState('')
-  const [accion, setAccion] = useState(null) // {tipo: 'registrar'|'paro', tarea}
+  const [vista, setVista] = useState({ nivel: 'ops' }) // ops → op → item
+  const [accion, setAccion] = useState(null) // {tipo: 'registrar'|'proyecto'|'paro'|'elegir', ...}
   const [msg, setMsg] = useState('')
   const [hora, setHora] = useState(new Date())
 
   const cargar = useCallback(async () => {
     try {
-      let c = sb.from('v_tareas').select('*').in('estado', ['pendiente', 'en_curso', 'pausada']).in('op_estado', ['borrador', 'en_planta']).neq('area', 'TERCEROS')
+      let c = sb.from('v_tareas').select('*').in('estado', ['pendiente', 'en_curso', 'pausada', 'terminada'])
+        .in('op_estado', ['borrador', 'en_planta']).neq('area', 'TERCEROS').order('paso').order('creado')
       if (areas) c = c.in('area', areas)
       let cp = sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre')
       if (areas) cp = cp.in('area', areas)
@@ -39,15 +41,31 @@ export default function Tablet({ perfil }) {
   useEffect(() => { const t = setInterval(() => setHora(new Date()), 30000); return () => clearInterval(t) }, [])
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(''), 5000); return () => clearTimeout(t) }, [msg])
 
-  const orden = (a, b) => (a.prioridad - b.prioridad) || String(a.fecha_compromiso || '9').localeCompare(String(b.fecha_compromiso || '9'))
-  const { enProceso, listas, espera } = useMemo(() => {
-    const ts = tareas || []
-    return {
-      enProceso: ts.filter((t) => ['en_curso', 'pausada'].includes(t.estado)).sort(orden),
-      listas: ts.filter((t) => t.estado === 'pendiente' && !t.bloqueada).sort(orden),
-      espera: ts.filter((t) => t.estado === 'pendiente' && t.bloqueada).length,
+  const ops = useMemo(() => {
+    const activa = (t) => ['en_curso', 'pausada'].includes(t.estado) || (t.estado === 'pendiente' && !t.bloqueada)
+    const g = {}
+    for (const t of tareas || []) {
+      const o = (g[t.orden_id] ||= { id: t.orden_id, numero: t.op_numero, cliente: t.cliente, proyecto: t.proyecto, prioridad: t.prioridad, fecha: t.fecha_compromiso, tareas: [] })
+      o.tareas.push(t)
     }
+    return Object.values(g).filter((o) => o.tareas.some(activa))
+      .sort((a, b) => (a.prioridad - b.prioridad) || String(a.fecha || '9').localeCompare(String(b.fecha || '9')))
   }, [tareas])
+  const op = vista.opId ? ops.find((o) => o.id === vista.opId) : null
+  const items = useMemo(() => {
+    if (!op) return []
+    const g = {}
+    for (const t of op.tareas) (g[t.item_id] ||= { id: t.item_id, numero: t.item_numero, descripcion: t.item_descripcion, tareas: [] }).tareas.push(t)
+    return Object.values(g).sort((a, b) => a.numero - b.numero)
+  }, [op])
+  const item = vista.itemId ? items.find((i) => i.id === vista.itemId) : null
+
+  // Si la OP o el ítem ya no tienen nada, vuelve atrás
+  useEffect(() => {
+    if (tareas === null) return
+    if (vista.opId && !op) setVista({ nivel: 'ops' })
+    else if (vista.itemId && !item) setVista({ nivel: 'op', opId: vista.opId })
+  }, [tareas, op, item, vista])
 
   return (
     <div className="tablet">
@@ -64,26 +82,52 @@ export default function Tablet({ perfil }) {
       {msg && <div className="toast">{msg}</div>}
       <Aviso>{error}</Aviso>
 
-      <section>
-        <h2 className="tablet-h2">En proceso <span className="cuenta">{enProceso.length}</span></h2>
-        {enProceso.length === 0 ? <div className="vacio">Ninguna tarea empezada.</div> : (
-          <div className="tarjetas">{enProceso.map((t) => <TarjetaTarea key={t.id} t={t} onRegistrar={() => setAccion({ tipo: 'registrar', tarea: t })} />)}</div>
-        )}
-      </section>
-      <section>
-        <h2 className="tablet-h2">Listas para empezar <span className="cuenta">{listas.length}</span></h2>
-        {tareas === null ? <div className="vacio">Cargando…</div> : listas.length === 0 ? <div className="vacio">No hay tareas listas para esta área.</div> : (
-          <div className="tarjetas">{listas.map((t) => <TarjetaTarea key={t.id} t={t} onRegistrar={() => setAccion({ tipo: 'registrar', tarea: t })} />)}</div>
-        )}
-        {espera > 0 && <p className="nota">{espera} tarea(s) más esperan que terminen pasos anteriores.</p>}
-      </section>
+      <nav className="migas">
+        <button className={vista.nivel === 'ops' ? 'sel' : ''} onClick={() => setVista({ nivel: 'ops' })}>Proyectos en planta</button>
+        {op && <><span>›</span><button className={vista.nivel === 'op' ? 'sel' : ''} onClick={() => setVista({ nivel: 'op', opId: op.id })}>OP {op.numero}</button></>}
+        {item && <><span>›</span><button className="sel">Ítem {item.numero}</button></>}
+      </nav>
+
+      {vista.nivel === 'ops' && (
+        tareas === null ? <div className="vacio">Cargando…</div> : ops.length === 0 ? <div className="vacio">No hay proyectos con tareas para esta área.</div> : (
+          <div className="tarjetas">
+            {ops.map((o) => <TarjetaGrupo key={o.id} titulo={`OP ${o.numero}`} sup={o.cliente} sub={`${o.proyecto} · entrega ${fmtFecha(o.fecha)}`}
+              ts={o.tareas} onClick={() => setVista({ nivel: 'op', opId: o.id })} />)}
+          </div>
+        )
+      )}
+
+      {vista.nivel === 'op' && op && (
+        <section>
+          <div className="tablet-tit">
+            <h2 className="tablet-h2">OP {op.numero} · {op.cliente}</h2>
+            <button className="btn btn-grande btn-sec" onClick={() => setAccion({ tipo: 'elegir', op })}>Registrar un proceso de todo el proyecto</button>
+          </div>
+          <p className="tenue">Elige el ítem en el que trabajaste.</p>
+          <div className="tarjetas">
+            {items.map((i) => <TarjetaGrupo key={i.id} titulo={`Ítem ${i.numero}`} sup={i.descripcion} ts={i.tareas}
+              onClick={() => setVista({ nivel: 'item', opId: op.id, itemId: i.id })} />)}
+          </div>
+        </section>
+      )}
+
+      {vista.nivel === 'item' && item && (
+        <section>
+          <h2 className="tablet-h2">Ítem {item.numero} · {item.descripcion}</h2>
+          <p className="tenue">Toca "Registrar" en el proceso en el que trabajaste.</p>
+          <ListaProcesos ts={item.tareas} onRegistrar={(t) => setAccion({ tipo: 'registrar', tarea: t })} />
+        </section>
+      )}
 
       <footer className="tablet-pie">
         <span>MQI Producción</span>
         <button className="btn-link" onClick={() => sb.auth.signOut()}>Cerrar sesión de la tablet</button>
       </footer>
 
-      {accion && (
+      {accion?.tipo === 'elegir' && (
+        <ElegirProceso op={accion.op} onClose={() => setAccion(null)} onElegir={(proceso, lista) => setAccion({ tipo: 'proyecto', op: accion.op, proceso, lista })} />
+      )}
+      {accion && accion.tipo !== 'elegir' && (
         <FlujoRegistro accion={accion} personas={personas} motivos={motivos}
           onClose={() => setAccion(null)}
           onHecho={(texto) => { setAccion(null); setMsg(texto); cargar() }} />
@@ -92,23 +136,88 @@ export default function Tablet({ perfil }) {
   )
 }
 
-function TarjetaTarea({ t, onRegistrar }) {
-  const empezada = Number(t.min_reales) > 0
+function contar(ts) {
+  return {
+    proceso: ts.filter((t) => ['en_curso', 'pausada'].includes(t.estado)).length,
+    listas: ts.filter((t) => t.estado === 'pendiente' && !t.bloqueada).length,
+    espera: ts.filter((t) => t.estado === 'pendiente' && t.bloqueada).length,
+    hechas: ts.filter((t) => t.estado === 'terminada').length,
+  }
+}
+
+function TarjetaGrupo({ titulo, sup, sub, ts, onClick }) {
+  const c = contar(ts)
   return (
-    <div className={`tarea tarea-${t.estado}`}>
-      <div className="tarea-op">OP {t.op_numero} · {t.cliente}</div>
-      <div className="tarea-proceso">{t.proceso_nombre}{t.area === 'PINTURA' ? ' · Pintura' : ''}</div>
-      <div className="tarea-det">{t.item_descripcion}{t.producto ? ` · ${t.producto}` : ' · ensamble final'}</div>
-      {t.componente_id && <div className="tarea-det">Medidas: <b>{textoMedidas(t.medida, t.ancho, t.profundidad, t.alto) || 'ver plano'}</b> · Dificultad <b>{DIF_NOMBRE[t.dificultad]?.toLowerCase()}</b>{t.componente_detalle ? ` · ${t.componente_detalle}` : ''}</div>}
-      <div className="tarea-det">Cantidad: <b>{t.cantidad ? `${fmtNum(t.cantidad, 2)} ${und(t.unidad)}` : 'ver plano'}</b> · Entrega OP: {fmtFecha(t.fecha_compromiso)}</div>
-      {empezada && (
-        <div className="tarea-avance">Registrado: <b>{fmtMin(t.min_reales)}</b>{Number(t.cantidad_registrada) > 0 && <> · hecho <b>{fmtNum(t.cantidad_registrada, 2)}{t.cantidad ? ` de ${fmtNum(t.cantidad, 2)}` : ''} {und(t.unidad)}</b></>}</div>
-      )}
-      <div className="tarea-pie">
-        <span className={`badge ${empezada ? 'badge-info' : 'badge-muted'}`}>{empezada ? 'En proceso' : 'Sin empezar'}</span>
-        <button className="btn btn-grande" onClick={onRegistrar}>Registrar</button>
+    <button className="tarea tarea-grupo" onClick={onClick}>
+      <div className="tarea-op">{sup}</div>
+      <div className="tarea-proceso">{titulo}</div>
+      {sub && <div className="tarea-det">{sub}</div>}
+      <div className="grupo-cuentas">
+        {c.proceso > 0 && <span className="badge badge-info">{c.proceso} en proceso</span>}
+        {c.listas > 0 && <span className="badge badge-ok">{c.listas} listas</span>}
+        {c.espera > 0 && <span className="badge badge-muted">{c.espera} en espera</span>}
+        {c.hechas > 0 && <span className="badge badge-muted">{c.hechas} terminadas</span>}
       </div>
-    </div>
+    </button>
+  )
+}
+
+function ListaProcesos({ ts, onRegistrar }) {
+  const grupos = {}
+  for (const t of ts) (grupos[t.componente_id || 'ens'] ||= []).push(t)
+  return Object.entries(grupos).map(([k, lista]) => {
+    const t0 = lista[0]
+    return (
+      <div key={k} className="tarjeta grupo-producto">
+        <div className="grupo-cab">
+          {t0.componente_id ? <><b>{t0.producto}</b> {t0.producto_nombre}
+            <span className="tenue"> · {textoMedidas(t0.medida, t0.ancho, t0.profundidad, t0.alto) || 'ver plano'} · dificultad {DIF_NOMBRE[t0.dificultad]?.toLowerCase()}{t0.componente_detalle ? ` · ${t0.componente_detalle}` : ''}</span></>
+            : <b>Ensamble final del ítem</b>}
+        </div>
+        {lista.map((t) => {
+          const hecha = t.estado === 'terminada'
+          const espera = t.estado === 'pendiente' && t.bloqueada
+          return (
+            <div key={t.id} className={`fila-proceso${hecha ? ' hecha' : ''}${espera ? ' espera' : ''}`}>
+              <div>
+                <div className="tarea-proceso">{hecha ? '✓ ' : ''}{t.proceso_nombre}{t.area === 'PINTURA' ? ' · Pintura' : ''}</div>
+                <div className="tarea-det">
+                  {fmtNum(t.cantidad, 2)} und
+                  {Number(t.min_reales) > 0 && <> · registrado <b>{fmtMin(t.min_reales)}</b>{Number(t.cantidad_registrada) > 0 && ` · hecho ${fmtNum(t.cantidad_registrada, 2)} de ${fmtNum(t.cantidad, 2)}`}</>}
+                  {espera && ' · espera el paso anterior'}
+                </div>
+              </div>
+              {!hecha && !espera && <button className="btn btn-grande" onClick={() => onRegistrar(t)}>Registrar</button>}
+            </div>
+          )
+        })}
+      </div>
+    )
+  })
+}
+
+// Procesos disponibles en la OP para registrar de una vez en todo el proyecto
+function ElegirProceso({ op, onClose, onElegir }) {
+  const g = {}
+  for (const t of op.tareas) {
+    if (!t.proceso || !(['en_curso', 'pausada'].includes(t.estado) || (t.estado === 'pendiente' && !t.bloqueada))) continue
+    ;(g[t.proceso] ||= { proceso: t.proceso, nombre: t.proceso_nombre, area: t.area, lista: [] }).lista.push(t)
+  }
+  const procesos = Object.values(g).sort((a, b) => b.lista.length - a.lista.length)
+  return (
+    <Modal titulo={`OP ${op.numero} · proceso de todo el proyecto`} onClose={onClose} ancho={640}>
+      <p className="tenue">Úsalo cuando hiciste un proceso para todo el proyecto de una vez (por ejemplo, el corte de todo el material).
+        El tiempo se reparte entre los ítems según su tiempo estándar.</p>
+      {procesos.length === 0 ? <p>No hay procesos disponibles ahora en este proyecto.</p> : (
+        <div className="personas">
+          {procesos.map((p) => (
+            <button key={p.proceso} className="persona" onClick={() => onElegir(p, p.lista)}>
+              {p.nombre}<span>{p.area} · {p.lista.length} {p.lista.length === 1 ? 'tarea' : 'tareas'}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
   )
 }
 
@@ -144,6 +253,8 @@ function FlujoRegistro({ accion, personas, motivos, onClose, onHecho }) {
     setEnviando(true); setError('')
     const r = tipo === 'paro'
       ? await sb.rpc('registrar_paro', { p_persona: persona.id, p_motivo: Number(motivo), p_minutos: total })
+      : tipo === 'proyecto'
+      ? await sb.rpc('registrar_proyecto', { p_orden: accion.op.id, p_proceso: accion.proceso.proceso, p_persona: persona.id, p_minutos: total, p_termino: termino })
       : await sb.rpc('registrar_avance', {
         p_tarea: tarea.id, p_persona: persona.id, p_minutos: total,
         p_cantidad: cantidad === '' ? null : Number(String(cantidad).replace(',', '.')), p_termino: termino,
@@ -152,12 +263,18 @@ function FlujoRegistro({ accion, personas, motivos, onClose, onHecho }) {
     const fallo = r.error?.message || r.data
     if (fallo) { setError(fallo); return }
     const n = persona.nombre.split(' ')[0]
-    onHecho(tipo === 'paro' ? 'Paro registrado' : termino ? `${n} terminó ${tarea.proceso_nombre}` : `Avance de ${n} registrado`)
+    const nombreProc = tipo === 'proyecto' ? accion.proceso.nombre : tarea?.proceso_nombre
+    onHecho(tipo === 'paro' ? 'Paro registrado' : termino ? `${n} terminó ${nombreProc?.toLowerCase()}${tipo === 'proyecto' ? ' en todo el proyecto' : ''}` : `Avance de ${n} registrado`)
   }
 
   return (
-    <Modal titulo={tipo === 'paro' ? 'Registrar paro' : 'Registrar tiempo'} onClose={onClose} ancho={600}>
-      {tarea && <p className="tenue">OP {tarea.op_numero} · {tarea.area} · {tarea.proceso_nombre} · {tarea.item_descripcion}</p>}
+    <Modal titulo={tipo === 'paro' ? 'Registrar paro' : tipo === 'proyecto' ? 'Proceso de todo el proyecto' : 'Registrar tiempo'} onClose={onClose} ancho={600}>
+      {tarea && <p className="tenue">OP {tarea.op_numero} · Ítem {tarea.item_numero} · <b>{tarea.proceso_nombre}</b> · {tarea.producto_nombre || 'ensamble final'}</p>}
+      {tipo === 'proyecto' && (
+        <div className="tenue">OP {accion.op.numero} · <b>{accion.proceso.nombre}</b>. El tiempo se reparte entre:
+          <ul className="lista-reparto">{accion.lista.map((t) => <li key={t.id}>Ítem {t.item_numero} · {t.producto_nombre || 'ensamble'} · {fmtNum(t.cantidad, 2)} und</li>)}</ul>
+        </div>
+      )}
       {!persona ? (
         <div>
           <p className="paso-tit">¿Quién eres?</p>
@@ -186,7 +303,7 @@ function FlujoRegistro({ accion, personas, motivos, onClose, onHecho }) {
           )}
 
           <div>
-            <p className="paso-tit">{tipo === 'paro' ? '¿Cuánto duró el paro?' : '¿Cuánto tiempo trabajaste en esta tarea?'}</p>
+            <p className="paso-tit">{tipo === 'paro' ? '¿Cuánto duró el paro?' : tipo === 'proyecto' ? '¿Cuánto tiempo trabajaste en este proceso (en total)?' : '¿Cuánto tiempo trabajaste en esta tarea?'}</p>
             <div className="atajos">
               {ATAJOS.map((m) => (
                 <button key={m} type="button" className={total === m ? 'sel' : ''} onClick={() => atajo(m)}>{m < 60 ? `${m} min` : `${fmtNum(m / 60, 1)} h`}</button>
@@ -213,7 +330,7 @@ function FlujoRegistro({ accion, personas, motivos, onClose, onHecho }) {
           ) : (
             <div className="acciones acciones-registro">
               <button className="btn btn-sec btn-grande" disabled={enviando} onClick={() => guardar(false)}>Guardar · sigo después</button>
-              <button className="btn btn-ok btn-grande" disabled={enviando} onClick={() => guardar(true)}>Guardar y terminé la tarea</button>
+              <button className="btn btn-ok btn-grande" disabled={enviando} onClick={() => guardar(true)}>{tipo === 'proyecto' ? 'Guardar y terminé en todo el proyecto' : 'Guardar y terminé la tarea'}</button>
             </div>
           )}
         </div>
