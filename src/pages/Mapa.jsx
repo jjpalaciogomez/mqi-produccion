@@ -1,3 +1,4 @@
+import { textoMedidas } from '../estandar.js'
 import { useMemo } from 'react'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -43,13 +44,13 @@ export default function Mapa({ orden, items, comps, tareas, productos }) {
         const ts = tareas.filter((t) => t.componente_id === c.id && t.estado !== 'omitida').sort((a, b) => a.paso - b.paso)
         maxPasos = Math.max(maxPasos, ts.length)
         const cy = y0 + i * GY
-        caja(`c-${c.id}`, GX * 2, cy, c.producto, `${prod[c.producto]?.nombre || ''} · ${fmtNum(c.cantidad, 2)} ${prod[c.producto]?.unidad || ''}`, 'comp',
+        caja(`c-${c.id}`, GX * 2, cy, c.producto, `${prod[c.producto]?.nombre || ''}${textoMedidas(prod[c.producto]?.medida, c.ancho, c.profundidad, c.alto) ? ' · ' + textoMedidas(prod[c.producto]?.medida, c.ancho, c.profundidad, c.alto) : ''}`, 'comp',
           { background: '#f8f9fb', border: '1px dashed #8a93a0' })
         flecha(`i-${it.id}`, `c-${c.id}`)
         let prev = `c-${c.id}`
         ts.forEach((t, k) => {
           const nid = `t-${t.id}`
-          caja(nid, GX * (3 + k), cy, `${t.proceso} ${t.proceso_nombre}`, `${t.area} · ${etiqueta(est(t))}`, est(t))
+          caja(nid, GX * (3 + k), cy, t.area, `${fmtNum(t.cantidad, 2)} und · ${etiqueta(est(t))}`, est(t))
           flecha(prev, nid, k === 0)
           prev = nid
         })

@@ -3,6 +3,7 @@ import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, EstadoTarea, Modal, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import Mapa from './Mapa.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
+import { DIF_NOMBRE, ETIQUETA_MEDIDA, stdUnidad, textoMedidas } from '../estandar.js'
 
 const AREAS_PLANTA = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
 
@@ -14,15 +15,17 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
 
   const cargar = useCallback(async () => {
     try {
-      const [orden, items, comps, tareas, productos] = await Promise.all([
+      const [orden, items, comps, tareas, productos, etapas, difs] = await Promise.all([
         q(sb.from('v_ordenes').select('*').eq('id', id).maybeSingle()),
         q(sb.from('items').select('*').eq('orden_id', id).order('numero')),
         q(sb.from('componentes').select('*, items!inner(orden_id)').eq('items.orden_id', id)),
         q(sb.from('v_tareas').select('*').eq('orden_id', id).order('paso')),
         q(sb.from('productos').select('*').eq('activo', true).order('codigo')),
+        q(sb.from('etapas_producto').select('*').order('paso')),
+        q(sb.from('dificultades').select('*').order('orden')),
       ])
       if (!orden) { setError('No se encontró la OP.'); return }
-      setD({ orden, items, comps, tareas, productos }); setError('')
+      setD({ orden, items, comps, tareas, productos, etapas, difs }); setError('')
     } catch (e) { setError(e.message) }
   }, [id])
 
@@ -71,7 +74,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
 }
 
 function Estructura({ d, gestor, perfil, recargar, setError }) {
-  const { orden, items, comps, tareas, productos } = d
+  const { orden, items, comps, tareas, productos, etapas, difs } = d
   const [nuevoItem, setNuevoItem] = useState(false)
   const prodPorCod = useMemo(() => Object.fromEntries(productos.map((p) => [p.codigo, p])), [productos])
 
@@ -106,8 +109,8 @@ function Estructura({ d, gestor, perfil, recargar, setError }) {
             </div>
 
             {cs.map((c) => (
-              <Componente key={c.id} c={c} prod={prodPorCod[c.producto]} tareas={tareas.filter((t) => t.componente_id === c.id)}
-                gestor={gestor} perfil={perfil} accion={accion} setError={setError} />
+              <Componente key={c.id} c={c} it={it} prod={prodPorCod[c.producto]} tareas={tareas.filter((t) => t.componente_id === c.id)}
+                productos={productos} etapas={etapas} difs={difs} gestor={gestor} perfil={perfil} accion={accion} setError={setError} />
             ))}
 
             {ens && (
@@ -117,7 +120,7 @@ function Estructura({ d, gestor, perfil, recargar, setError }) {
               </div>
             )}
 
-            {gestor && <AgregarComponente item={it} productos={productos} nComps={cs.length} accion={accion} />}
+            {gestor && <AgregarComponente item={it} productos={productos} etapas={etapas} difs={difs} nComps={cs.length} accion={accion} />}
           </section>
         )
       })}
@@ -128,13 +131,24 @@ function Estructura({ d, gestor, perfil, recargar, setError }) {
   )
 }
 
-function Componente({ c, prod, tareas, gestor, perfil, accion, setError }) {
+function Componente({ c, it, prod, tareas, productos, etapas, difs, gestor, perfil, accion, setError }) {
+  const [editando, setEditando] = useState(false)
   const iniciado = tareas.some((t) => ['en_curso', 'pausada', 'terminada'].includes(t.estado))
+  const medidas = textoMedidas(prod?.medida, c.ancho, c.profundidad, c.alto)
+  const total = Number(c.cantidad || 1) * Number(it.cantidad || 1)
+  if (editando) {
+    return <FormComponente item={it} productos={productos} etapas={etapas} difs={difs} inicial={c}
+      onClose={() => setEditando(false)} accion={accion} />
+  }
   return (
     <div className="componente">
       <div className="comp-cab">
-        <b>{c.producto}</b> {prod?.nombre} · <b>{fmtNum(c.cantidad, 2)} {prod?.unidad}</b>
+        <b>{c.producto}</b> {prod?.nombre}
+        {medidas ? <> · <b>{medidas}</b></> : prod?.medida !== 'UNIDAD' && <span className="etq etq-alerta">faltan medidas</span>}
+        <span className={`etq dif-${c.dificultad}`}>Dificultad {DIF_NOMBRE[c.dificultad]?.toLowerCase()}</span>
+        <span className="tenue"> · {fmtNum(c.cantidad, 2)} por ítem = {fmtNum(total, 2)} und</span>
         {c.descripcion && <span className="tenue"> · {c.descripcion}</span>}
+        {gestor && <button className="btn-link" onClick={() => setEditando(true)}>Editar</button>}
         {gestor && !iniciado && (
           <button className="btn-link peligro" onClick={() => accion(() => q(sb.from('componentes').delete().eq('id', c.id)))}>Quitar</button>
         )}
@@ -144,13 +158,7 @@ function Componente({ c, prod, tareas, gestor, perfil, accion, setError }) {
   )
 }
 
-function TablaTareas({ tareas, gestor, perfil, accion, setError }) {
-  const guardarCantidad = (t, valor) => {
-    const v = valor === '' ? null : Number(String(valor).replace(',', '.'))
-    if (v !== null && (isNaN(v) || v < 0)) { setError('Cantidad no válida'); return }
-    if (v === (t.cantidad === null ? null : Number(t.cantidad))) return
-    accion(() => q(sb.from('tareas').update({ cantidad: v }).eq('id', t.id)))
-  }
+function TablaTareas({ tareas, gestor, perfil, accion }) {
   const cambiarEstado = (t, estado) => accion(() => q(sb.from('tareas').update({ estado }).eq('id', t.id)))
   const alternar = (t) => {
     // Activa esta alternativa y omite las demás del mismo paso
@@ -173,21 +181,19 @@ function TablaTareas({ tareas, gestor, perfil, accion, setError }) {
 
   return (
     <table className="tabla tabla-tareas">
-      <thead><tr><th>Paso</th><th>Proceso</th><th>Área</th><th>Cantidad</th><th>Estándar</th><th>Real</th><th>Estado</th>{gestor && <th />}</tr></thead>
+      <thead><tr><th>Paso</th><th>Área</th><th>Cantidad</th><th>Estándar</th><th>Real</th><th>Estado</th>{gestor && <th />}</tr></thead>
       <tbody>
         {tareas.map((t) => (
           <tr key={t.id} className={t.estado === 'omitida' ? 'omitida' : ''}>
             <td className="centrado">{t.paso === 999 ? 'Final' : t.paso}</td>
-            <td><b>{t.proceso}</b> {t.proceso_nombre}{t.opcional && <span className="etq">opcional</span>}{t.alternativa && <span className="etq">alternativa</span>}</td>
-            <td>{t.area}</td>
+            <td><b>{t.area}</b>{t.opcional && <span className="etq">opcional</span>}{t.alternativa && <span className="etq">alternativa</span>}</td>
             <td className="celda-cant">
-              {gestor && ['pendiente', 'omitida'].includes(t.estado) ? (
-                <input className="input-cant" defaultValue={t.cantidad ?? ''} placeholder="—"
-                  onBlur={(e) => guardarCantidad(t, e.target.value.trim())} inputMode="decimal" />
-              ) : fmtNum(t.cantidad_hecha ?? t.cantidad, 2)}
-              <span className="unidad">{t.unidad}</span>
+              {t.estado === 'terminada' && t.cantidad_hecha !== null ? fmtNum(t.cantidad_hecha, 2) : fmtNum(t.cantidad, 2)}
+              <span className="unidad">{t.unidad === 'UND' ? 'und' : t.unidad}</span>
             </td>
-            <td>{t.proceso === 'TER-1' ? `${fmtNum(t.tiempo_std_unit, 0)} días` : t.cantidad ? fmtMin(t.min_std) : <span className="tenue">falta cantidad</span>}</td>
+            <td>{t.proceso === 'TER-1' ? `${fmtNum(t.tiempo_std_unit, 0)} días`
+              : t.tiempo_std_unit !== null ? <>{fmtMin(t.min_std)}{Number(t.cantidad) > 1 && <span className="tenue pequeño"> ({fmtMin(t.tiempo_std_unit)} c/u)</span>}</>
+              : <span className="tenue">{t.componente_id ? 'faltan medidas' : 'sin estándar'}</span>}</td>
             <td>{Number(t.min_reales) > 0 ? fmtMin(t.min_reales) : '—'}</td>
             <td><EstadoTarea estado={t.estado} bloqueada={t.bloqueada} /></td>
             {gestor && (
@@ -231,32 +237,52 @@ function AgregarItem({ orden, items, onClose, accion }) {
   )
 }
 
-function AgregarComponente({ item, productos, nComps, accion }) {
+function AgregarComponente({ item, productos, etapas, difs, nComps, accion }) {
   const [abierto, setAbierto] = useState(false)
-  const [f, setF] = useState({ producto: '', cantidad: '', descripcion: '' })
+  if (!abierto) return <button className="btn btn-sec btn-sm" onClick={() => setAbierto(true)}>+ Agregar producto a este ítem</button>
+  return <FormComponente item={item} productos={productos} etapas={etapas} difs={difs} nComps={nComps}
+    onClose={() => setAbierto(false)} accion={accion} />
+}
+
+// Formulario para agregar o editar un producto dentro de un ítem: medidas, dificultad y unidades
+function FormComponente({ item, productos, etapas, difs, nComps = 0, inicial, onClose, accion }) {
+  const [f, setF] = useState({
+    producto: inicial?.producto || '', cantidad: inicial ? String(inicial.cantidad) : '1', descripcion: inicial?.descripcion || '',
+    ancho: inicial?.ancho ?? '', profundidad: inicial?.profundidad ?? '', alto: inicial?.alto ?? '', dificultad: inicial?.dificultad || 'MEDIO',
+  })
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   const familias = useMemo(() => {
     const g = {}
     for (const p of productos) (g[p.familia] ||= []).push(p)
     return g
   }, [productos])
   const prod = productos.find((p) => p.codigo === f.producto)
+  const mult = difs.find((d) => d.nivel === f.dificultad)?.multiplicador
+  const unidades = (Number(String(f.cantidad).replace(',', '.')) || 0) * Number(item.cantidad || 1)
+  const pasos = etapas.filter((e) => e.producto === f.producto)
+  const num = (v) => (v === '' || v === null ? null : Number(String(v).replace(',', '.')))
 
   const guardar = (e) => {
     e.preventDefault()
+    const fila = {
+      producto: f.producto, cantidad: num(f.cantidad) || 1, descripcion: f.descripcion || null, dificultad: f.dificultad,
+      ancho: prod?.medida === 'UNIDAD' ? null : num(f.ancho),
+      profundidad: prod?.medida === 'CM3' ? num(f.profundidad) : null,
+      alto: prod?.medida === 'UNIDAD' ? null : num(f.alto),
+    }
     accion(async () => {
-      const c = await q(sb.from('componentes').insert({
-        item_id: item.id, producto: f.producto, cantidad: Number(String(f.cantidad).replace(',', '.')) || 1, descripcion: f.descripcion || null,
-      }).select('id').single())
-      await q(sb.rpc('generar_tareas', { p_componente: c.id }))
-      if (nComps + 1 >= 2) await q(sb.rpc('generar_ensamble', { p_item: item.id }))
-    }).then(() => { setF({ producto: '', cantidad: '', descripcion: '' }); setAbierto(false) })
+      let id = inicial?.id
+      if (id) await q(sb.from('componentes').update(fila).eq('id', id))
+      else id = (await q(sb.from('componentes').insert({ ...fila, item_id: item.id }).select('id').single())).id
+      await q(sb.rpc('generar_tareas', { p_componente: id }))
+      if (!inicial && nComps + 1 >= 2) await q(sb.rpc('generar_ensamble', { p_item: item.id }))
+    }).then(onClose)
   }
 
-  if (!abierto) return <button className="btn btn-sec btn-sm" onClick={() => setAbierto(true)}>+ Agregar producto a este ítem</button>
   return (
     <form className="agregar-comp" onSubmit={guardar}>
       <label>Producto estándar
-        <select value={f.producto} onChange={(e) => setF({ ...f, producto: e.target.value })} required autoFocus>
+        <select value={f.producto} onChange={set('producto')} required autoFocus disabled={!!inicial}>
           <option value="">Selecciona…</option>
           {Object.entries(familias).map(([fam, ps]) => (
             <optgroup key={fam} label={fam}>
@@ -265,15 +291,49 @@ function AgregarComponente({ item, productos, nComps, accion }) {
           ))}
         </select>
       </label>
-      {prod && <p className="nota">Incluye: {prod.incluye}<br />Ruta: {prod.ruta_texto}</p>}
-      <div className="fila2">
-        <label>Cantidad {prod ? `(${prod.unidad} — ${prod.como_se_cuenta})` : ''}
-          <input value={f.cantidad} onChange={(e) => setF({ ...f, cantidad: e.target.value })} inputMode="decimal" required />
-        </label>
-        <label>Detalle (opcional)<input value={f.descripcion} onChange={(e) => setF({ ...f, descripcion: e.target.value })} placeholder="Ej. base de mesa, tubo 1½" /></label>
+      {prod && !inicial && <p className="nota">Incluye: {prod.incluye}</p>}
+
+      {prod && prod.medida !== 'UNIDAD' && (
+        <div className="fila3">
+          <label>Ancho (cm)<input value={f.ancho} onChange={set('ancho')} inputMode="decimal" required /></label>
+          {prod.medida === 'CM3' && <label>Profundidad (cm)<input value={f.profundidad} onChange={set('profundidad')} inputMode="decimal" required /></label>}
+          <label>{prod.medida === 'CM3' ? 'Alto (cm)' : 'Alto o largo (cm)'}<input value={f.alto} onChange={set('alto')} inputMode="decimal" required /></label>
+        </div>
+      )}
+      {prod && (
+        <div className="fila3">
+          <label>Dificultad
+            <select value={f.dificultad} onChange={set('dificultad')}>
+              {difs.map((d) => <option key={d.nivel} value={d.nivel}>{d.nombre} (×{fmtNum(d.multiplicador, 2)})</option>)}
+            </select>
+          </label>
+          <label>Unidades por ítem<input value={f.cantidad} onChange={set('cantidad')} inputMode="decimal" required /></label>
+          <label>Detalle (opcional)<input value={f.descripcion} onChange={set('descripcion')} placeholder="Ej. base de mesa, tubo 1½" /></label>
+        </div>
+      )}
+
+      {prod && (
+        <div className="previa-std">
+          <div className="tenue pequeño">{ETIQUETA_MEDIDA[prod.medida]} · referencia: {prod.ref_descripcion || '—'} · total {fmtNum(unidades, 2)} und</div>
+          {pasos.length === 0 ? <div className="tenue">Este producto no tiene ruta: no se crearán pasos.</div> : (
+            <ul>
+              {pasos.map((e) => {
+                const u = stdUnidad(prod, e, f, mult)
+                return (
+                  <li key={e.id}><b>{e.area}</b>{e.alternativa && ' (alternativa)'}{e.opcional && ' (opcional)'}: {' '}
+                    {e.area === 'TERCEROS' ? 'en días' : u === null ? <span className="tenue">{e.min_ref === null ? 'sin estándar' : 'escribe las medidas'}</span>
+                      : <>{fmtMin(u)} c/u · <b>{fmtMin(u * unidades)}</b></>}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+      <div className="acciones">
+        <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button>
+        <button className="btn">{inicial ? 'Guardar y recalcular pasos' : 'Agregar y crear pasos'}</button>
       </div>
-      <p className="nota">Al agregarlo se crean sus pasos. Después escribe la cantidad de cada paso en su unidad para que el sistema calcule el tiempo estándar.</p>
-      <div className="acciones"><button type="button" className="btn btn-sec" onClick={() => setAbierto(false)}>Cancelar</button><button className="btn">Agregar y crear pasos</button></div>
     </form>
   )
 }

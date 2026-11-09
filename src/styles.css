@@ -222,3 +222,20 @@ h1, h2, h3, .tablet-area, .tarea-proceso, .kpi b, .modal-cab h3, .login-tit { fo
 .login-logo { width: min(320px, 72vw); height: auto; }
 .login-tit { font-size: 22px; margin: 0; }
 .login-caja .sub { margin-top: -10px; }
+
+/* ===== Estándares por producto ===== */
+.fila3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.agregar-comp label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.previa-std { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+.previa-std ul { margin: 6px 0 0; padding-left: 18px; }
+.previa-std li { margin: 2px 0; }
+.etq-alerta { background: #fdecea; color: #a12a1d; }
+.dif-BAJO { background: #e7f6ee; color: #1d6b43; }
+.dif-ALTO { background: #fff3d6; color: #8a5a00; }
+.dims { display: flex; align-items: center; gap: 4px; }
+.dims .input-cant { width: 66px; }
+.std-area { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0; font-size: 13px; }
+.std-area .input-cant { width: 70px; }
+.fila-detalle td { background: #f8f9fb; font-size: 13px; }
+.fila-detalle p { margin: 4px 0; }
+.tabla-std td { vertical-align: top; }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Modal, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
+import { DIF_NOMBRE, textoMedidas } from '../estandar.js'
 
 // Pantalla de la tablet de un área. Muestra las tareas de su área y de Pintura
 // (Pintura no tiene tablet propia). El operario toca su nombre y escribe cuánto trabajó.
@@ -25,7 +26,7 @@ export default function Tablet({ perfil }) {
 
   const cargar = useCallback(async () => {
     try {
-      let c = sb.from('v_tareas').select('*').in('estado', ['pendiente', 'en_curso', 'pausada']).in('op_estado', ['borrador', 'en_planta']).neq('proceso', 'TER-1')
+      let c = sb.from('v_tareas').select('*').in('estado', ['pendiente', 'en_curso', 'pausada']).in('op_estado', ['borrador', 'en_planta']).neq('area', 'TERCEROS')
       if (areas) c = c.in('area', areas)
       let cp = sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre')
       if (areas) cp = cp.in('area', areas)
@@ -96,11 +97,12 @@ function TarjetaTarea({ t, onRegistrar }) {
   return (
     <div className={`tarea tarea-${t.estado}`}>
       <div className="tarea-op">OP {t.op_numero} · {t.cliente}</div>
-      <div className="tarea-proceso">{t.proceso_nombre}</div>
+      <div className="tarea-proceso">{t.proceso_nombre}{t.area === 'PINTURA' ? ' · Pintura' : ''}</div>
       <div className="tarea-det">{t.item_descripcion}{t.producto ? ` · ${t.producto}` : ' · ensamble final'}</div>
-      <div className="tarea-det">Cantidad: <b>{t.cantidad ? `${fmtNum(t.cantidad, 2)} ${t.unidad}` : 'ver plano'}</b> · Entrega OP: {fmtFecha(t.fecha_compromiso)}</div>
+      {t.componente_id && <div className="tarea-det">Medidas: <b>{textoMedidas(t.medida, t.ancho, t.profundidad, t.alto) || 'ver plano'}</b> · Dificultad <b>{DIF_NOMBRE[t.dificultad]?.toLowerCase()}</b>{t.componente_detalle ? ` · ${t.componente_detalle}` : ''}</div>}
+      <div className="tarea-det">Cantidad: <b>{t.cantidad ? `${fmtNum(t.cantidad, 2)} ${und(t.unidad)}` : 'ver plano'}</b> · Entrega OP: {fmtFecha(t.fecha_compromiso)}</div>
       {empezada && (
-        <div className="tarea-avance">Registrado: <b>{fmtMin(t.min_reales)}</b>{Number(t.cantidad_registrada) > 0 && <> · hecho <b>{fmtNum(t.cantidad_registrada, 2)}{t.cantidad ? ` de ${fmtNum(t.cantidad, 2)}` : ''} {t.unidad}</b></>}</div>
+        <div className="tarea-avance">Registrado: <b>{fmtMin(t.min_reales)}</b>{Number(t.cantidad_registrada) > 0 && <> · hecho <b>{fmtNum(t.cantidad_registrada, 2)}{t.cantidad ? ` de ${fmtNum(t.cantidad, 2)}` : ''} {und(t.unidad)}</b></>}</div>
       )}
       <div className="tarea-pie">
         <span className={`badge ${empezada ? 'badge-info' : 'badge-muted'}`}>{empezada ? 'En proceso' : 'Sin empezar'}</span>
@@ -109,6 +111,8 @@ function TarjetaTarea({ t, onRegistrar }) {
     </div>
   )
 }
+
+const und = (u) => (u === 'UND' ? 'und' : u)
 
 const ATAJOS = [15, 30, 60, 90, 120, 180, 240, 480]
 
@@ -153,7 +157,7 @@ function FlujoRegistro({ accion, personas, motivos, onClose, onHecho }) {
 
   return (
     <Modal titulo={tipo === 'paro' ? 'Registrar paro' : 'Registrar tiempo'} onClose={onClose} ancho={600}>
-      {tarea && <p className="tenue">OP {tarea.op_numero} · {tarea.proceso_nombre} · {tarea.item_descripcion}</p>}
+      {tarea && <p className="tenue">OP {tarea.op_numero} · {tarea.area} · {tarea.proceso_nombre} · {tarea.item_descripcion}</p>}
       {!persona ? (
         <div>
           <p className="paso-tit">¿Quién eres?</p>
@@ -198,7 +202,7 @@ function FlujoRegistro({ accion, personas, motivos, onClose, onHecho }) {
           </div>
 
           {tipo === 'registrar' && (
-            <label className="paso-tit">¿Cuánto hiciste? ({tarea.unidad})
+            <label className="paso-tit">¿Cuántas unidades terminaste? ({und(tarea.unidad)})
               <input className="input-grande" value={cantidad} onChange={(e) => setCantidad(e.target.value)} inputMode="decimal" placeholder="Cantidad" />
             </label>
           )}
