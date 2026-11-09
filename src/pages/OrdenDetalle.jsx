@@ -21,7 +21,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         q(sb.from('componentes').select('*, items!inner(orden_id)').eq('items.orden_id', id)),
         q(sb.from('v_tareas').select('*').eq('orden_id', id).order('paso')),
         q(sb.from('productos').select('*').eq('activo', true).order('codigo')),
-        q(sb.from('etapas_producto').select('*').order('paso')),
+        q(sb.from('etapas_producto').select('*').order('paso').order('id')),
         q(sb.from('dificultades').select('*').order('orden')),
       ])
       if (!orden) { setError('No se encontró la OP.'); return }
