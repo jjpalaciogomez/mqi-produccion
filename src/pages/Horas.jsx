@@ -155,7 +155,10 @@ function DetallePersona({ persona, fecha }) {
 
 function Semana({ desde, datos, personas }) {
   const dias = DIAS.map((_, i) => sumarDias(desde, i))
-  const jorSem = dias.reduce((s, f) => s + jornada(f), 0)
+  // Los días que aún no llegan no cuentan para la jornada de la semana
+  const hoy = hoyCO()
+  const jorDia = (f) => (f > hoy ? 0 : jornada(f))
+  const jorSem = dias.reduce((s, f) => s + jorDia(f), 0)
   const ids = [...new Set([...personas.map((p) => p.id), ...datos.map((d) => d.persona_id)])]
   const info = (id) => personas.find((p) => p.id === id) || datos.find((d) => d.persona_id === id)
   const celda = (id, f) => { const d = datos.find((x) => x.persona_id === id && x.fecha === f); return d ? Number(d.min_tareas) + Number(d.min_paros) : 0 }
@@ -171,7 +174,7 @@ function Semana({ desde, datos, personas }) {
             <tr key={id}>
               <td><b>{p?.nombre}</b></td><td>{p?.area || '—'}</td>
               {dias.map((f) => {
-                const m = celda(id, f), j = jornada(f)
+                const m = celda(id, f), j = jorDia(f)
                 const [tono] = estado(m, j)
                 return <td key={f} className={`celda-h h-${tono}`}>{m ? fmtMin(m) : j ? '—' : ''}</td>
               })}
