@@ -24,16 +24,18 @@ export default function Indicadores({ perfil }) {
   const cargar = useCallback(async () => {
     try {
       const ini = `${desde}T00:00:00-05:00`
-      const [ordenes, pendientes, regs, paros, personas, horas, desv] = await Promise.all([
+      const [ordenes, pendientes, regs, paros, personas, horas, desv, maq, procMaq] = await Promise.all([
         q(sb.from('v_ordenes').select('*')),
-        q(sb.from('v_tareas').select('area, min_std, estado, bloqueada, op_estado').in('estado', ['pendiente', 'en_curso', 'pausada']).in('op_estado', ['borrador', 'en_planta']).neq('area', 'TERCEROS')),
-        q(sb.from('registros').select('inicio, minutos, cantidad, persona_id, tareas(area, tiempo_std_unit)').is('motivo_pausa', null).not('minutos', 'is', null).gte('inicio', ini)),
+        q(sb.from('v_tareas').select('area, min_std, estado, bloqueada, op_estado, es_maquina, proceso, min_maquina, min_maquina_real').in('estado', ['pendiente', 'en_curso', 'pausada']).in('op_estado', ['borrador', 'en_planta']).neq('area', 'TERCEROS')),
+        q(sb.from('registros').select('inicio, minutos, cantidad, persona_id, tareas(area, tiempo_std_unit, procesos(es_maquina))').is('motivo_pausa', null).not('minutos', 'is', null).gte('inicio', ini)),
         q(sb.from('paros').select('inicio, fin, minutos, persona_id, area, motivos_paro(descripcion)').gte('inicio', ini)),
         q(sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario')),
         q(sb.rpc('horas_personal', { p_desde: desde, p_hasta: hoy })),
         q(sb.from('v_estandar_producto').select('*')),
+        q(sb.rpc('horas_maquina', { p_desde: desde, p_hasta: hoy })),
+        q(sb.from('procesos').select('codigo, nombre').eq('es_maquina', true).order('codigo')),
       ])
-      setD({ ordenes, pendientes, regs: regs.filter((r) => r.tareas?.area !== 'TERCEROS'), paros, personas, horas, desv })
+      setD({ ordenes, pendientes, regs: regs.filter((r) => r.tareas?.area !== 'TERCEROS'), paros, personas, horas, desv, maq, procMaq })
       setError(''); setHora(new Date())
     } catch (e) { setError(e.message) }
   }, [desde, hoy])
@@ -76,6 +78,7 @@ function calcular(d, desde, hoy) {
   const ef = {}
   const efPersona = {}
   for (const r of d.regs) {
+    if (r.tareas?.procesos?.es_maquina) continue // en máquinas el operario no mide tiempo: no entran en la eficiencia
     const a = r.tareas?.area || 'OTRAS'
     const std = Number(r.cantidad || 0) * Number(r.tareas?.tiempo_std_unit || 0)
     for (const [obj, key] of [[ef, a], [efPersona, r.persona_id]]) {
@@ -95,6 +98,14 @@ function calcular(d, desde, hoy) {
     return { f, tareas: h.reduce((s, x) => s + Number(x.min_tareas), 0), paros: h.reduce((s, x) => s + Number(x.min_paros), 0) }
   })
   const minTareas = porDia.reduce((s, x) => s + x.tareas, 0), minParos = porDia.reduce((s, x) => s + x.paros, 0)
+
+  // Máquinas: horas pendientes (estándar) y horas trabajadas en el periodo frente a la jornada
+  const minHabiles = dias.reduce((s, f) => { const w = new Date(f + 'T12:00:00').getDay(); return s + (w === 5 ? 480 : w >= 1 && w <= 4 ? 510 : 0) }, 0)
+  const maquinas = d.procMaq.map((p) => {
+    const pend = d.pendientes.filter((t) => t.proceso === p.codigo).reduce((s, t) => s + Math.max(Number(t.min_maquina || 0) - Number(t.min_maquina_real || 0), 0), 0)
+    const hecho = d.maq.filter((x) => x.proceso === p.codigo).reduce((s, x) => s + Number(x.min_maquina || 0), 0)
+    return { ...p, pend, hecho, uso: minHabiles ? pct(hecho, minHabiles) : null }
+  })
 
   // Paros por motivo
   const motivos = {}
@@ -121,7 +132,7 @@ function calcular(d, desde, hoy) {
 
   return {
     activas: activas.length, sem, cerradas: cerradas.length, cumplidas, carga, efArea, efTotal: efTotal.conCant ? pct(efTotal.std, efTotal.conCant) : null,
-    porDia, minTareas, minParos, paros, personas, urgentes, desv,
+    porDia, minTareas, minParos, paros, personas, urgentes, desv, maquinas,
     pendienteTotal: carga.reduce((s, x) => s + x.min, 0),
   }
 }
@@ -163,6 +174,14 @@ function Tablero({ k }) {
               return { etiqueta: x.area, valor: v || 0, texto: v === null ? 'sin cantidades' : `${v}%`, extra: `${fmtMin(x.real)} reales`, color: C[tonoEf(v)] }
             })} vacio="Aún no hay registros con cantidad en el periodo." />
           <Leyenda items={[[C.bien, '90% o más'], [C.alerta, '75–89%'], [C.mal, 'Menos de 75%']]} />
+        </Panel>
+
+        <Panel titulo="Máquinas" sub="Horas de máquina pendientes y uso en el periodo (no son horas del personal)">
+          <BarrasH filas={k.maquinas.map((m) => ({
+            etiqueta: m.nombre, valor: m.pend / 60, texto: `${fmtNum(m.pend / 60, 1)} h pendientes`,
+            extra: `${fmtNum(m.hecho / 60, 1)} h trabajadas${m.uso !== null ? ` · uso ${m.uso}%` : ''}`, color: C.serie1,
+          }))} vacio="No hay trabajo de máquina pendiente." />
+          {k.maquinas.length > 0 && k.maquinas.every((m) => !m.pend) && <div className="tenue pequeño">{k.maquinas.map((m) => `${m.nombre.toLowerCase()}: ${fmtNum(m.hecho / 60, 1)} h trabajadas`).join(' · ')}</div>}
         </Panel>
 
         <Panel titulo="Horas registradas por día" sub="Tareas y paros de todo el personal" ancho>
@@ -215,7 +234,7 @@ function Tablero({ k }) {
           </table>
         </Panel>
       </div>
-      <p className="nota">Eficiencia: se calcula con los registros que tienen cantidad (minutos estándar de las unidades hechas ÷ minutos registrados). Los registros de "todo el proyecto" sin terminar no traen cantidad y no entran en la eficiencia. Días de carga: horas pendientes ÷ (personas del área × 8,5 h).</p>
+      <p className="nota">Eficiencia: se calcula con los registros que tienen cantidad (minutos estándar de las unidades hechas ÷ minutos registrados). Los registros de "todo el proyecto" sin terminar no traen cantidad y no entran en la eficiencia. Días de carga: horas pendientes ÷ (personas del área × 8,5 h). Los procesos de máquina no entran en la eficiencia: al operario se le abona el montaje estándar; las horas de máquina salen del rendimiento y el uso se compara con la jornada del periodo.</p>
     </>
   )
 }

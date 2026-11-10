@@ -87,6 +87,7 @@ const AYUDA = {
       ['Personas', 'Agrega operarios: aparecen en la tablet de su área para registrar su tiempo. Usa "Activo" para retirar a alguien sin borrar su historial.'],
       ['Productos y rutas', 'Crea o edita productos, familias y rutas. Cada proceso de la ruta lleva sus minutos para una unidad del tamaño de referencia. Un producto de terceros puede tener pasos previos en planta (ej. plantillas en Madera) antes del envío al proveedor.'],
       ['Procesos', 'Crea procesos nuevos (también de terceros, ej. Tapizado) y ajusta el tiempo del ensamble final.'],
+      ['Procesos de máquina', 'Imprimir, corte láser, corte plotter y DTF no llevan dificultad. Se configuran con rendimiento por hora, capacidad por montaje (área de la cama, rollo) y minutos de montaje y cambio de material. Al operario solo se le abona el montaje; las horas de máquina se llevan aparte.'],
       ['Dificultad', 'Multiplicadores de Baja, Media y Alta.'],
       ['Estándar real', 'Compara lo real con lo estándar por producto y área, y sugiere el nuevo valor. "Aplicar" lo actualiza.'],
     ],
@@ -100,6 +101,7 @@ const AYUDA = {
       ['Colores', 'Verde: bien · Amarillo: atención · Rojo: problema. Pasa el mouse sobre una barra para ver el detalle.'],
       ['Eficiencia', '100% = la planta produce al ritmo del estándar. Menos de 100% = tarda más de lo previsto.'],
       ['Carga por área', 'Horas estándar pendientes y cuántos días de trabajo son con el personal actual del área.'],
+      ['Máquinas', 'Horas de máquina pendientes y trabajadas en el periodo, con su uso frente a la jornada. No se suman a las horas del personal ni a la eficiencia.'],
       ['OPs que requieren atención', 'Toca una fila para abrir la OP.'],
     ],
     consejo: 'Úsalo en la reunión semanal: primero las OPs vencidas o en riesgo, luego el área con más días de carga y por último los paros más frecuentes.',
@@ -123,6 +125,7 @@ const AYUDA = {
       'Toca tu nombre.',
       'Escribe el tiempo que trabajaste (o toca un atajo: 30 min, 1 h, 2 h…) y cuántas unidades terminaste.',
       'Si la tarea quedó lista, toca "Guardar y terminé la tarea". Si la sigues después, "Guardar · sigo después".',
+      'Los procesos de máquina (imprimir, cortes, DTF) no llevan tiempo: toca "Marcar", tu nombre y luego "Avanzado" cuando quedó montado o "Listo" cuando terminó. El sistema te abona el tiempo de montaje y cambio de material.',
       'Si estuviste parado (reunión, falta de material, apoyo a instalaciones), toca "Registrar paro", elige el motivo y el tiempo.',
     ],
     puntos: [

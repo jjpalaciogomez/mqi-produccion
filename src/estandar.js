@@ -48,3 +48,25 @@ export function textoMedidas(medida, a, p, h) {
 
 export const ETIQUETA_MEDIDA = { CM2: 'Área (cm²)', CM3: 'Volumen (cm³)', UNIDAD: 'Por unidad' }
 export const esTerceros = (t) => t.area === 'TERCEROS'
+
+// ---------- Procesos de máquina ----------
+// Cantidad que pasa por la máquina en la unidad del proceso (M2 → m²; otra → unidades)
+export function cantProceso(proc, unidades, prod, dims) {
+  if (!proc) return null
+  if (String(proc.unidad || '').toUpperCase() !== 'M2') return unidades
+  const a = n(dims?.ancho), h = n(dims?.alto) ?? n(dims?.profundidad)
+  let cm2 = a && h ? a * h : null
+  if (!cm2 && prod) { const ra = n(prod.ref_ancho), rh = n(prod.ref_alto) ?? n(prod.ref_prof); cm2 = ra && rh ? ra * rh : null }
+  return cm2 ? (unidades * cm2) / 10000 : null
+}
+
+// Montajes (ciclos), minutos de máquina y minutos del operario
+export function calcMaquina(proc, cant) {
+  if (!proc || cant === null || cant === undefined) return null
+  const cap = n(proc.capacidad_ciclo)
+  const ciclos = Math.max(1, cap > 0 && cant > 0 ? Math.ceil(cant / cap - 1e-9) : 1)
+  const rend = n(proc.rendimiento)
+  return { ciclos, minMaquina: rend ? (cant / rend) * 60 : null, minOperario: ciclos * (n(proc.min_montaje) || 0) }
+}
+
+export const unidadProc = (u) => (String(u || '').toUpperCase() === 'M2' ? 'm²' : 'und')

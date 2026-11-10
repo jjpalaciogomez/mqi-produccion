@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { sb, q } from '../supabase.js'
-import { Aviso, Badge, Cargando, Modal, fmtNum } from '../ui.jsx'
+import { Aviso, Badge, Cargando, Modal, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
-import { ETIQUETA_MEDIDA, pasosPrincipales, textoMedidas } from '../estandar.js'
+import { ETIQUETA_MEDIDA, calcMaquina, pasosPrincipales, textoMedidas } from '../estandar.js'
 
 const AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
 const ROLES = { operario: 'Operario', direccion: 'Dirección', consulta: 'Consulta', admin: 'Administrador' }
@@ -114,13 +114,19 @@ function Productos() {
           {d.productos.map((p) => {
             const rs = d.rutas.filter((r) => r.producto === p.codigo)
             const areas = {}
-            for (const r of pasosPrincipales(rs)) { const a = procPor[r.proceso]?.area; areas[a] = (areas[a] || 0) + Number(r.min_ref || 0) }
+            const maq = new Set()
+            for (const r of pasosPrincipales(rs)) {
+              const a = procPor[r.proceso]?.area
+              if (procPor[r.proceso]?.es_maquina) { maq.add(procPor[r.proceso].nombre.toLowerCase()); areas[a] = areas[a] || 0; continue }
+              areas[a] = (areas[a] || 0) + Number(r.min_ref || 0)
+            }
             return (
               <tr key={p.codigo} className={p.activo ? '' : 'omitida'}>
                 <td><b>{p.codigo}</b> {p.nombre}<div className="tenue pequeño">{p.familia}{p.activo ? '' : ' · inactivo'}</div></td>
                 <td>{ETIQUETA_MEDIDA[p.medida]}<div className="tenue pequeño">{p.ref_descripcion || textoMedidas(p.medida, p.ref_ancho, p.ref_prof, p.ref_alto)}</div></td>
                 <td className="pequeño">{rutaTexto(rs, procPor) || <span className="tenue">sin ruta</span>}</td>
-                <td>{Object.entries(areas).map(([a, m]) => <div key={a} className="std-area"><span>{a}</span><b>{a === 'TERCEROS' ? `${fmtNum(m, 0)} días` : `${fmtNum(m, 0)} min`}</b></div>)}</td>
+                <td>{Object.entries(areas).map(([a, m]) => <div key={a} className="std-area"><span>{a}</span><b>{a === 'TERCEROS' ? `${fmtNum(m, 0)} días` : `${fmtNum(m, 0)} min`}</b></div>)}
+                  {maq.size > 0 && <div className="tenue pequeño">+ máquina: {[...maq].join(', ')}</div>}</td>
                 <td><button className="btn-link" onClick={() => setForm(p)}>Editar</button></td>
               </tr>
             )
@@ -231,7 +237,9 @@ function ProductoForm({ inicial, d, onClose, onSaved }) {
           <optgroup key={a} label={a}>{procPlanta.filter((x) => x.area === a).map((x) => <option key={x.codigo} value={x.codigo}>{x.codigo} · {x.nombre}</option>)}</optgroup>
         ))}
       </select>
-      <input className="input-cant" value={p.min_ref} onChange={(e) => setPaso(i, 'min_ref', e.target.value)} placeholder={procPor[p.proceso]?.area === 'TERCEROS' ? 'días' : 'min'} inputMode="decimal" />
+      {procPor[p.proceso]?.es_maquina
+        ? <span className="etq etq-maq" title="El tiempo sale del rendimiento de la máquina (Configuraciones › Procesos)">máquina</span>
+        : <input className="input-cant" value={p.min_ref} onChange={(e) => setPaso(i, 'min_ref', e.target.value)} placeholder={procPor[p.proceso]?.area === 'TERCEROS' ? 'días' : 'min'} inputMode="decimal" />}
       <label className="chk"><input type="checkbox" checked={!!p.opcional} onChange={(e) => setPaso(i, 'opcional', e.target.checked)} />opcional</label>
       {i > 0 && <label className="chk" title="Se hace este proceso o el anterior, no ambos"><input type="checkbox" checked={!!p.alt} onChange={(e) => setPaso(i, 'alt', e.target.checked)} />alternativa del anterior</label>}
       <span className="paso-btns">
@@ -350,10 +358,12 @@ function Procesos() {
         <label>Ensamble final de ítems multiárea (min por unidad, dificultad media)
           <input className="input-cant" defaultValue={ens?.tiempo_std_min} onBlur={(e) => guardarEns(e.target.value)} inputMode="decimal" /></label>
       </div>
+      <Maquinas procesos={d.procesos} onOk={(t) => { setOk(t); cargar() }} onError={setError} />
+      <h3 className="subt">Todos los procesos</h3>
       <table className="tabla">
         <thead><tr><th>Código</th><th>Área</th><th>Proceso</th><th>Usado en</th></tr></thead>
         <tbody>{d.procesos.map((p) => (
-          <tr key={p.codigo}><td><b>{p.codigo}</b></td><td>{p.area}</td><td>{p.nombre}</td>
+          <tr key={p.codigo}><td><b>{p.codigo}</b></td><td>{p.area}</td><td>{p.nombre}{p.es_maquina && <span className="etq etq-maq">máquina</span>}</td>
             <td className="tenue pequeño">{[...new Set(d.rutas.filter((r) => r.proceso === p.codigo).map((r) => r.producto))].join(', ') || '—'}</td></tr>
         ))}</tbody>
       </table>
@@ -363,6 +373,56 @@ function Procesos() {
         <label>Código<input value={nuevo.codigo} onChange={(e) => setNuevo({ ...nuevo, codigo: e.target.value })} placeholder={sugerir(nuevo.area)} /></label>
         <button className="btn">Agregar proceso</button>
       </form>
+    </div>
+  )
+}
+
+// Procesos de máquina: rendimiento, capacidad por ciclo (montaje) y minutos de montaje del operario
+function Maquinas({ procesos, onOk, onError }) {
+  const [agregar, setAgregar] = useState('')
+  const maq = procesos.filter((p) => p.es_maquina)
+  const otros = procesos.filter((p) => !p.es_maquina && !['TERCEROS'].includes(p.area) && p.codigo !== 'ENS-1')
+  const guardar = async (p, campo, v) => {
+    if (campo !== 'unidad') { v = num(v); if (v !== null && (isNaN(v) || v < 0)) return }
+    if (v === (campo === 'unidad' ? p.unidad : (p[campo] === null ? null : Number(p[campo])))) return
+    try { await q(sb.from('procesos').update({ [campo]: v }).eq('codigo', p.codigo)); onOk(`${p.nombre}: actualizado. Usa "Aplicar estándares a OPs abiertas" para llevarlo a las OPs en curso.`) }
+    catch (e) { onError(e.message) }
+  }
+  const marcar = async (codigo, si) => {
+    try { await q(sb.from('procesos').update({ es_maquina: si }).eq('codigo', codigo)); setAgregar(''); onOk(si ? 'Proceso marcado como de máquina. Completa su rendimiento.' : 'El proceso vuelve a medirse por tiempo del operario.') }
+    catch (e) { onError(e.message) }
+  }
+  const u = (p) => (String(p.unidad).toUpperCase() === 'M2' ? 'm²' : 'und')
+  return (
+    <div className="tarjeta">
+      <h3 className="subt" style={{ marginTop: 0 }}>Procesos de máquina</h3>
+      <p className="tenue pequeño">No llevan dificultad. El tiempo de máquina = cantidad ÷ rendimiento. Montajes = cantidad ÷ capacidad por montaje (área de la cama, rollo…), redondeado hacia arriba.
+        Al operario solo se le abonan los montajes × minutos de montaje; en la tablet los marca como avanzados o listos.</p>
+      <table className="tabla maq-tabla">
+        <thead><tr><th>Proceso</th><th>Se mide en</th><th>Rendimiento (por hora)</th><th>Capacidad por montaje</th><th>Montaje y cambio de material (min)</th><th>Ejemplo</th><th /></tr></thead>
+        <tbody>{maq.map((p) => {
+          const ej = String(p.unidad).toUpperCase() === 'M2' ? 8 : 100
+          const c = calcMaquina(p, ej)
+          return (
+            <tr key={p.codigo}>
+              <td><b>{p.codigo}</b> {p.nombre}</td>
+              <td><select defaultValue={String(p.unidad).toUpperCase() === 'M2' ? 'M2' : 'UND'} onChange={(e) => guardar(p, 'unidad', e.target.value)}><option value="M2">m²</option><option value="UND">unidades</option></select></td>
+              <td><input className="input-cant" defaultValue={p.rendimiento ?? ''} onBlur={(e) => guardar(p, 'rendimiento', e.target.value)} inputMode="decimal" /> {u(p)}/h</td>
+              <td><input className="input-cant" defaultValue={p.capacidad_ciclo ?? ''} onBlur={(e) => guardar(p, 'capacidad_ciclo', e.target.value)} inputMode="decimal" placeholder="todo" /> {u(p)}</td>
+              <td><input className="input-cant" defaultValue={p.min_montaje ?? ''} onBlur={(e) => guardar(p, 'min_montaje', e.target.value)} inputMode="decimal" /> min</td>
+              <td className="tenue pequeño">{ej} {u(p)} → {c.ciclos} {c.ciclos === 1 ? 'montaje' : 'montajes'} · operario {fmtMin(c.minOperario)} · máquina {c.minMaquina ? fmtMin(c.minMaquina) : '—'}</td>
+              <td><button className="btn-link peligro" onClick={() => marcar(p.codigo, false)}>Quitar</button></td>
+            </tr>
+          )
+        })}</tbody>
+      </table>
+      <div className="fila-form" style={{ marginTop: 8 }}>
+        <select value={agregar} onChange={(e) => setAgregar(e.target.value)}>
+          <option value="">Marcar otro proceso como de máquina…</option>
+          {otros.map((p) => <option key={p.codigo} value={p.codigo}>{p.codigo} · {p.nombre} ({p.area})</option>)}
+        </select>
+        <button className="btn btn-sec btn-sm" disabled={!agregar} onClick={() => marcar(agregar, true)}>Marcar</button>
+      </div>
     </div>
   )
 }
@@ -390,7 +450,7 @@ function Dificultad() {
     <div>
       <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
       <div style={{ float: 'right' }}><AplicarEstandares onOk={setOk} onError={setError} /></div>
-      <p className="tenue">El tiempo estándar del producto se multiplica por este valor según la dificultad que se elija al agregarlo a un ítem. Media es la predeterminada.</p>
+      <p className="tenue">El tiempo estándar del producto se multiplica por este valor según la dificultad que se elija al agregarlo a un ítem. Media es la predeterminada. No aplica a los procesos de máquina (imprimir, cortes, DTF): su tiempo sale del rendimiento de la máquina.</p>
       <table className="tabla tabla-dif">
         <thead><tr><th>Dificultad</th><th>Multiplicador</th><th>Efecto</th><th>Referencia o descripción (cuándo usar este nivel)</th></tr></thead>
         <tbody>{lista.map((d) => (

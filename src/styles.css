@@ -388,3 +388,11 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .barra-inline span { margin-left: 8px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
 .ind-num { font-weight: 800; } .t-bien.ind-num { color: #1d6b3d; } .t-alerta.ind-num { color: #8a5a00; } .t-mal.ind-num { color: #a12626; }
 @media (max-width: 900px) { .ind-grid { grid-template-columns: 1fr; } .bh-fila, .dv-fila { grid-template-columns: 90px 1fr 90px; } }
+
+/* Procesos de máquina */
+.etq-maq { background: #e6f0fb; color: #1f5fa8; }
+.fila-proceso.maquina { background: #f6f9fd; }
+.maq-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.maq-tabla input.input-cant { width: 80px; }
+.maq-tabla td { vertical-align: middle; }
+.subt { font-size: 15px; margin: 18px 0 8px; }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Modal, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
-import { DIF_NOMBRE, textoMedidas } from '../estandar.js'
+import { DIF_NOMBRE, calcMaquina, textoMedidas, unidadProc } from '../estandar.js'
 
 // Pantalla de la tablet de un área. Muestra las tareas de su área y de Pintura
 // (Pintura no tiene tablet propia). El operario toca su nombre y escribe cuánto trabajó.
@@ -19,6 +19,7 @@ export default function Tablet({ perfil }) {
   const [tareas, setTareas] = useState(null)
   const [personas, setPersonas] = useState([])
   const [motivos, setMotivos] = useState([])
+  const [maquinas, setMaquinas] = useState({})
   const [error, setError] = useState('')
   const [vista, setVista] = useState({ nivel: 'ops' }) // ops → op → item
   const [accion, setAccion] = useState(null) // {tipo: 'registrar'|'proyecto'|'paro'|'elegir', ...}
@@ -32,8 +33,9 @@ export default function Tablet({ perfil }) {
       if (areas) c = c.in('area', areas)
       let cp = sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre')
       if (areas) cp = cp.in('area', areas)
-      const [t, p, m] = await Promise.all([q(c), q(cp), q(sb.from('motivos_paro').select('*').order('codigo'))])
-      setTareas(t); setPersonas(p); setMotivos(m); setError('')
+      const [t, p, m, mq] = await Promise.all([q(c), q(cp), q(sb.from('motivos_paro').select('*').order('codigo')),
+        q(sb.from('procesos').select('codigo, nombre, unidad, rendimiento, capacidad_ciclo, min_montaje').eq('es_maquina', true))])
+      setTareas(t); setPersonas(p); setMotivos(m); setMaquinas(Object.fromEntries(mq.map((x) => [x.codigo, x]))); setError('')
     } catch (e) { setError(`Sin conexión con el sistema: ${e.message}`) }
   }, [area]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -114,8 +116,9 @@ export default function Tablet({ perfil }) {
       {vista.nivel === 'item' && item && (
         <section>
           <h2 className="tablet-h2 item-tit"><small>Ítem {item.numero}</small>{item.descripcion}</h2>
-          <p className="tenue">Toca "Registrar" en el proceso en el que trabajaste.</p>
-          <ListaProcesos ts={item.tareas} onRegistrar={(t) => setAccion({ tipo: 'registrar', tarea: t })} />
+          <p className="tenue">Toca "Registrar" en el proceso en el que trabajaste. Los procesos de máquina solo se marcan como avanzados o listos.</p>
+          <ListaProcesos ts={item.tareas} onRegistrar={(t) => setAccion({ tipo: 'registrar', tarea: t })}
+            onMaquina={(t) => setAccion({ tipo: 'maquina', lista: [t], nombre: t.proceso_nombre, proceso: t.proceso })} />
         </section>
       )}
 
@@ -125,9 +128,15 @@ export default function Tablet({ perfil }) {
       </footer>
 
       {accion?.tipo === 'elegir' && (
-        <ElegirProceso op={accion.op} onClose={() => setAccion(null)} onElegir={(proceso, lista) => setAccion({ tipo: 'proyecto', op: accion.op, proceso, lista })} />
+        <ElegirProceso op={accion.op} onClose={() => setAccion(null)} onElegir={(proceso, lista) => setAccion(
+          lista[0]?.es_maquina ? { tipo: 'maquina', lista, nombre: proceso.nombre, proceso: proceso.proceso, op: accion.op }
+            : { tipo: 'proyecto', op: accion.op, proceso, lista })} />
       )}
-      {accion && accion.tipo !== 'elegir' && (
+      {accion?.tipo === 'maquina' && (
+        <FlujoMaquina accion={accion} maquina={maquinas[accion.proceso]} personas={personas} onClose={() => setAccion(null)}
+          onHecho={(texto) => { setAccion(null); setMsg(texto); cargar() }} />
+      )}
+      {accion && !['elegir', 'maquina'].includes(accion.tipo) && (
         <FlujoRegistro accion={accion} personas={personas} motivos={motivos}
           onClose={() => setAccion(null)}
           onHecho={(texto) => { setAccion(null); setMsg(texto); cargar() }} />
@@ -162,7 +171,7 @@ function TarjetaGrupo({ titulo, sup, sub, ts, onClick, grande }) {
   )
 }
 
-function ListaProcesos({ ts, onRegistrar }) {
+function ListaProcesos({ ts, onRegistrar, onMaquina }) {
   const grupos = {}
   for (const t of ts) (grupos[t.componente_id || 'ens'] ||= []).push(t)
   return Object.entries(grupos).map(([k, lista]) => {
@@ -178,7 +187,16 @@ function ListaProcesos({ ts, onRegistrar }) {
           const hecha = t.estado === 'terminada'
           const espera = t.estado === 'pendiente' && t.bloqueada
           return (
-            <div key={t.id} className={`fila-proceso${hecha ? ' hecha' : ''}${espera ? ' espera' : ''}`}>
+            <div key={t.id} className={`fila-proceso${hecha ? ' hecha' : ''}${espera ? ' espera' : ''}${t.es_maquina ? ' maquina' : ''}`}>
+              {t.es_maquina ? (
+                <div>
+                  <div className="tarea-proceso">{hecha ? '✓ ' : t.estado === 'en_curso' ? '◐ ' : '☐ '}{t.proceso_nombre} <span className="etq etq-maq">máquina</span></div>
+                  <div className="tarea-det">
+                    {fmtNum(t.cant_proceso, 2)} {unidadProc(t.unidad_proceso)} · {t.ciclos} {t.ciclos === 1 ? 'montaje' : 'montajes'}
+                    {t.estado === 'en_curso' && ' · avanzado'}{hecha && ' · listo'}{espera && ' · espera el paso anterior'}
+                  </div>
+                </div>
+              ) : (
               <div>
                 <div className="tarea-proceso">{hecha ? '✓ ' : ''}{t.proceso_nombre}{t.area === 'PINTURA' ? ' · Pintura' : ''}</div>
                 <div className="tarea-det">
@@ -187,7 +205,10 @@ function ListaProcesos({ ts, onRegistrar }) {
                   {espera && ' · espera el paso anterior'}
                 </div>
               </div>
-              {!hecha && !espera && <button className="btn btn-grande" onClick={() => onRegistrar(t)}>Registrar</button>}
+              )}
+              {!hecha && !espera && (t.es_maquina
+                ? <button className="btn btn-grande btn-sec" onClick={() => onMaquina(t)}>Marcar</button>
+                : <button className="btn btn-grande" onClick={() => onRegistrar(t)}>Registrar</button>)}
             </div>
           )
         })}
@@ -212,7 +233,7 @@ function ElegirProceso({ op, onClose, onElegir }) {
         <div className="personas">
           {procesos.map((p) => (
             <button key={p.proceso} className="persona" onClick={() => onElegir(p, p.lista)}>
-              {p.nombre}<span>{p.area} · {p.lista.length} {p.lista.length === 1 ? 'tarea' : 'tareas'}</span>
+              {p.nombre}<span>{p.area} · {p.lista.length} {p.lista.length === 1 ? 'tarea' : 'tareas'}{p.lista[0].es_maquina ? ' · máquina' : ''}</span>
             </button>
           ))}
         </div>
@@ -222,6 +243,60 @@ function ElegirProceso({ op, onClose, onElegir }) {
 }
 
 const und = (u) => (u === 'UND' ? 'und' : u)
+
+// Procesos de máquina: no se escribe tiempo; se marca avanzado o listo y se abona el montaje al operario
+function FlujoMaquina({ accion, maquina, personas, onClose, onHecho }) {
+  const { lista } = accion
+  const [persona, setPersona] = useState(null)
+  const [error, setError] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const cant = lista.reduce((s, t) => s + Number(t.cant_proceso || 0), 0)
+  const calc = calcMaquina(maquina, cant)
+  const ya = lista.reduce((s, t) => s + Number(t.min_reales || 0), 0)
+  const abonoListo = Math.max((calc?.minOperario || 0) - ya, 0)
+  const abonoAvance = Math.max(Number(maquina?.min_montaje || 0) - ya, 0)
+  const avanzado = lista.every((t) => t.estado === 'en_curso')
+  const marcar = async (listo) => {
+    setEnviando(true); setError('')
+    const r = await sb.rpc('marcar_maquina', { p_tareas: lista.map((t) => t.id), p_persona: persona.id, p_listo: listo })
+    setEnviando(false)
+    const fallo = r.error?.message || r.data
+    if (fallo) { setError(fallo); return }
+    onHecho(`${accion.nombre} ${listo ? 'listo' : 'avanzado'}${lista.length > 1 ? ' en todo el proyecto' : ''} · ${persona.nombre.split(' ')[0]}`)
+  }
+  return (
+    <Modal titulo={`${accion.nombre} · proceso de máquina`} onClose={onClose} ancho={600}>
+      {lista.length === 1
+        ? <p className="tenue">OP {lista[0].op_numero} · Ítem {lista[0].item_numero} · {lista[0].producto_nombre}</p>
+        : <div className="tenue">OP {accion.op?.numero} · todo el proyecto:
+            <ul className="lista-reparto">{lista.map((t) => <li key={t.id}>Ítem {t.item_numero} · {t.producto_nombre} · {fmtNum(t.cant_proceso, 2)} {unidadProc(t.unidad_proceso)}</li>)}</ul></div>}
+      <div className="hoy">
+        {fmtNum(cant, 2)} {unidadProc(lista[0]?.unidad_proceso)} · {calc?.ciclos ?? '—'} {calc?.ciclos === 1 ? 'montaje' : 'montajes'} · máquina {calc?.minMaquina ? fmtMin(calc.minMaquina) : '—'}
+      </div>
+      <p className="tenue">Aquí no se escribe tiempo. Al marcarlo se te abona el tiempo de montaje y cambio de material.</p>
+      {!persona ? (
+        <div>
+          <p className="paso-tit">¿Quién lo hizo?</p>
+          <div className="personas">
+            {personas.map((p) => <button key={p.id} className="persona" onClick={() => setPersona(p)}>{p.nombre}<span>{p.area}</span></button>)}
+            {personas.length === 0 && <p>No hay personas para esta tablet.</p>}
+          </div>
+        </div>
+      ) : (
+        <div className="form">
+          <div className="quien"><b>{persona.nombre}</b><button className="btn-link" onClick={() => setPersona(null)}>Cambiar</button></div>
+          <Aviso>{error}</Aviso>
+          <div className="acciones acciones-registro">
+            {!avanzado && <button className="btn btn-sec btn-grande" disabled={enviando} onClick={() => marcar(false)}>
+              Avanzado · ya está montado{abonoAvance > 0 ? ` (+${fmtMin(abonoAvance)})` : ''}</button>}
+            <button className="btn btn-ok btn-grande" disabled={enviando} onClick={() => marcar(true)}>
+              Listo{lista.length > 1 ? ' en todo el proyecto' : ''}{abonoListo > 0 ? ` (+${fmtMin(abonoListo)})` : ''}</button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 const ATAJOS = [15, 30, 60, 90, 120, 180, 240, 480]
 

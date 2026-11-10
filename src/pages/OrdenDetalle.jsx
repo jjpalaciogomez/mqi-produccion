@@ -3,7 +3,7 @@ import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, EstadoTarea, Modal, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import Mapa from './Mapa.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
-import { AREAS_PLANTA, DIF_NOMBRE, ETIQUETA_MEDIDA, esTerceros, pasosPrincipales, stdPaso, textoMedidas } from '../estandar.js'
+import { AREAS_PLANTA, DIF_NOMBRE, ETIQUETA_MEDIDA, calcMaquina, cantProceso, esTerceros, pasosPrincipales, stdPaso, textoMedidas, unidadProc } from '../estandar.js'
 
 
 export default function OrdenDetalle({ id, perfil, gestor }) {
@@ -20,7 +20,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         q(sb.from('componentes').select('*, items!inner(orden_id)').eq('items.orden_id', id)),
         q(sb.from('v_tareas').select('*').eq('orden_id', id).order('paso').order('creado')),
         q(sb.from('productos').select('*').order('codigo')),
-        q(sb.from('rutas').select('*, procesos(nombre, area)').order('paso').order('id')),
+        q(sb.from('rutas').select('*, procesos(nombre, area, unidad, es_maquina, rendimiento, capacidad_ciclo, min_montaje)').order('paso').order('id')),
         q(sb.from('dificultades').select('*').order('orden')),
       ])
       if (!orden) { setError('No se encontró la OP.'); return }
@@ -231,16 +231,19 @@ function TablaTareas({ tareas, gestor, perfil, accion }) {
           return [
           <tr key={t.id} className={t.estado === 'omitida' ? 'omitida' : ''}>
             <td className="centrado">{t.paso === 999 ? 'Final' : t.paso}</td>
-            <td>{t.proceso && <b>{t.proceso} </b>}{t.proceso_nombre}{t.opcional && <span className="etq">opcional</span>}{t.alternativa && <span className="etq">alternativa</span>}</td>
+            <td>{t.proceso && <b>{t.proceso} </b>}{t.proceso_nombre}{t.es_maquina && <span className="etq etq-maq">máquina</span>}{t.opcional && <span className="etq">opcional</span>}{t.alternativa && <span className="etq">alternativa</span>}</td>
             <td>{t.area}</td>
             <td className="celda-cant">
               {t.estado !== 'terminada' && Number(t.cantidad_registrada) > 0 ? `${fmtNum(t.cantidad_registrada, 2)} de ${fmtNum(t.cantidad, 2)}` : fmtNum(t.cantidad_hecha ?? t.cantidad, 2)}
               <span className="unidad">und</span>
             </td>
             <td>{esTerceros(t) ? `${fmtNum(t.tiempo_std_unit, 0)} días`
+              : t.es_maquina ? (t.tiempo_std_unit !== null ? <>{fmtMin(t.min_std)} <span className="tenue pequeño">operario · {t.ciclos} {t.ciclos === 1 ? 'montaje' : 'montajes'}</span>
+                <div className="pequeño">⚙ {t.min_maquina !== null ? fmtMin(t.min_maquina) : '—'} máquina · {fmtNum(t.cant_proceso, 2)} {unidadProc(t.unidad_proceso)}</div></> : <span className="tenue">faltan medidas</span>)
               : t.tiempo_std_unit !== null ? <>{fmtMin(t.min_std)}{Number(t.cantidad) > 1 && <span className="tenue pequeño"> ({fmtMin(t.tiempo_std_unit)} c/u)</span>}</>
               : <span className="tenue">{t.componente_id ? 'faltan medidas' : 'sin estándar'}</span>}</td>
-            <td>{Number(t.min_reales) > 0 ? (esTerceros(t) ? `${fmtNum(Number(t.min_reales) / 1440, 1)} días` : fmtMin(t.min_reales)) : '—'}</td>
+            <td>{Number(t.min_reales) > 0 ? (esTerceros(t) ? `${fmtNum(Number(t.min_reales) / 1440, 1)} días` : fmtMin(t.min_reales)) : '—'}
+              {t.es_maquina && Number(t.min_maquina_real) > 0 && <div className="pequeño">⚙ {fmtMin(t.min_maquina_real)}</div>}</td>
             <td className="tenue pequeño">{t.personas || ''}</td>
             <td><EstadoTarea estado={t.estado} bloqueada={t.bloqueada} /></td>
             {gestor && (
@@ -325,13 +328,19 @@ function FormComponente({ item, productos, rutas, difs, inicial, onClose, accion
     const g = {}
     for (const r of pasosPrincipales(pasos)) {
       const area = r.procesos?.area
-      const u = stdPaso(prod, r, area, f, mult)
-      const x = (g[area] ||= { area, min: 0, falta: false, procesos: [] })
+      const x = (g[area] ||= { area, min: 0, maq: 0, falta: false, procesos: [] })
       x.procesos.push(r.procesos?.nombre?.toLowerCase())
+      if (r.procesos?.es_maquina) {
+        // Máquina: sin dificultad; el operario solo pone los montajes
+        const m = calcMaquina(r.procesos, cantProceso(r.procesos, unidades, prod, f))
+        if (!m || !unidades) x.falta = true; else { x.min += m.minOperario / unidades; x.maq += m.minMaquina || 0 }
+        continue
+      }
+      const u = stdPaso(prod, r, area, f, mult)
       if (u === null) x.falta = true; else x.min += u
     }
     return Object.values(g)
-  }, [pasos, prod, f, mult])
+  }, [pasos, prod, f, mult, unidades])
   const num = (v) => (v === '' || v === null ? null : Number(String(v).replace(',', '.')))
 
   const guardar = (e) => {
@@ -386,6 +395,9 @@ function FormComponente({ item, productos, rutas, difs, inicial, onClose, accion
         <p className="nota">Dificultad {difs.find((d) => d.nivel === f.dificultad).nombre.toLowerCase()}: {difs.find((d) => d.nivel === f.dificultad).descripcion}</p>
       )}
 
+      {prod && pasos.some((r) => r.procesos?.es_maquina) && (
+        <p className="nota">La dificultad no aplica a los procesos de máquina ({pasos.filter((r) => r.procesos?.es_maquina).map((r) => r.procesos.nombre.toLowerCase()).join(', ')}): su tiempo sale del rendimiento de la máquina.</p>
+      )}
       {prod && (
         <div className="previa-std">
           <div className="tenue pequeño">{ETIQUETA_MEDIDA[prod.medida]} · referencia: {prod.ref_descripcion || '—'} · total {fmtNum(unidades, 2)} und</div>
@@ -394,7 +406,7 @@ function FormComponente({ item, productos, rutas, difs, inicial, onClose, accion
               {porArea.map((a) => (
                 <li key={a.area}><b>{a.area}</b>: {a.area === 'TERCEROS' ? `${fmtNum(a.min, 0)} días`
                   : a.falta ? <span className="tenue">escribe las medidas</span>
-                  : <>{fmtMin(a.min)} c/u · <b>{fmtMin(a.min * unidades)}</b></>}
+                  : <>{fmtMin(a.min)} c/u · <b>{fmtMin(a.min * unidades)}</b>{a.maq > 0 && <> · máquina <b>{fmtMin(a.maq)}</b></>}</>}
                   <span className="tenue pequeño"> ({a.procesos.join(', ')})</span></li>
               ))}
             </ul>
