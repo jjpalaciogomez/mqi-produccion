@@ -396,3 +396,8 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .maq-tabla input.input-cant { width: 80px; }
 .maq-tabla td { vertical-align: middle; }
 .subt { font-size: 15px; margin: 18px 0 8px; }
+.ens-bloque + .ens-bloque { border-top: 1px dashed #e9cf7a; }
+.ens-sub { padding: 8px 12px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ens-ctrl input.ens-det { padding: 3px 6px; font-size: 12px; width: 220px; }
+.tabla-usuarios input, .tabla-usuarios select { padding: 4px 6px; font-size: 13px; max-width: 190px; }
+.permisos-ayuda { display: grid; gap: 4px; font-size: 13px; margin-top: 10px; }

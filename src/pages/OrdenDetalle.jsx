@@ -115,7 +115,7 @@ function Estructura({ d, gestor, perfil, recargar, setError }) {
 function Item({ it, cs, tareas, prodPorCod, productos, rutas, difs, gestor, perfil, accion, setError }) {
   const [editando, setEditando] = useState(false)
   const [moviendo, setMoviendo] = useState(false)
-  const ens = tareas.find((t) => !t.componente_id)
+  const ensList = tareas.filter((t) => !t.componente_id)
   const sincronizar = () => q(sb.rpc('sincronizar_item', { p_item: it.id }))
   const iniciado = tareas.some((t) => ['en_curso', 'pausada', 'terminada'].includes(t.estado))
 
@@ -141,32 +141,68 @@ function Item({ it, cs, tareas, prodPorCod, productos, rutas, difs, gestor, perf
           productos={productos} rutas={rutas} difs={difs} gestor={gestor} perfil={perfil} accion={accion} sincronizar={sincronizar} />
       ))}
 
-      {ens && (
+      {ensList.length > 0 && (
         <div className="componente ensamble">
           <div className="comp-cab">
-            <b>Ensamble final</b><span className="tenue"> · el ítem lleva productos de varias familias; empieza cuando terminan todos</span>
-            {gestor && ens.estado !== 'terminada' ? (
-              <span className="ens-ctrl">
-                <label>Área
-                  <select value={it.area_ensamble || ''} onChange={(e) => accion(async () => { await q(sb.from('items').update({ area_ensamble: e.target.value }).eq('id', it.id)); await sincronizar() })}>
-                    {AREAS_PLANTA.filter((a) => a !== 'PINTURA').map((a) => <option key={a}>{a}</option>)}
-                  </select>
-                </label>
-                <label>Dificultad
-                  <select value={it.dificultad_ensamble} onChange={(e) => accion(async () => { await q(sb.from('items').update({ dificultad_ensamble: e.target.value }).eq('id', it.id)); await sincronizar() })}>
-                    {difs.map((d) => <option key={d.nivel} value={d.nivel}>{d.nombre} (×{fmtNum(d.multiplicador, 2)})</option>)}
-                  </select>
-                </label>
-              </span>
-            ) : <span className={`etq dif-${it.dificultad_ensamble}`}>Dificultad {DIF_NOMBRE[it.dificultad_ensamble]?.toLowerCase()}</span>}
+            <b>Ensambles finales</b><span className="tenue"> · el ítem lleva productos de varias familias; empiezan cuando terminan todos. Cada área que ensambla tiene su propio paso y su propio tiempo.</span>
+            {gestor && <AgregarEnsamble it={it} usadas={ensList.map((e) => e.area)} accion={accion} sincronizar={sincronizar} />}
           </div>
-          <TablaTareas tareas={[ens]} gestor={gestor} perfil={perfil} accion={accion} />
+          {ensList.map((ens) => (
+            <div key={ens.id} className="ens-bloque">
+              <div className="ens-sub">
+                <b>{ens.area}</b>
+                {gestor && ens.ensamble_id && ens.estado !== 'terminada' ? (
+                  <span className="ens-ctrl">
+                    <label>Área
+                      <select value={ens.area} onChange={(e) => accion(async () => { await q(sb.from('ensambles').update({ area: e.target.value }).eq('id', ens.ensamble_id)); await sincronizar() })}>
+                        {AREAS_PLANTA.filter((a) => a !== 'PINTURA' && (a === ens.area || !ensList.some((x) => x.area === a))).map((a) => <option key={a}>{a}</option>)}
+                      </select>
+                    </label>
+                    <label>Dificultad
+                      <select value={ens.dificultad_ensamble || 'MEDIO'} onChange={(e) => accion(async () => { await q(sb.from('ensambles').update({ dificultad: e.target.value }).eq('id', ens.ensamble_id)); await sincronizar() })}>
+                        {difs.map((d) => <option key={d.nivel} value={d.nivel}>{d.nombre} (×{fmtNum(d.multiplicador, 2)})</option>)}
+                      </select>
+                    </label>
+                    <label>Qué se ensambla
+                      <input className="ens-det" defaultValue={ens.componente_detalle || ''} placeholder="Ej. pegar adhesivo en la tapa"
+                        onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== (ens.componente_detalle || null)) accion(() => q(sb.from('ensambles').update({ descripcion: v }).eq('id', ens.ensamble_id))) }} />
+                    </label>
+                    {ensList.length > 1 && ens.estado === 'pendiente' && (
+                      <button className="btn-link peligro" onClick={() => accion(async () => { await q(sb.from('ensambles').delete().eq('id', ens.ensamble_id)); await sincronizar() })}>Quitar</button>
+                    )}
+                  </span>
+                ) : <>
+                  <span className={`etq dif-${ens.dificultad_ensamble}`}>Dificultad {DIF_NOMBRE[ens.dificultad_ensamble]?.toLowerCase()}</span>
+                  {ens.componente_detalle && <span className="tenue"> · {ens.componente_detalle}</span>}
+                </>}
+              </div>
+              <TablaTareas tareas={[ens]} gestor={gestor} perfil={perfil} accion={accion} />
+            </div>
+          ))}
         </div>
       )}
 
       {moviendo && <MoverItem it={it} onClose={() => setMoviendo(false)} accion={accion} />}
       {gestor && <AgregarComponente item={it} productos={productos} rutas={rutas} difs={difs} accion={accion} sincronizar={sincronizar} />}
     </section>
+  )
+}
+
+// Agrega otro ensamble final hecho por otra área (ej. Gran Formato pega el adhesivo después de que Madera arma)
+function AgregarEnsamble({ it, usadas, accion, sincronizar }) {
+  const libres = AREAS_PLANTA.filter((a) => a !== 'PINTURA' && !usadas.includes(a))
+  const [area, setArea] = useState('')
+  if (!libres.length) return null
+  return (
+    <span className="ens-ctrl">
+      <select value={area} onChange={(e) => setArea(e.target.value)}>
+        <option value="">+ Otro ensamble de…</option>
+        {libres.map((a) => <option key={a}>{a}</option>)}
+      </select>
+      {area && <button className="btn btn-sm" onClick={() => accion(async () => {
+        await q(sb.from('ensambles').insert({ item_id: it.id, area, dificultad: 'MEDIO' })); await sincronizar(); setArea('')
+      })}>Agregar</button>}
+    </span>
   )
 }
 

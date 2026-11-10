@@ -13,15 +13,124 @@ export default function Catalogos({ perfil }) {
     <div>
       <div className="titulo-pagina"><h1>Configuraciones</h1><BotonAyuda clave="catalogos" rol={perfil?.rol} /></div>
       <div className="segmentado pestañas">
-        {[['personas', 'Personas'], ['productos', 'Productos y rutas'], ['procesos', 'Procesos'], ['dificultad', 'Dificultad'], ['real', 'Estándar real']].map(([k, t]) => (
+        {[...(perfil?.rol === 'admin' ? [['usuarios', 'Usuarios']] : []), ['personas', 'Personas'], ['productos', 'Productos y rutas'], ['procesos', 'Procesos'], ['dificultad', 'Dificultad'], ['real', 'Estándar real']].map(([k, t]) => (
           <button key={k} className={tab === k ? 'sel' : ''} onClick={() => setTab(k)}>{t}</button>
         ))}
       </div>
+      {tab === 'usuarios' && <Usuarios perfil={perfil} />}
       {tab === 'personas' && <Personas />}
       {tab === 'productos' && <Productos />}
       {tab === 'procesos' && <Procesos />}
       {tab === 'dificultad' && <Dificultad />}
       {tab === 'real' && <EstandarReal />}
+    </div>
+  )
+}
+
+// ---------- Usuarios de la app (solo Administrador) ----------
+const PERMISOS = {
+  admin: ['Administrador', 'Todo: OPs, configuraciones, usuarios, indicadores y corrección de registros'],
+  direccion: ['Dirección', 'Todo lo de producción (OPs, configuraciones, indicadores, horas y correcciones), sin manejar usuarios'],
+  consulta: ['Consulta', 'Solo ve el tablero de planta y el detalle de las OPs; no cambia nada'],
+  tablet: ['Tablet', 'Pantalla de registro de un área para los operarios'],
+}
+async function usuarios(body) {
+  const { data, error } = await sb.functions.invoke('usuarios', { body })
+  if (error) {
+    let m = error.message
+    try { m = (await error.context.json()).error || m } catch { /* sin detalle */ }
+    throw new Error(m)
+  }
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
+function Usuarios({ perfil }) {
+  const [lista, setLista] = useState(null)
+  const [personas, setPersonas] = useState([])
+  const [error, setError] = useState('')
+  const [ok, setOk] = useState('')
+  const [edit, setEdit] = useState({})
+  const [clave, setClave] = useState(null) // usuario al que se le cambia la contraseña
+  const [nuevo, setNuevo] = useState({ email: '', nombre: '', rol: 'consulta', area: 'METAL', password: '' })
+  const [ocupado, setOcupado] = useState(false)
+  const cargar = useCallback(async () => {
+    try {
+      const [u, p] = await Promise.all([usuarios({ accion: 'listar' }), q(sb.from('personas').select('id, nombre, area').eq('activo', true).order('nombre'))])
+      setLista(u.sort((a, b) => String(a.email).localeCompare(String(b.email)))); setPersonas(p); setError('')
+    } catch (e) { setError(e.message) }
+  }, [])
+  useEffect(() => { cargar() }, [cargar])
+  const hacer = async (fn, texto) => {
+    setOcupado(true); setError(''); setOk('')
+    try { await fn(); setOk(texto); await cargar(); return true } catch (e) { setError(e.message); return false } finally { setOcupado(false) }
+  }
+  const val = (u, k) => (edit[u.id]?.[k] !== undefined ? edit[u.id][k] : u[k])
+  const setE = (u, k, v) => setEdit({ ...edit, [u.id]: { ...edit[u.id], [k]: v } })
+  const crear = (e) => {
+    e.preventDefault()
+    hacer(() => usuarios({ accion: 'crear', ...nuevo }), `Usuario ${nuevo.email} creado. Ya puede entrar con su correo y la contraseña que escribiste.`)
+      .then((b) => b && setNuevo({ ...nuevo, email: '', nombre: '', password: '' }))
+  }
+  if (!lista) return <><Aviso>{error}</Aviso>{!error && <Cargando />}</>
+  return (
+    <div>
+      <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
+      <p className="tenue">Cuentas para entrar a la app. El permiso decide qué puede ver y hacer cada una. Los operarios no necesitan usuario: registran desde la tablet de su área (se manejan en Personas).</p>
+      <table className="tabla tabla-usuarios">
+        <thead><tr><th>Correo</th><th>Nombre</th><th>Permiso</th><th>Área (tablet)</th><th>Persona vinculada</th><th>Último ingreso</th><th /></tr></thead>
+        <tbody>{lista.map((u) => {
+          const cambio = !!edit[u.id]
+          const yo = u.id === perfil?.user_id
+          return (
+            <tr key={u.id}>
+              <td><b>{u.email}</b>{yo && <span className="etq">tú</span>}</td>
+              <td><input value={val(u, 'nombre') || ''} onChange={(e) => setE(u, 'nombre', e.target.value)} placeholder="Nombre" /></td>
+              <td><select value={val(u, 'rol') || ''} onChange={(e) => setE(u, 'rol', e.target.value)}>
+                {!u.rol && <option value="">Sin permiso</option>}
+                {Object.entries(PERMISOS).map(([k, [t]]) => <option key={k} value={k}>{t}</option>)}
+              </select></td>
+              <td>{val(u, 'rol') === 'tablet'
+                ? <select value={val(u, 'area') || ''} onChange={(e) => setE(u, 'area', e.target.value)}><option value="">Todas</option>{AREAS.map((a) => <option key={a}>{a}</option>)}</select>
+                : <span className="tenue">—</span>}</td>
+              <td>{['admin', 'direccion'].includes(val(u, 'rol'))
+                ? <select value={val(u, 'persona_id') || ''} onChange={(e) => setE(u, 'persona_id', e.target.value)}><option value="">—</option>{personas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select>
+                : <span className="tenue">—</span>}</td>
+              <td className="tenue pequeño">{u.ultimo_ingreso ? new Date(u.ultimo_ingreso).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }) : 'nunca'}</td>
+              <td className="acciones-fila">
+                {cambio && <button className="btn btn-sm" disabled={ocupado} onClick={() => hacer(() => usuarios({ accion: 'permisos', id: u.id, rol: val(u, 'rol'), nombre: val(u, 'nombre'), area: val(u, 'area'), persona_id: val(u, 'persona_id') }), `Permisos de ${u.email} guardados. Se aplican la próxima vez que abra la app.`).then((b) => b && setEdit({ ...edit, [u.id]: undefined }))}>Guardar</button>}
+                <button className="btn-link" onClick={() => setClave({ u, password: '' })}>Contraseña</button>
+                {!yo && <button className="btn-link peligro" disabled={ocupado} onClick={() => {
+                  if (!window.confirm(`¿Eliminar el usuario ${u.email}? Ya no podrá entrar a la app. Esto no borra OPs ni registros.`)) return
+                  hacer(() => usuarios({ accion: 'eliminar', id: u.id }), `Usuario ${u.email} eliminado.`)
+                }}>Eliminar</button>}
+              </td>
+            </tr>
+          )
+        })}</tbody>
+      </table>
+
+      <form className="tarjeta form fila-form" onSubmit={crear} autoComplete="off">
+        <label>Correo<input type="email" value={nuevo.email} onChange={(e) => setNuevo({ ...nuevo, email: e.target.value })} required autoComplete="off" /></label>
+        <label>Nombre<input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Ej. Gerencia" /></label>
+        <label>Permiso<select value={nuevo.rol} onChange={(e) => setNuevo({ ...nuevo, rol: e.target.value })}>{Object.entries(PERMISOS).map(([k, [t]]) => <option key={k} value={k}>{t}</option>)}</select></label>
+        {nuevo.rol === 'tablet' && <label>Área<select value={nuevo.area} onChange={(e) => setNuevo({ ...nuevo, area: e.target.value })}>{AREAS.map((a) => <option key={a}>{a}</option>)}</select></label>}
+        <label>Contraseña (mín. 8)<input type="password" value={nuevo.password} onChange={(e) => setNuevo({ ...nuevo, password: e.target.value })} required minLength={8} autoComplete="new-password" /></label>
+        <button className="btn" disabled={ocupado}>Crear usuario</button>
+      </form>
+
+      <div className="tarjeta permisos-ayuda">
+        {Object.entries(PERMISOS).map(([k, [t, d]]) => <div key={k}><b>{t}</b>: <span className="tenue">{d}</span></div>)}
+      </div>
+
+      {clave && (
+        <Modal titulo={`Nueva contraseña · ${clave.u.email}`} onClose={() => setClave(null)} ancho={460}>
+          <form className="form" onSubmit={(e) => { e.preventDefault(); hacer(() => usuarios({ accion: 'clave', id: clave.u.id, password: clave.password }), `Contraseña de ${clave.u.email} cambiada.`).then((b) => b && setClave(null)) }}>
+            <label>Nueva contraseña (mín. 8 caracteres)<input type="password" value={clave.password} onChange={(e) => setClave({ ...clave, password: e.target.value })} required minLength={8} autoComplete="new-password" autoFocus /></label>
+            <div className="acciones"><button type="button" className="btn btn-sec" onClick={() => setClave(null)}>Cancelar</button><button className="btn" disabled={ocupado}>Guardar</button></div>
+          </form>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -183,7 +292,7 @@ function ProductoForm({ inicial, d, onClose, onSaved }) {
     const fam = v === '__nueva' ? f.familiaNueva.trim().toUpperCase() : v
     setF({ ...f, familia: v, codigo: inicial ? f.codigo : fam ? sugerirCodigo(fam) : '' })
   }
-  const procPlanta = d.procesos.filter((p) => p.area !== 'TERCEROS' || !f.terceros)
+  const procPlanta = d.procesos.filter((p) => (p.area !== 'TERCEROS' || !f.terceros) && !p.codigo.startsWith('ENS-'))
   const procTerceros = d.procesos.filter((p) => p.area === 'TERCEROS')
   const setPaso = (i, k, v) => setPasos(pasos.map((p, j) => (j === i ? { ...p, [k]: v } : p)))
   const mover = (i, dlt) => { const a = [...pasos]; const [x] = a.splice(i, 1); a.splice(i + dlt, 0, x); setPasos(a) }
@@ -332,9 +441,9 @@ function Procesos() {
   const [ok, setOk] = useState('')
   const [nuevo, setNuevo] = useState({ codigo: '', nombre: '', area: 'MADERA' })
   if (!d) return <><Aviso>{error}</Aviso><Cargando /></>
-  const ens = d.procesos.find((p) => p.codigo === 'ENS-1')
+  const ens = d.procesos.filter((p) => p.codigo.startsWith('ENS-') && p.codigo !== 'ENS-1')
   const sugerir = (area) => {
-    const pref = d.procesos.find((p) => p.area === area && p.codigo !== 'ENS-1')?.codigo.split('-')[0] || area.slice(0, 3)
+    const pref = d.procesos.find((p) => p.area === area && !p.codigo.startsWith('ENS-'))?.codigo.split('-')[0] || area.slice(0, 3)
     let n = 1; while (d.procesos.some((p) => p.codigo === `${pref}-${n}`)) n++
     return `${pref}-${n}`
   }
@@ -347,16 +456,23 @@ function Procesos() {
       setOk(`Proceso ${codigo} creado. Ya puedes usarlo en las rutas.`); setNuevo({ ...nuevo, codigo: '', nombre: '' }); cargar()
     } catch (err) { setError(err.message) }
   }
-  const guardarEns = async (v) => {
-    v = num(v); if (v === null || v === Number(ens?.tiempo_std_min)) return
-    try { await q(sb.from('procesos').update({ tiempo_std_min: v }).eq('codigo', 'ENS-1')); setOk('Ensamble final actualizado'); cargar() } catch (err) { setError(err.message) }
+  const guardarEns = async (p, v) => {
+    v = num(v); if (v === null || isNaN(v) || v < 0 || v === Number(p.tiempo_std_min)) return
+    try { await q(sb.from('procesos').update({ tiempo_std_min: v }).eq('codigo', p.codigo)); setOk(`Ensamble final de ${p.area.toLowerCase()} actualizado. Usa "Aplicar a OPs abiertas" para llevarlo a las OPs en curso.`); cargar() } catch (err) { setError(err.message) }
   }
   return (
     <div>
       <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
-      <div className="tarjeta form fila-form">
-        <label>Ensamble final de ítems multiárea (min por unidad, dificultad media)
-          <input className="input-cant" defaultValue={ens?.tiempo_std_min} onBlur={(e) => guardarEns(e.target.value)} inputMode="decimal" /></label>
+      <div className="tarjeta">
+        <h3 className="subt" style={{ marginTop: 0 }}>Ensamble final de ítems multiárea</h3>
+        <p className="tenue pequeño">Minutos por unidad del ítem en dificultad media, según el área que ensambla. Un ítem puede tener varios ensambles (uno por área), se eligen en el detalle de la OP.</p>
+        <div className="fila-form">
+          {ens.map((p) => (
+            <label key={p.codigo}>{p.area}
+              <span><input className="input-cant" defaultValue={p.tiempo_std_min} onBlur={(e) => guardarEns(p, e.target.value)} inputMode="decimal" /> min</span></label>
+          ))}
+          <AplicarEstandares onOk={setOk} onError={setError} />
+        </div>
       </div>
       <Maquinas procesos={d.procesos} onOk={(t) => { setOk(t); cargar() }} onError={setError} />
       <h3 className="subt">Todos los procesos</h3>
@@ -381,7 +497,7 @@ function Procesos() {
 function Maquinas({ procesos, onOk, onError }) {
   const [agregar, setAgregar] = useState('')
   const maq = procesos.filter((p) => p.es_maquina)
-  const otros = procesos.filter((p) => !p.es_maquina && !['TERCEROS'].includes(p.area) && p.codigo !== 'ENS-1')
+  const otros = procesos.filter((p) => !p.es_maquina && !['TERCEROS'].includes(p.area) && !p.codigo.startsWith('ENS-'))
   const guardar = async (p, campo, v) => {
     if (campo !== 'unidad') { v = num(v); if (v !== null && (isNaN(v) || v < 0)) return }
     if (v === (campo === 'unidad' ? p.unidad : (p[campo] === null ? null : Number(p[campo])))) return

@@ -84,9 +84,10 @@ const AYUDA = {
     titulo: 'Configuraciones',
     proposito: 'Administrar las personas y los datos base con que el sistema calcula tiempos.',
     puntos: [
+      ['Usuarios', 'Solo el Administrador: crea cuentas con correo y contraseña, asigna su permiso (Administrador, Dirección, Consulta o Tablet de un área), cambia contraseñas y elimina usuarios.'],
       ['Personas', 'Agrega operarios: aparecen en la tablet de su área para registrar su tiempo. Usa "Activo" para retirar a alguien sin borrar su historial.'],
       ['Productos y rutas', 'Crea o edita productos, familias y rutas. Cada proceso de la ruta lleva sus minutos para una unidad del tamaño de referencia. Un producto de terceros puede tener pasos previos en planta (ej. plantillas en Madera) antes del envío al proveedor.'],
-      ['Procesos', 'Crea procesos nuevos (también de terceros, ej. Tapizado) y ajusta el tiempo del ensamble final.'],
+      ['Procesos', 'Crea procesos nuevos (también de terceros, ej. Tapizado) y ajusta el tiempo del ensamble final de cada área. Un ítem multiárea puede tener varios ensambles (uno por área), se eligen en el detalle de la OP.'],
       ['Procesos de máquina', 'Imprimir, corte láser, corte plotter y DTF no llevan dificultad. Se configuran con rendimiento por hora, capacidad por montaje (área de la cama, rollo) y minutos de montaje y cambio de material. Al operario solo se le abona el montaje; las horas de máquina se llevan aparte.'],
       ['Dificultad', 'Multiplicadores de Baja, Media y Alta.'],
       ['Estándar real', 'Compara lo real con lo estándar por producto y área, y sugiere el nuevo valor. "Aplicar" lo actualiza.'],

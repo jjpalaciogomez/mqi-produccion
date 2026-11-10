@@ -76,7 +76,7 @@ export default function Mapa({ orden, items, comps, tareas, productos }) {
     for (const it of items) {
       const cs = comps.filter((c) => c.item_id === it.id)
       const tsItem = tareas.filter((t) => t.item_id === it.id && t.estado !== 'omitida')
-      const ens = tsItem.find((t) => !t.componente_id)
+      const enss = tsItem.filter((t) => !t.componente_id)
       const y0 = y
       let yc = y0
       cs.forEach((c) => {
@@ -106,16 +106,18 @@ export default function Mapa({ orden, items, comps, tareas, productos }) {
           <div className="mp-sub">Tiempo real <Tiempo real={r.real} std={r.std} /></div>
         </div>
       ))
-      if (ens) {
-        nodo(`e-${it.id}`, GX * 3 + 60, iy - 10, 'comp', estBloque([ens]), (
+      enss.forEach((ens, k) => {
+        const id = `e-${ens.id}`
+        nodo(id, GX * 3 + 60, iy - 10 + (k - (enss.length - 1) / 2) * 150, 'comp', estBloque([ens]), (
           <div className="mp">
             <div className="mp-cab"><b>Ensamble final</b> · {ens.area}</div>
             <div className="mp-sub">dif. {DIF_NOMBRE[ens.dificultad_ensamble]?.toLowerCase()} · {ens.bloqueada ? 'espera que terminen los productos' : TXT_EST[estTarea(ens)]}</div>
+            {ens.componente_detalle && <div className="mp-sub">{ens.componente_detalle}</div>}
             <ListaPasos ts={[ens]} />
           </div>
         ))
-        cs.forEach((c) => flecha(`c-${c.id}`, `e-${it.id}`))
-      }
+        cs.forEach((c) => flecha(`c-${c.id}`, id))
+      })
       ys.push(iy)
       y = y0 + altoItem + 60
     }
