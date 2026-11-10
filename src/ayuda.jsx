@@ -92,6 +92,18 @@ const AYUDA = {
     ],
     consejo: 'Actualiza un estándar solo cuando tenga 10 o más pasos medidos. Con menos datos, una tarea atípica distorsiona el número.',
   },
+  'indicadores.gestor': {
+    titulo: 'Indicadores',
+    proposito: 'Ver en un solo lugar cómo va la planta: cumplimiento, carga, eficiencia, paros y personal. Se actualiza solo cada minuto.',
+    puntos: [
+      ['Periodo', 'Arriba eliges últimos 7 días, últimos 30 días o el mes actual. La carga pendiente y las OPs activas siempre son de hoy.'],
+      ['Colores', 'Verde: bien · Amarillo: atención · Rojo: problema. Pasa el mouse sobre una barra para ver el detalle.'],
+      ['Eficiencia', '100% = la planta produce al ritmo del estándar. Menos de 100% = tarda más de lo previsto.'],
+      ['Carga por área', 'Horas estándar pendientes y cuántos días de trabajo son con el personal actual del área.'],
+      ['OPs que requieren atención', 'Toca una fila para abrir la OP.'],
+    ],
+    consejo: 'Úsalo en la reunión semanal: primero las OPs vencidas o en riesgo, luego el área con más días de carga y por último los paros más frecuentes.',
+  },
   'horas.gestor': {
     titulo: 'Horas del personal',
     proposito: 'Ver cuánto tiempo registró cada operario frente a su jornada, para detectar tiempos sin registrar o inflados.',
