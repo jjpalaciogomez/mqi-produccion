@@ -114,6 +114,7 @@ function Estructura({ d, gestor, perfil, recargar, setError }) {
 
 function Item({ it, cs, tareas, prodPorCod, productos, rutas, difs, gestor, perfil, accion, setError }) {
   const [editando, setEditando] = useState(false)
+  const [moviendo, setMoviendo] = useState(false)
   const ens = tareas.find((t) => !t.componente_id)
   const sincronizar = () => q(sb.rpc('sincronizar_item', { p_item: it.id }))
   const iniciado = tareas.some((t) => ['en_curso', 'pausada', 'terminada'].includes(t.estado))
@@ -124,6 +125,7 @@ function Item({ it, cs, tareas, prodPorCod, productos, rutas, difs, gestor, perf
         <div className="item-cab">
           <h2 className="item-tit"><small>Ítem {it.numero}</small>{it.descripcion} <span className="tenue">× {fmtNum(it.cantidad, 2)}</span></h2>
           {gestor && <button className="btn-link" onClick={() => setEditando(true)}>Editar ítem</button>}
+          {gestor && <button className="btn-link" onClick={() => setMoviendo(true)}>Mover a otra OP</button>}
           {gestor && (
             <button className="btn-link peligro" onClick={() => {
               if (iniciado) { setError('No se puede borrar un ítem con pasos ya iniciados.'); return }
@@ -162,6 +164,7 @@ function Item({ it, cs, tareas, prodPorCod, productos, rutas, difs, gestor, perf
         </div>
       )}
 
+      {moviendo && <MoverItem it={it} onClose={() => setMoviendo(false)} accion={accion} />}
       {gestor && <AgregarComponente item={it} productos={productos} rutas={rutas} difs={difs} accion={accion} sincronizar={sincronizar} />}
     </section>
   )
@@ -445,6 +448,39 @@ function ListaRegistros({ regs, accion }) {
   )
 }
 
+// Mueve el ítem (con sus productos, pasos y tiempos registrados) a otra OP
+function MoverItem({ it, onClose, accion }) {
+  const [ops, setOps] = useState(null)
+  const [destino, setDestino] = useState('')
+  const [error, setError] = useState('')
+  useEffect(() => {
+    q(sb.from('ordenes').select('id, numero, cliente, proyecto, estado').neq('id', it.orden_id).neq('estado', 'anulada').order('creado', { ascending: false }))
+      .then(setOps).catch((e) => setError(e.message))
+  }, [it.orden_id])
+  const mover = (e) => {
+    e.preventDefault()
+    if (!destino) return
+    accion(() => q(sb.rpc('mover_item', { p_item: it.id, p_orden_destino: destino }))).then(onClose)
+  }
+  return (
+    <Modal titulo={`Mover ítem ${it.numero} · ${it.descripcion}`} onClose={onClose}>
+      <form className="form" onSubmit={mover}>
+        <p>El ítem pasa a la otra OP con sus productos, pasos y tiempos registrados. Allí queda con el siguiente número de ítem.</p>
+        {ops === null ? <Cargando /> : (
+          <label>OP destino
+            <select value={destino} onChange={(e) => setDestino(e.target.value)} required autoFocus>
+              <option value="">Selecciona la OP…</option>
+              {ops.map((o) => <option key={o.id} value={o.id}>OP {o.numero} · {o.proyecto} ({o.cliente})</option>)}
+            </select>
+          </label>
+        )}
+        <Aviso>{error}</Aviso>
+        <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn" disabled={!destino}>Mover ítem</button></div>
+      </form>
+    </Modal>
+  )
+}
+
 function EliminarOP({ orden, nRegistros, onClose }) {
   const [txt, setTxt] = useState('')
   const [error, setError] = useState('')
@@ -476,7 +512,7 @@ function EliminarOP({ orden, nRegistros, onClose }) {
 
 function EditarOP({ orden, onClose, onSaved }) {
   const [f, setF] = useState({
-    cliente: orden.cliente, proyecto: orden.proyecto, comercial: orden.comercial || '', fecha_compromiso: orden.fecha_compromiso || '',
+    numero: orden.numero, cliente: orden.cliente, proyecto: orden.proyecto, comercial: orden.comercial || '', fecha_compromiso: orden.fecha_compromiso || '',
     prioridad: orden.prioridad, estado: orden.estado, fecha_entrega_real: orden.fecha_entrega_real || '', notas: orden.notas || '',
   })
   const [error, setError] = useState('')
@@ -484,13 +520,14 @@ function EditarOP({ orden, onClose, onSaved }) {
   const guardar = async (e) => {
     e.preventDefault()
     const { error } = await sb.from('ordenes').update({
-      ...f, prioridad: Number(f.prioridad), fecha_compromiso: f.fecha_compromiso || null, fecha_entrega_real: f.fecha_entrega_real || null,
+      ...f, numero: String(f.numero).trim(), prioridad: Number(f.prioridad), fecha_compromiso: f.fecha_compromiso || null, fecha_entrega_real: f.fecha_entrega_real || null,
     }).eq('id', orden.id)
-    if (error) setError(error.message); else onSaved()
+    if (error) setError(/duplicate|unique/i.test(error.message) ? `Ya existe otra OP con el número ${String(f.numero).trim()}.` : error.message); else onSaved()
   }
   return (
     <Modal titulo={`Editar OP ${orden.numero}`} onClose={onClose}>
       <form className="form" onSubmit={guardar}>
+        <label>Número de OP<input value={f.numero} onChange={set('numero')} required /></label>
         <label>Cliente<input value={f.cliente} onChange={set('cliente')} required /></label>
         <label>Proyecto<input value={f.proyecto} onChange={set('proyecto')} required /></label>
         <div className="fila2">
