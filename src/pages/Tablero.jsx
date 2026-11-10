@@ -3,6 +3,23 @@ import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, Semaforo, fmtFecha, fmtMin } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 
+const ORDEN_AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
+const NOMBRE_AREA = { METAL: 'Metal', MADERA: 'Madera', ACRILICO: 'Acrílico', 'GRAN FORMATO': 'Gran formato', PINTURA: 'Pintura' }
+const h1 = (m) => { const v = Number(m) / 60; return v === 0 ? '0' : v < 10 ? v.toLocaleString('es-CO', { maximumFractionDigits: 1 }) : Math.round(v).toLocaleString('es-CO') }
+
+// Horas registradas / estándar de un área; la barra muestra cuánto del estándar ya se gastó
+function CeldaHoras({ x, total }) {
+  if (!x || (!x.std && !x.real)) return <td className="celda-area vacia">—</td>
+  const p = x.std ? x.real / x.std : x.real ? 2 : 0
+  const tono = p > 1.1 ? 'mal' : p > 0.9 ? 'alerta' : 'ok'
+  return (
+    <td className={`celda-area${total ? ' total' : ''}`} title={`${h1(x.real)} h registradas de ${h1(x.std)} h estándar`}>
+      <span><b>{h1(x.real)}</b> / {h1(x.std)} h</span>
+      <i className={`mini-barra t-${tono}`}><em style={{ width: `${Math.min(p, 1) * 100}%` }} /></i>
+    </td>
+  )
+}
+
 const ORDEN_SEM = { vencida: 0, en_riesgo: 1, a_tiempo: 2, sin_fecha: 3, incumplida: 4, cumplida: 5 }
 
 export default function Tablero({ gestor, rol }) {
@@ -10,13 +27,24 @@ export default function Tablero({ gestor, rol }) {
   const [error, setError] = useState('')
   const [filtro, setFiltro] = useState('activas')
   const [buscar, setBuscar] = useState('')
+  const [horas, setHoras] = useState({})
 
   const cargar = useCallback(async () => {
     try {
       let consulta = sb.from('v_ordenes').select('*')
       if (filtro === 'activas') consulta = consulta.in('estado', ['borrador', 'en_planta'])
       if (filtro === 'cerradas') consulta = consulta.in('estado', ['terminada', 'entregada'])
-      setOrdenes(await q(consulta.order('fecha_compromiso', { ascending: true, nullsFirst: false })))
+      const ords = await q(consulta.order('fecha_compromiso', { ascending: true, nullsFirst: false }))
+      // Horas reales y estándar por área de cada OP (sin terceros ni pasos omitidos)
+      const ids = ords.map((o) => o.id)
+      const ts = ids.length ? await q(sb.from('v_tareas').select('orden_id, area, min_std, min_reales, estado').in('orden_id', ids).neq('area', 'TERCEROS').neq('estado', 'omitida')) : []
+      const h = {}
+      for (const t of ts) {
+        const x = ((h[t.orden_id] ||= {})[t.area] ||= { real: 0, std: 0 })
+        x.real += Number(t.min_reales || 0); x.std += Number(t.min_std || 0)
+      }
+      setHoras(h)
+      setOrdenes(ords)
       setError('')
     } catch (e) { setError(e.message) }
   }, [filtro])
@@ -31,6 +59,12 @@ export default function Tablero({ gestor, rol }) {
       .sort((a, c) => (filtro === 'activas' ? (ORDEN_SEM[a.semaforo] ?? 9) - (ORDEN_SEM[c.semaforo] ?? 9) : 0)
         || (a.prioridad - c.prioridad))
   }, [ordenes, buscar, filtro])
+
+  // Áreas que aparecen en las OPs de la lista, en orden fijo
+  const areas = useMemo(() => {
+    const usadas = new Set(Object.values(horas).flatMap((x) => Object.keys(x)))
+    return [...ORDEN_AREAS.filter((a) => usadas.has(a)), ...[...usadas].filter((a) => !ORDEN_AREAS.includes(a))]
+  }, [horas])
 
   const resumen = useMemo(() => {
     const r = { total: 0, vencida: 0, en_riesgo: 0, a_tiempo: 0, horas: 0 }
@@ -79,7 +113,10 @@ export default function Tablero({ gestor, rol }) {
         <div className="tabla-cont">
           <table className="tabla tabla-click">
             <thead>
-              <tr><th>OP</th><th>Proyecto / cliente</th><th>Compromiso</th><th>Cumplimiento</th><th style={{ width: 170 }}>Avance</th><th>Pasos</th><th>Estado</th><th>Prior.</th></tr>
+              <tr><th>OP</th><th>Proyecto / cliente</th><th>Compromiso</th><th>Cumplimiento</th><th style={{ width: 150 }}>Avance</th>
+                {areas.map((a) => <th key={a} className="th-area">{NOMBRE_AREA[a] || a}</th>)}
+                <th className="th-area">Total</th><th>Pasos</th><th>Estado</th><th>Prior.</th></tr>
+              <tr className="sub-cab"><th colSpan={5} /><th colSpan={areas.length + 1} className="th-area">horas registradas / estándar</th><th colSpan={3} /></tr>
             </thead>
             <tbody>
               {lista.map((o) => (
@@ -89,6 +126,8 @@ export default function Tablero({ gestor, rol }) {
                   <td>{fmtFecha(o.fecha_compromiso)}</td>
                   <td><Semaforo valor={o.semaforo} /></td>
                   <td><Barra pct={o.avance_pct} /></td>
+                  {areas.map((a) => <CeldaHoras key={a} x={horas[o.id]?.[a]} />)}
+                  <CeldaHoras total x={Object.values(horas[o.id] || {}).reduce((s, x) => ({ real: s.real + x.real, std: s.std + x.std }), { real: 0, std: 0 })} />
                   <td>{o.tareas_terminadas}/{o.tareas_total}</td>
                   <td>{ESTADO_OP[o.estado]}</td>
                   <td className="centrado">{o.prioridad}</td>

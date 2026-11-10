@@ -306,6 +306,20 @@ h1, h2, h3, .tablet-area, .tarea-proceso, .kpi b, .modal-cab h3, .login-tit { fo
 .dif-desc { width: 100%; min-width: 280px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; resize: vertical; }
 .barra-sup nav a { white-space: nowrap; }
 @media (max-width: 1150px) { .barra-sup { flex-wrap: wrap; row-gap: 6px; } .barra-sup nav { flex-wrap: wrap; } }
+/* Pantalla completa: el contenido usa todo el ancho; los formularios quedan con ancho cómodo */
+.contenido { max-width: none; padding: 22px 28px 40px; }
+.contenido form.tarjeta.form, .contenido .form-op { max-width: 980px; }
+@media (min-width: 1700px) { .ind-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* Horas por área en el tablero */
+.th-area { text-align: center !important; white-space: nowrap; }
+.sub-cab th { font-size: 10.5px !important; font-weight: 600; color: #8a93a0 !important; padding-top: 0 !important; text-transform: none !important; }
+.celda-area { text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 13px; }
+.celda-area b { font-size: 14px; }
+.celda-area.vacia { color: #c3c8cf; }
+.celda-area.total { background: #f8f9fb; }
+.mini-barra { display: block; height: 4px; background: #eef1f5; border-radius: 2px; margin: 4px auto 0; width: 70px; overflow: hidden; }
+.mini-barra em { display: block; height: 100%; background: #2a78d6; }
+.mini-barra.t-alerta em { background: #c98500; } .mini-barra.t-mal em { background: #c0392b; }
 #aviso-version button { background: #fbbf24; color: #111827; border: 0; border-radius: 6px; padding: 7px 12px; font-weight: 700; cursor: pointer; }
 
 /* Corrección de registros y eliminar OP */
