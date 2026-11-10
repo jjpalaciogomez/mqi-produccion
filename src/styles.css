@@ -312,3 +312,11 @@ h1, h2, h3, .tablet-area, .tarea-proceso, .kpi b, .modal-cab h3, .login-tit { fo
 .peligro-txt { color: #b42318 !important; border-color: #f3c1bb !important; }
 .btn-peligro { background: #b42318; color: #fff; border-color: #b42318; }
 .btn-peligro:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Horas del personal */
+.barra-horas { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+.barra-horas input[type=date] { padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font: inherit; }
+td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weight: 600; }
+.tabla-semana td, .tabla-semana th { text-align: center; } .tabla-semana td:first-child, .tabla-semana td:nth-child(2), .tabla-semana th:first-child, .tabla-semana th:nth-child(2) { text-align: left; }
+.celda-h { font-variant-numeric: tabular-nums; }
+.h-bad { background: #fde4e4; } .h-warn { background: #fdf0d2; } .h-ok { background: #e3f4ea; } .h-info { background: #e4effc; }

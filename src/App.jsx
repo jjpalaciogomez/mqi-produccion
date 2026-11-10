@@ -7,6 +7,7 @@ import NuevaOP from './pages/NuevaOP.jsx'
 import OrdenDetalle from './pages/OrdenDetalle.jsx'
 import Catalogos from './pages/Catalogos.jsx'
 import Tablet from './pages/Tablet.jsx'
+import Horas from './pages/Horas.jsx'
 
 function useRuta() {
   const [h, setH] = useState(window.location.hash || '#/')
@@ -104,6 +105,7 @@ function Shell({ perfil, prueba }) {
   if (m) pagina = <OrdenDetalle id={m[1]} perfil={perfil} gestor={gestor} />
   else if (ruta === '/nueva' && gestor) pagina = <NuevaOP rol={perfil.rol} />
   else if (ruta === '/catalogos' && gestor) pagina = <Catalogos perfil={perfil} />
+  else if (ruta === '/horas' && gestor) pagina = <Horas perfil={perfil} />
   else pagina = <Tablero gestor={gestor} rol={perfil.rol} />
 
   const link = (r, txt) => (
@@ -115,6 +117,7 @@ function Shell({ perfil, prueba }) {
         <div className="marca"><img src="./logo-mqi.png" alt="MQI" className="logo" /><span>Producción</span></div>
         <nav>
           {link('/', 'Tablero de planta')}
+          {gestor && link('/horas', 'Horas del personal')}
           {gestor && link('/catalogos', 'Configuraciones')}
         </nav>
         <div className="usuario">

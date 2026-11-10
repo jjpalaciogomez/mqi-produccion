@@ -92,6 +92,16 @@ const AYUDA = {
     ],
     consejo: 'Actualiza un estándar solo cuando tenga 10 o más pasos medidos. Con menos datos, una tarea atípica distorsiona el número.',
   },
+  'horas.gestor': {
+    titulo: 'Horas del personal',
+    proposito: 'Ver cuánto tiempo registró cada operario frente a su jornada, para detectar tiempos sin registrar o inflados.',
+    puntos: [
+      ['Día', 'Tiempo en tareas y en paros de cada persona, la diferencia con la jornada y su estado. "Detalle" muestra cada registro con su hora, OP, proceso y cantidad.'],
+      ['Semana', 'Cuadro de lunes a sábado con el total de cada día. Rojo: sin registros · Amarillo: incompleto · Verde: completo · Azul: posible tiempo extra.'],
+      ['Estados', 'Incompleto: menos del 90% de la jornada. Posible tiempo extra: más de 15 minutos por encima de la jornada.'],
+    ],
+    consejo: 'Revísalo al cierre de cada día: es más fácil corregir un registro el mismo día que una semana después. Las correcciones se hacen en el detalle de la OP, botón "Registros".',
+  },
   'tablet.tablet': {
     titulo: 'Cómo registrar en la tablet',
     proposito: 'Anotar cuánto tiempo trabajaste en cada tarea y cuánto hiciste. Con eso la planta sabe cómo va cada pedido.',
