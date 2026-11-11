@@ -13,7 +13,7 @@ function CeldaHoras({ x, total }) {
   const p = x.std ? x.real / x.std : x.real ? 2 : 0
   const tono = p > 1.1 ? 'mal' : p > 0.9 ? 'alerta' : 'ok'
   return (
-    <td className={`celda-area${total ? ' total' : ''}`} title={`${h1(x.real)} h registradas de ${h1(x.std)} h estándar`}>
+    <td className={`celda-area${total ? ' total' : ''}`} title={`Horas hombre: ${h1(x.real)} h registradas de ${h1(x.std)} h estándar${x.maq ? `\nMáquina (aparte, no se suma): ${h1(x.maqReal)} de ${h1(x.maq)} h` : ''}`}>
       <span><b>{h1(x.real)}</b> / {h1(x.std)} h</span>
       <i className={`mini-barra t-${tono}`}><em style={{ width: `${Math.min(p, 1) * 100}%` }} /></i>
     </td>
@@ -37,11 +37,13 @@ export default function Tablero({ gestor, rol }) {
       const ords = await q(consulta.order('fecha_compromiso', { ascending: true, nullsFirst: false }))
       // Horas reales y estándar por área de cada OP (sin terceros ni pasos omitidos)
       const ids = ords.map((o) => o.id)
-      const ts = ids.length ? await q(sb.from('v_tareas').select('orden_id, area, min_std, min_reales, estado').in('orden_id', ids).neq('area', 'TERCEROS').neq('estado', 'omitida')) : []
+      const ts = ids.length ? await q(sb.from('v_tareas').select('orden_id, area, min_std, min_reales, estado, es_maquina, min_maquina, min_maquina_real').in('orden_id', ids).neq('area', 'TERCEROS').neq('estado', 'omitida')) : []
       const h = {}
       for (const t of ts) {
-        const x = ((h[t.orden_id] ||= {})[t.area] ||= { real: 0, std: 0 })
+        const x = ((h[t.orden_id] ||= {})[t.area] ||= { real: 0, std: 0, maq: 0, maqReal: 0 })
+        // Siempre horas hombre; las de máquina se llevan aparte y no se suman
         x.real += Number(t.min_reales || 0); x.std += Number(t.min_std || 0)
+        if (t.es_maquina) { x.maq += Number(t.min_maquina || 0); x.maqReal += Number(t.min_maquina_real || 0) }
       }
       setHoras(h)
       setOrdenes(ords)
@@ -116,7 +118,7 @@ export default function Tablero({ gestor, rol }) {
               <tr><th>OP</th><th>Proyecto / cliente</th><th>Compromiso</th><th>Cumplimiento</th><th style={{ width: 150 }}>Avance</th>
                 {areas.map((a) => <th key={a} className="th-area">{NOMBRE_AREA[a] || a}</th>)}
                 <th className="th-area">Total</th><th>Pasos</th><th>Estado</th><th>Prior.</th></tr>
-              <tr className="sub-cab"><th colSpan={5} /><th colSpan={areas.length + 1} className="th-area">horas registradas / estándar</th><th colSpan={3} /></tr>
+              <tr className="sub-cab"><th colSpan={5} /><th colSpan={areas.length + 1} className="th-area">horas hombre: registradas / estándar</th><th colSpan={3} /></tr>
             </thead>
             <tbody>
               {lista.map((o) => (
