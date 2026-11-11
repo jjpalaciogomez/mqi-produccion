@@ -57,7 +57,9 @@ export default function Programacion({ perfil, gestor }) {
     const [ts, futuros, ops] = await Promise.all([
       q(sb.from('v_tareas').select('orden_id, area, proceso, min_std, min_reales, estado, es_maquina, min_maquina, min_maquina_real').in('estado', ['pendiente', 'en_curso', 'pausada']).in('op_estado', ['borrador', 'en_planta']).neq('area', 'TERCEROS')),
       q(sb.from('programacion').select('*').gte('fecha', hoy)),
-      q(sb.from('v_ordenes').select('id, numero, proyecto, cliente, fecha_compromiso, prioridad, semaforo, estado').in('estado', ['borrador', 'en_planta']).order('numero')),
+      // Las OPs ocultas no se programan
+      q(sb.from('v_ordenes').select('id, numero, proyecto, cliente, fecha_compromiso, prioridad, semaforo, estado').in('estado', ['borrador', 'en_planta'])
+        .or(`oculta_hasta.is.null,oculta_hasta.lte.${hoy}`).order('numero')),
     ])
     const g = {}
     // Pendiente = estándar de lo que falta menos lo ya registrado; máquina aparte por proceso

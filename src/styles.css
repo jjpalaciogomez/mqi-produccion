@@ -479,3 +479,5 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .ha-celda { background: var(--blanco); border: 1px solid var(--linea); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; }
 .ha-area { font-size: 12px; font-weight: 700; color: var(--tinta-2); margin-bottom: 2px; }
 .ha-celda .mini-barra { margin: 5px 0; width: 100%; }
+.maq-lectura { max-width: 420px; line-height: 1.4; } .t-warn { color: #8a5a00; }
+.aviso-oculta { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: #eef1f5; border: 1px solid #d5dbe3; border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 14px; }

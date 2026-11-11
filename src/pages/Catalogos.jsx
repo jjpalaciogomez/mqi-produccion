@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Badge, Cargando, Modal, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
-import { ETIQUETA_MEDIDA, calcMaquina, pasosPrincipales, textoMedidas } from '../estandar.js'
+import { ETIQUETA_MEDIDA, pasosPrincipales, textoMedidas } from '../estandar.js'
 
 const AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
 const ROLES = { operario: 'Operario', direccion: 'Dirección', consulta: 'Consulta', admin: 'Administrador' }
@@ -498,38 +498,48 @@ function Maquinas({ procesos, onOk, onError }) {
   const maq = procesos.filter((p) => p.es_maquina)
   const otros = procesos.filter((p) => !p.es_maquina && !['TERCEROS'].includes(p.area) && !p.codigo.startsWith('ENS-'))
   const guardar = async (p, campo, v) => {
-    if (campo !== 'unidad') { v = num(v); if (v !== null && (isNaN(v) || v < 0)) return }
+    if (campo !== 'unidad') { v = num(v); if (v !== null && (isNaN(v) || v < 0 || (v === 0 && campo !== 'min_montaje'))) return }
     if (v === (campo === 'unidad' ? p.unidad : (p[campo] === null ? null : Number(p[campo])))) return
-    try { await q(sb.from('procesos').update({ [campo]: v }).eq('codigo', p.codigo)); onOk(`${p.nombre}: actualizado. Usa "Aplicar estándares a OPs abiertas" para llevarlo a las OPs en curso.`) }
+    const fila = { [campo]: v }
+    // El rendimiento por hora se deduce del montaje: capacidad ÷ minutos de máquina por montaje
+    const cap = campo === 'capacidad_ciclo' ? v : Number(p.capacidad_ciclo)
+    const mc = campo === 'min_maquina_ciclo' ? v : Number(p.min_maquina_ciclo)
+    if (cap > 0 && mc > 0) fila.rendimiento = Math.round((cap / mc) * 60 * 1000) / 1000
+    try { await q(sb.from('procesos').update(fila).eq('codigo', p.codigo)); onOk(`${p.nombre}: actualizado. Usa "Aplicar a OPs abiertas" para llevarlo a las OPs en curso.`) }
     catch (e) { onError(e.message) }
   }
   const marcar = async (codigo, si) => {
-    try { await q(sb.from('procesos').update({ es_maquina: si }).eq('codigo', codigo)); setAgregar(''); onOk(si ? 'Proceso marcado como de máquina. Completa su rendimiento.' : 'El proceso vuelve a medirse por tiempo del operario.') }
+    try { await q(sb.from('procesos').update({ es_maquina: si }).eq('codigo', codigo)); setAgregar(''); onOk(si ? 'Proceso marcado como de máquina. Completa sus datos por montaje.' : 'El proceso vuelve a medirse por tiempo del operario.') }
     catch (e) { onError(e.message) }
   }
   const u = (p) => (String(p.unidad).toUpperCase() === 'M2' ? 'm²' : 'und')
+  // Qué significa la configuración de cada máquina, en palabras
+  const lectura = (p) => {
+    const cap = Number(p.capacidad_ciclo), mc = Number(p.min_maquina_ciclo), mo = Number(p.min_montaje || 0)
+    if (!(cap > 0) || !(mc > 0)) return <span className="t-warn">Falta {!(cap > 0) ? 'la capacidad por montaje' : 'el tiempo de máquina por montaje'}: sin eso no se puede programar.</span>
+    const porJornada = Math.floor(510 / mc)
+    const rinde = (cap / mc) * 60
+    return <>Cada montaje carga hasta <b>{fmtNum(cap, 2)} {u(p)}</b>: la máquina trabaja <b>{fmtMin(mc)}</b> y el operario pone <b>{fmtMin(mo)}</b> montando y cambiando material.
+      Rinde <b>{fmtNum(rinde, 1)} {u(p)}/h</b>; en una jornada de 8,5 h hace hasta <b>{porJornada} {porJornada === 1 ? 'montaje' : 'montajes'}</b> (≈ {fmtNum(porJornada * cap, 1)} {u(p)}) y le ocupa al operario {fmtMin(porJornada * mo)}.</>
+  }
   return (
     <div className="tarjeta">
       <h3 className="subt" style={{ marginTop: 0 }}>Procesos de máquina</h3>
-      <p className="tenue pequeño">No llevan dificultad. El tiempo de máquina = cantidad ÷ rendimiento. Montajes = cantidad ÷ capacidad por montaje (área de la cama, rollo…), redondeado hacia arriba.
-        Al operario solo se le abonan los montajes × minutos de montaje; en la tablet los marca como avanzados o listos.</p>
+      <p className="tenue pequeño">Se programan por montaje y no llevan dificultad. Montajes = cantidad ÷ capacidad por montaje (redondeado hacia arriba).
+        Tiempo de máquina = montajes × minutos de máquina por montaje (el último montaje, en proporción a lo que lleva). Al operario solo se le abonan los montajes × sus minutos de montaje.</p>
       <table className="tabla maq-tabla">
-        <thead><tr><th>Proceso</th><th>Se mide en</th><th>Rendimiento (por hora)</th><th>Capacidad por montaje</th><th>Montaje y cambio de material (min)</th><th>Ejemplo</th><th /></tr></thead>
-        <tbody>{maq.map((p) => {
-          const ej = String(p.unidad).toUpperCase() === 'M2' ? 8 : 100
-          const c = calcMaquina(p, ej)
-          return (
-            <tr key={p.codigo}>
-              <td><b>{p.codigo}</b> {p.nombre}</td>
-              <td><select defaultValue={String(p.unidad).toUpperCase() === 'M2' ? 'M2' : 'UND'} onChange={(e) => guardar(p, 'unidad', e.target.value)}><option value="M2">m²</option><option value="UND">unidades</option></select></td>
-              <td><input className="input-cant" defaultValue={p.rendimiento ?? ''} onBlur={(e) => guardar(p, 'rendimiento', e.target.value)} inputMode="decimal" /> {u(p)}/h</td>
-              <td><input className="input-cant" defaultValue={p.capacidad_ciclo ?? ''} onBlur={(e) => guardar(p, 'capacidad_ciclo', e.target.value)} inputMode="decimal" placeholder="todo" /> {u(p)}</td>
-              <td><input className="input-cant" defaultValue={p.min_montaje ?? ''} onBlur={(e) => guardar(p, 'min_montaje', e.target.value)} inputMode="decimal" /> min</td>
-              <td className="tenue pequeño">{ej} {u(p)} → {c.ciclos} {c.ciclos === 1 ? 'montaje' : 'montajes'} · operario {fmtMin(c.minOperario)} · máquina {c.minMaquina ? fmtMin(c.minMaquina) : '—'}</td>
-              <td><button className="btn-link peligro" onClick={() => marcar(p.codigo, false)}>Quitar</button></td>
-            </tr>
-          )
-        })}</tbody>
+        <thead><tr><th>Proceso</th><th>Se mide en</th><th>Capacidad por montaje</th><th>Máquina por montaje</th><th>Operario por montaje</th><th>Qué significa</th><th /></tr></thead>
+        <tbody>{maq.map((p) => (
+          <tr key={p.codigo}>
+            <td><b>{p.codigo}</b> {p.nombre}</td>
+            <td><select defaultValue={String(p.unidad).toUpperCase() === 'M2' ? 'M2' : 'UND'} onChange={(e) => guardar(p, 'unidad', e.target.value)}><option value="M2">m²</option><option value="UND">unidades</option></select></td>
+            <td><input className="input-cant" defaultValue={p.capacidad_ciclo ?? ''} onBlur={(e) => guardar(p, 'capacidad_ciclo', e.target.value)} inputMode="decimal" /> {u(p)}</td>
+            <td><input className="input-cant" defaultValue={p.min_maquina_ciclo ?? ''} onBlur={(e) => guardar(p, 'min_maquina_ciclo', e.target.value)} inputMode="decimal" /> min</td>
+            <td><input className="input-cant" defaultValue={p.min_montaje ?? ''} onBlur={(e) => guardar(p, 'min_montaje', e.target.value)} inputMode="decimal" /> min</td>
+            <td className="pequeño maq-lectura">{lectura(p)}</td>
+            <td><button className="btn-link peligro" onClick={() => marcar(p.codigo, false)}>Quitar</button></td>
+          </tr>
+        ))}</tbody>
       </table>
       <div className="fila-form" style={{ marginTop: 8 }}>
         <select value={agregar} onChange={(e) => setAgregar(e.target.value)}>

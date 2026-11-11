@@ -2,6 +2,9 @@
 import { hhBloque, sumarHabiles } from './planificador.js'
 
 export const hoyCO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+// OP oculta: no sale en el tablero, la programación ni las tablets hasta esa fecha
+export const SIN_FECHA = '9999-12-31'
+export const estaOculta = (o) => !!o?.oculta_hasta && o.oculta_hasta > hoyCO()
 const fmtF = (f) => (f ? new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '—')
 const abiertas = (t) => !['terminada', 'omitida'].includes(t.estado)
 

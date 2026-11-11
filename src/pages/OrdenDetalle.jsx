@@ -1,5 +1,5 @@
 import { useOPExistente } from '../numeroOP.js'
-import { evaluarOP, hoyCO } from '../cumplimiento.js'
+import { SIN_FECHA, estaOculta, evaluarOP, hoyCO } from '../cumplimiento.js'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, EstadoTarea, Modal, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
@@ -58,6 +58,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
             if (error) setError(error.message); else cargar()
           }}>Recalcular estándares</button>}
           {gestor && <button className="btn btn-sec" onClick={() => setModal('editar')}>Editar datos</button>}
+          {gestor && !estaOculta(orden) && ['borrador', 'en_planta'].includes(orden.estado) && <button className="btn btn-sec" onClick={() => setModal('ocultar')} title="La saca del tablero, la programación y las tablets por unos días">Ocultar OP</button>}
           {gestor && <button className="btn btn-sec peligro-txt" onClick={() => setModal('eliminar')}>Eliminar OP</button>}
         </div>
       </div>
@@ -69,6 +70,12 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         <div className="kpi"><span>Avance</span><b><Barra pct={orden.avance_pct} /></b></div>
         <div className="kpi"><span>Trabajo estándar</span><b>{fmtMin(orden.min_std_terminado)} / {fmtMin(orden.min_std_total)}</b></div>
       </div>
+      {estaOculta(orden) && (
+        <div className="aviso-oculta">
+          <span>👁 Esta OP está <b>oculta {orden.oculta_hasta === SIN_FECHA ? 'hasta que la vuelvas a mostrar' : `hasta el ${fmtFecha(orden.oculta_hasta)}`}</b>: no sale en el tablero, la programación ni las tablets.</span>
+          {gestor && <button className="btn btn-sm" onClick={async () => { const { error } = await sb.from('ordenes').update({ oculta_hasta: null }).eq('id', orden.id); if (error) setError(error.message); else cargar() }}>Mostrar ahora</button>}
+        </div>
+      )}
       {orden.notas && <p className="notas-op">{orden.notas}</p>}
       {ev.alertas.length > 0 && <div className="alertas-op">{ev.alertas.map((a, i) => <div key={i} className={`alerta-op t-${a.tono}`}>{a.tono === 'bad' ? '⚠' : '•'} {a.texto}</div>)}</div>}
       <HorasPorArea tareas={d.tareas} prog={d.prog} />
@@ -84,6 +91,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         : <RegistrosCtx.Provider value={d.registros}><Estructura d={d} gestor={gestor} perfil={perfil} recargar={cargar} setError={setError} /></RegistrosCtx.Provider>}
 
       {modal === 'editar' && <EditarOP orden={orden} onClose={() => setModal(null)} onSaved={() => { setModal(null); cargar() }} />}
+      {modal === 'ocultar' && <OcultarOP orden={orden} nBloques={d.prog.length} onClose={() => setModal(null)} onSaved={() => { setModal(null); cargar() }} />}
       {modal === 'eliminar' && <EliminarOP orden={orden} nRegistros={d.registros.length} onClose={() => setModal(null)} />}
     </div>
   )
@@ -564,6 +572,37 @@ function MoverItem({ it, onClose, accion }) {
         )}
         <Aviso>{error}</Aviso>
         <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn" disabled={!destino}>Mover ítem</button></div>
+      </form>
+    </Modal>
+  )
+}
+
+// Ocultar una OP unos días (ej. con plazo amplio que aún no se va a trabajar)
+function OcultarOP({ orden, nBloques, onClose, onSaved }) {
+  const [hasta, setHasta] = useState(() => { const d = new Date(hoyCO() + 'T12:00:00'); d.setDate(d.getDate() + 7); return d.toLocaleDateString('en-CA') })
+  const [indefinida, setIndefinida] = useState(false)
+  const [quitarProg, setQuitarProg] = useState(true)
+  const [error, setError] = useState('')
+  const guardar = async (e) => {
+    e.preventDefault()
+    if (!indefinida && hasta <= hoyCO()) { setError('Elige una fecha posterior a hoy.'); return }
+    const r = await sb.from('ordenes').update({ oculta_hasta: indefinida ? SIN_FECHA : hasta }).eq('id', orden.id)
+    if (r.error) { setError(r.error.message); return }
+    if (quitarProg && nBloques) {
+      const r2 = await sb.from('programacion').delete().eq('orden_id', orden.id).gte('fecha', hoyCO())
+      if (r2.error) { setError(r2.error.message); return }
+    }
+    onSaved()
+  }
+  return (
+    <Modal titulo={`Ocultar OP ${orden.numero}`} onClose={onClose} ancho={520}>
+      <form className="form" onSubmit={guardar}>
+        <p className="tenue">La OP sale del tablero de planta, de la programación y de las tablets. No se borra nada: la ves en la pestaña "Ocultas" del tablero y vuelve sola en la fecha que elijas.</p>
+        <label className="chk"><input type="checkbox" checked={indefinida} onChange={(e) => setIndefinida(e.target.checked)} /> Hasta que la vuelva a mostrar</label>
+        {!indefinida && <label>Volver a mostrar el<input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} required /></label>}
+        {nBloques > 0 && <label className="chk"><input type="checkbox" checked={quitarProg} onChange={(e) => setQuitarProg(e.target.checked)} /> Quitar su programación de hoy en adelante ({nBloques} {nBloques === 1 ? 'bloque' : 'bloques'}) para liberar ese tiempo</label>}
+        <Aviso>{error}</Aviso>
+        <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn">Ocultar</button></div>
       </form>
     </Modal>
   )

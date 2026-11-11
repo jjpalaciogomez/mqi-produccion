@@ -40,7 +40,9 @@ export default function Tablet({ perfil }) {
       if (areas) cpr = cpr.in('area', areas)
       const [t, p, m, mq, pr] = await Promise.all([q(c), q(cp), q(sb.from('motivos_paro').select('*').order('codigo')),
         q(sb.from('procesos').select('codigo, nombre, unidad, rendimiento, capacidad_ciclo, min_montaje').eq('es_maquina', true)), q(cpr)])
-      setHoyProg(pr); setTareas(t); setPersonas(p); setMotivos(m); setMaquinas(Object.fromEntries(mq.map((x) => [x.codigo, x]))); setError('')
+      // Las OPs ocultas no salen en la tablet
+      const ocultas = new Set((await q(sb.from('ordenes').select('id').gt('oculta_hasta', hoyCO()))).map((o) => o.id))
+      setHoyProg(pr); setTareas(t.filter((x) => !ocultas.has(x.orden_id))); setPersonas(p); setMotivos(m); setMaquinas(Object.fromEntries(mq.map((x) => [x.codigo, x]))); setError('')
     } catch (e) { setError(`Sin conexión con el sistema: ${e.message}`) }
   }, [area]) // eslint-disable-line react-hooks/exhaustive-deps
 

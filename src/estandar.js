@@ -65,8 +65,11 @@ export function calcMaquina(proc, cant) {
   if (!proc || cant === null || cant === undefined) return null
   const cap = n(proc.capacidad_ciclo)
   const ciclos = Math.max(1, cap > 0 && cant > 0 ? Math.ceil(cant / cap - 1e-9) : 1)
+  // Tiempo de máquina según el montaje: cada montaje completo toma su tiempo; el último, en proporción a lo que lleva
+  const mc = n(proc.min_maquina_ciclo)
   const rend = n(proc.rendimiento)
-  return { ciclos, minMaquina: rend ? (cant / rend) * 60 : null, minOperario: ciclos * (n(proc.min_montaje) || 0) }
+  const minMaquina = cap > 0 && mc ? (cant / cap) * mc : rend ? (cant / rend) * 60 : null
+  return { ciclos, minMaquina, minOperario: ciclos * (n(proc.min_montaje) || 0) }
 }
 
 export const unidadProc = (u) => (String(u || '').toUpperCase() === 'M2' ? 'm²' : 'und')

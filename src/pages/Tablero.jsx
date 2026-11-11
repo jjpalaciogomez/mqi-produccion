@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, fmtFecha, fmtMin } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
-import { evaluarOP, hoyCO } from '../cumplimiento.js'
+import { SIN_FECHA, estaOculta, evaluarOP, hoyCO } from '../cumplimiento.js'
 
 // Tablero de planta: cumplimiento según la programación y lo que hay que hacer en cada OP.
 // Las horas por área se ven dentro de cada OP.
@@ -19,7 +19,7 @@ export default function Tablero({ gestor, rol }) {
   const cargar = useCallback(async () => {
     try {
       let consulta = sb.from('v_ordenes').select('*')
-      if (filtro === 'activas') consulta = consulta.in('estado', ['borrador', 'en_planta'])
+      if (filtro === 'activas' || filtro === 'ocultas') consulta = consulta.in('estado', ['borrador', 'en_planta'])
       if (filtro === 'cerradas') consulta = consulta.in('estado', ['terminada', 'entregada'])
       const ords = await q(consulta.order('fecha_compromiso', { ascending: true, nullsFirst: false }))
       const ids = ords.map((o) => o.id)
@@ -39,15 +39,17 @@ export default function Tablero({ gestor, rol }) {
     if (!ordenes) return []
     const b = buscar.trim().toLowerCase()
     return ordenes
+      .filter((o) => filtro === 'ocultas' ? estaOculta(o) : filtro === 'activas' ? !estaOculta(o) : true)
       .filter((o) => !b || `${o.numero} ${o.cliente} ${o.proyecto} ${o.comercial || ''}`.toLowerCase().includes(b))
       .sort((a, c) => (filtro === 'activas' ? (GRAVEDAD[eval_[a.id]?.tono] ?? 9) - (GRAVEDAD[eval_[c.id]?.tono] ?? 9) : 0)
         || String(a.fecha_compromiso || '9').localeCompare(String(c.fecha_compromiso || '9')) || (a.prioridad - c.prioridad))
   }, [ordenes, buscar, filtro, eval_])
 
   const resumen = useMemo(() => {
-    const r = { total: 0, mal: 0, sinProg: 0, acciones: 0, horas: 0 }
+    const r = { total: 0, mal: 0, sinProg: 0, acciones: 0, horas: 0, ocultas: 0 }
     for (const o of ordenes || []) {
       if (!['borrador', 'en_planta'].includes(o.estado)) continue
+      if (estaOculta(o)) { r.ocultas++; continue }
       const e = eval_[o.id]
       r.total++
       if (['vencida', 'no_alcanza'].includes(e?.estado)) r.mal++
@@ -81,7 +83,7 @@ export default function Tablero({ gestor, rol }) {
 
       <div className="filtros">
         <div className="segmentado">
-          {[['activas', 'Activas'], ['cerradas', 'Terminadas'], ['todas', 'Todas']].map(([v, t]) => (
+          {[['activas', 'Activas'], ['ocultas', `Ocultas${filtro === 'activas' && resumen.ocultas ? ` (${resumen.ocultas})` : ''}`], ['cerradas', 'Terminadas'], ['todas', 'Todas']].map(([v, t]) => (
             <button key={v} className={filtro === v ? 'sel' : ''} onClick={() => setFiltro(v)}>{t}</button>
           ))}
         </div>
@@ -91,7 +93,7 @@ export default function Tablero({ gestor, rol }) {
 
       <Aviso>{error}</Aviso>
       {!ordenes ? <Cargando /> : lista.length === 0 ? (
-        <div className="vacio">No hay órdenes {filtro === 'activas' ? 'activas' : ''}. {gestor && <a href="#/nueva">Crear la primera OP</a>}</div>
+        <div className="vacio">No hay órdenes {filtro === 'activas' ? 'activas' : filtro === 'ocultas' ? 'ocultas' : ''}. {gestor && <a href="#/nueva">Crear la primera OP</a>}</div>
       ) : (
         <div className="tabla-cont">
           <table className="tabla tabla-click tabla-tablero">
@@ -107,7 +109,9 @@ export default function Tablero({ gestor, rol }) {
                     <td><b>{o.numero}</b></td>
                     <td><div className="tab-proyecto">{o.proyecto}</div><div className="tab-cliente">{o.cliente}</div></td>
                     <td className="nowrap">{fmtFecha(o.fecha_compromiso)}</td>
-                    <td><span className={`badge badge-${e.tono || 'muted'}`}>{e.texto}</span></td>
+                    <td>{estaOculta(o)
+                      ? <span className="badge badge-muted">Oculta {o.oculta_hasta === SIN_FECHA ? '' : `hasta ${fmtFecha(o.oculta_hasta)}`}</span>
+                      : <span className={`badge badge-${e.tono || 'muted'}`}>{e.texto}</span>}</td>
                     <td><Barra pct={o.avance_pct} /><div className="tenue pequeño centrado">{o.tareas_terminadas}/{o.tareas_total} pasos</div></td>
                     <td className="celda-alertas">
                       {e.alertas.length === 0 ? <span className="tenue">—</span>
