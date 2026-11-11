@@ -97,7 +97,7 @@ export default function Programacion({ perfil, gestor }) {
       <div className="titulo-pagina">
         <div><h1>Programación de planta</h1><div className="tenue pequeño">Qué proyecto trabaja cada área, cada día y a qué hora. Lo que no cabe en la jornada pasa solo a los días siguientes.</div></div>
         <div className="titulo-acciones">
-          {gestor && <button className="btn btn-sec" onClick={() => setTodo(true)} disabled={!pend || !d}>Programar todo lo pendiente</button>}
+          {gestor && <button className="btn btn-sec" onClick={() => setTodo(areas)} disabled={!pend || !d}>Programar todo lo pendiente</button>}
           {gestor && <button className="btn" onClick={() => nuevoAuto()}>+ Programar</button>}
           <BotonAyuda clave="programacion" rol={perfil?.rol} />
         </div>
@@ -115,11 +115,12 @@ export default function Programacion({ perfil, gestor }) {
       )}
 
       {pend && <PorProgramar pend={pend} areas={areas} opsPorId={opsPorId} maquinas={d?.maquinas || []}
-        onProgramar={gestor ? (f) => nuevoAuto({ orden_id: f.orden_id, area: f.area }) : null} />}
+        onProgramar={gestor ? (f) => nuevoAuto({ orden_id: f.orden_id, area: f.area }) : null}
+        onProgramarTodo={gestor ? (as) => setTodo(as) : null} />}
 
       {form && d && pend && <FormBloque inicial={form} ops={pend.ops} pend={pend} personas={d.personas} bloques={d.bloques} horario={d.horario} maquinas={d.maquinas}
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); recargar() }} />}
-      {todo && d && pend && <ProgramarTodo pend={pend} opsPorId={opsPorId} areas={areas} personas={d.personas} horario={d.horario}
+      {todo && d && pend && <ProgramarTodo pend={pend} opsPorId={opsPorId} areas={todo} personas={d.personas} horario={d.horario}
         onClose={() => setTodo(false)} onGuardado={() => { setTodo(false); recargar() }} />}
     </div>
   )
@@ -266,15 +267,35 @@ const nombreMaq = (maquinas, p) => (maquinas.find((m) => m.codigo === p)?.nombre
 const textoMaq = (maquinas, obj) => Object.entries(obj || {}).filter(([, v]) => v >= 1).map(([p, v]) => `${nombreMaq(maquinas, p)} ${fmtH(v)}`).join(' · ')
 
 // Lista de OPs con trabajo pendiente por área y cuánto falta por programar
-function PorProgramar({ pend, areas, opsPorId, maquinas, onProgramar }) {
-  const filas = pend.filas.filter((f) => areas.includes(f.area) && (f.std > 0 || f.maqTotal > 0) && opsPorId[f.orden_id])
+export function PorProgramar({ pend, areas, opsPorId, maquinas, onProgramar, onProgramarTodo }) {
+  const [area, setArea] = useState('')
+  const [verCubiertas, setVerCubiertas] = useState(false)
+  const esCubierta = (f) => f.faltaH < 1 && !Object.keys(f.faltaM).length
+  const base = pend.filas.filter((f) => areas.includes(f.area) && (f.std > 0 || f.maqTotal > 0) && opsPorId[f.orden_id])
+  if (!base.length) return null
+  const porArea = (a) => base.filter((f) => f.area === a && !esCubierta(f)).length
+  const sel = area && areas.includes(area) ? area : ''
+  const filas = base.filter((f) => (!sel || f.area === sel) && (verCubiertas || !esCubierta(f)))
     .map((f) => ({ ...f, op: opsPorId[f.orden_id] }))
     .sort((a, b) => (a.op.prioridad - b.op.prioridad) || String(a.op.fecha_compromiso || '9').localeCompare(String(b.op.fecha_compromiso || '9')))
-  if (!filas.length) return null
+  const tot = filas.reduce((s, f) => s + f.faltaH, 0)
   return (
     <section className="tarjeta prog-pend">
-      <h3 className="subt" style={{ marginTop: 0 }}>Trabajo por programar</h3>
-      <p className="tenue pequeño">Horas hombre pendientes de cada OP por área (y horas de máquina aparte), frente a lo ya programado de hoy en adelante.</p>
+      <div className="pend-cab">
+        <h3 className="subt" style={{ margin: 0 }}>Trabajo por programar</h3>
+        {onProgramarTodo && filas.some((f) => !esCubierta(f)) && (
+          <button className="btn btn-sec btn-sm" onClick={() => onProgramarTodo(sel ? [sel] : areas)}>Programar todo {sel ? `de ${sel.toLowerCase()}` : 'lo de la lista'}</button>
+        )}
+      </div>
+      <div className="pend-filtros">
+        <div className="segmentado">
+          {areas.length > 1 && <button className={!sel ? 'sel' : ''} onClick={() => setArea('')}>Todas</button>}
+          {areas.map((a) => <button key={a} className={sel === a || areas.length === 1 ? 'sel' : ''} onClick={() => setArea(a)}>{a.charAt(0) + a.slice(1).toLowerCase()} <span className="cuenta">{porArea(a)}</span></button>)}
+        </div>
+        <label className="chk"><input type="checkbox" checked={verCubiertas} onChange={(e) => setVerCubiertas(e.target.checked)} /> Ver también las ya programadas</label>
+      </div>
+      <p className="tenue pequeño">Horas hombre pendientes de cada OP por área (y horas de máquina aparte), frente a lo ya programado de hoy en adelante.{filas.length ? ` Falta programar: ${fmtH(tot)} hombre.` : ''}</p>
+      {filas.length === 0 ? <div className="tenue">No hay OPs por programar{sel ? ` en ${sel.toLowerCase()}` : ''}.</div> : (
       <table className="tabla">
         <thead><tr><th>OP</th><th>Área</th><th>Entrega</th><th>Pendiente h-h</th><th>Programado</th><th>Falta</th><th>Máquina por programar</th><th /></tr></thead>
         <tbody>{filas.map((f) => {
@@ -292,6 +313,7 @@ function PorProgramar({ pend, areas, opsPorId, maquinas, onProgramar }) {
           )
         })}</tbody>
       </table>
+      )}
     </section>
   )
 }

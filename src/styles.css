@@ -460,3 +460,7 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .plan-lista { margin: 8px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; font-size: 13px; }
 .fila-tarde td { background: #fdf1ef; }
 .etq-chips { font-size: 13.5px; font-weight: 600; color: var(--tinta-2); }
+.pend-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pend-filtros { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 10px 0 4px; }
+.pend-filtros .chk { flex-direction: row; align-items: center; gap: 6px; font-weight: 500; }
+.segmentado .cuenta { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: #d9dee5; font-size: 11.5px; }
