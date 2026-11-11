@@ -4,7 +4,7 @@ import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_VUELTA, VEHICULOS, aMin, cfgDe, cuandoTxt, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_VUELTA, VEHICULOS, aMin, cfgDe, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
   linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
@@ -110,13 +110,16 @@ function EstadoVuelta({ v }) {
 }
 
 const VACIA = { tipo: 'entrega', lugar_id: '', destino: '', direccion: '', municipio: 'Medellín', contacto: '', telefono: '', horario: '', ubic: '',
-  franja: 'todo', hora: '', hora_hasta: '', cuando: 'todo', recepcion: [], min_parada: '', descripcion: '', op: '', necesita_camion: false, prioridad: 2, guardarLugar: false, tipoLugar: 'cliente' }
+  franja: 'todo', hora: '', hora_hasta: '', cuando: 'todo', recepcion: [], min_parada: '', volver_planta: false, volver_antes: '', recoger_planta: false, lista_desde: '', descripcion: '', op: '', necesita_camion: false, prioridad: 2, guardarLugar: false, tipoLugar: 'cliente' }
 
 function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, onGuardado }) {
   const hoy = hoyCO()
   const [f, setF] = useState(() => ({ ...VACIA, fecha: hoy, ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)),
     ubic: tieneUbic(inicial) ? `${inicial.lat}, ${inicial.lng}` : '', lugar_id: inicial.lugar_id || '', hora: horaTxt(inicial.hora), hora_hasta: horaTxt(inicial.hora_hasta),
-    cuando: inicial.hora && inicial.hora_hasta ? 'rango' : inicial.hora ? 'exacta' : inicial.franja || 'todo', recepcion: inicial.recepcion || [], min_parada: inicial.min_parada ?? '' }))
+    cuando: inicial.cuando || (inicial.hora && inicial.hora_hasta ? 'rango' : inicial.hora ? 'exacta' : inicial.hora_hasta ? 'antes' : inicial.franja || 'todo'),
+    recepcion: inicial.recepcion || [], min_parada: inicial.min_parada ?? '', volver_antes: horaTxt(inicial.volver_antes), lista_desde: horaTxt(inicial.lista_desde) }))
+  const [aj] = useAjustesLog()
+  const regreso = f.tipo === 'regreso'
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
@@ -130,8 +133,12 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
   const guardar = async (e) => {
     e.preventDefault(); setError('')
     if (f.ubic && !ubic) { setError(esLinkCorto(f.ubic) ? 'Ese es un link corto de Google Maps: ábrelo, copia el link completo de la barra del navegador o las coordenadas (mantén presionado el punto en el mapa).' : 'No reconozco esa ubicación. Pega el link completo de Google Maps o las coordenadas, p. ej. 6.2442, -75.5812.'); return }
-    if (['exacta', 'rango'].includes(f.cuando) && !f.hora) { setError('Pon la hora.'); return }
+    if (['exacta', 'rango', 'desde'].includes(f.cuando) && !f.hora) { setError('Elige la hora.'); return }
+    if (f.cuando === 'antes' && !f.hora_hasta) { setError('Elige antes de qué hora.'); return }
     if (f.cuando === 'rango' && (!f.hora_hasta || f.hora_hasta <= f.hora)) { setError('La hora "hasta" debe ser después de la hora "desde".'); return }
+    const errRec = validarRecepcion(f.recepcion)
+    if (!regreso && errRec) { setError(errRec); return }
+    if (regreso && !tieneUbic(aj)) { setError('Falta la ubicación de la planta (Logística → Punto de salida y horarios).'); return }
     setEnviando(true)
     try {
       let lugarId = f.lugar_id || null
@@ -142,9 +149,12 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
       }
       const fila = { tipo: f.tipo, lugar_id: lugarId, destino: f.destino.trim(), direccion: f.direccion.trim() || null, municipio: f.municipio.trim() || null,
         contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, horario: f.horario.trim() || null, lat: ubic?.lat ?? null, lng: ubic?.lng ?? null,
-        recepcion: f.recepcion, min_parada: Number(f.min_parada) || null,
-        fecha: f.fecha, hora: ['exacta', 'rango'].includes(f.cuando) ? f.hora : null, hora_hasta: f.cuando === 'rango' ? f.hora_hasta : null,
-        franja: ['exacta', 'rango'].includes(f.cuando) ? (f.hora < '12:00' ? 'manana' : 'tarde') : f.cuando, descripcion: f.descripcion.trim(), op: String(f.op || '').trim() || null, necesita_camion: !!f.necesita_camion, prioridad: Number(f.prioridad) }
+        recepcion: regreso ? [] : f.recepcion, min_parada: Number(f.min_parada) || null,
+        fecha: f.fecha, cuando: f.cuando, hora: ['exacta', 'rango', 'desde'].includes(f.cuando) ? f.hora : null, hora_hasta: ['rango', 'antes'].includes(f.cuando) ? f.hora_hasta : null,
+        franja: f.cuando === 'desde' ? (f.hora >= '12:00' ? 'tarde' : 'todo') : ['exacta', 'rango'].includes(f.cuando) ? (f.hora < '12:00' ? 'manana' : 'tarde') : f.cuando === 'antes' ? (f.hora_hasta <= '12:00' ? 'manana' : 'todo') : f.cuando,
+        volver_planta: !regreso && !!f.volver_planta, volver_antes: !regreso && f.volver_planta && f.volver_antes ? f.volver_antes : null,
+        recoger_planta: !regreso && !!f.recoger_planta, lista_desde: !regreso && f.recoger_planta && f.lista_desde ? f.lista_desde : null, descripcion: f.descripcion.trim(), op: String(f.op || '').trim() || null, necesita_camion: !!f.necesita_camion, prioridad: Number(f.prioridad) }
+      if (regreso) Object.assign(fila, { destino: 'Planta MQI', lugar_id: null, direccion: null, contacto: null, telefono: null, horario: null, lat: aj.lat, lng: aj.lng })
       if (f.id) await q(sb.from('vueltas').update(fila).eq('id', f.id))
       else await q(sb.from('vueltas').insert({ ...fila, solicitante_nombre: perfil?.nombre || null }))
       onGuardado()
@@ -164,16 +174,18 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
       <form className="form" onSubmit={guardar}>
         <fieldset disabled={soloLectura} className="sin-borde">
           <div className="fila-form">
-            <label>Tipo<select value={f.tipo} onChange={set('tipo')}>{Object.entries(TIPOS_VUELTA).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
-            <label className="crece">Cliente o proveedor guardado
+            <label>Tipo<select value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value, ...(e.target.value === 'regreso' ? { destino: 'Planta MQI', necesita_camion: true, lugar_id: '' } : {}) })}>{Object.entries(TIPOS_VUELTA).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
+            {!regreso && <label className="crece">Cliente o proveedor guardado
               <select value={f.lugar_id} onChange={(e) => elegirLugar(e.target.value)}>
                 <option value="">— Otro sitio (escribir abajo) —</option>
                 {['cliente', 'proveedor', 'otro'].map((t) => {
                   const ls = clientes.filter((l) => l.tipo === t)
                   return ls.length ? <optgroup key={t} label={`${TIPOS_LUGAR[t]}es`.replace('Otroes', 'Otros')}>{ls.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}</optgroup> : null
                 })}
-              </select></label>
+              </select></label>}
           </div>
+          {regreso && <p className="tenue">El camión vuelve a la planta (p. ej. a dejar algo que se necesita en producción). Indica la hora y qué trae.</p>}
+          {!regreso && <>
           <div className="fila-form">
             <label className="crece">Destino (nombre)<input value={f.destino} onChange={set('destino')} required /></label>
             <label className="crece">Dirección<input value={f.direccion} onChange={set('direccion')} /></label>
@@ -192,21 +204,44 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
               {f.guardarLugar && <select value={f.tipoLugar} onChange={set('tipoLugar')}>{Object.entries(TIPOS_LUGAR).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select>}
             </div>
           )}
+          </>}
           <div className="fila-form">
             <label>Día<input type="date" value={f.fecha} min={f.id ? undefined : hoy} onChange={set('fecha')} required /></label>
             <label>Cuándo<select value={f.cuando} onChange={set('cuando')}>{Object.entries(CUANDO).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
-            {['exacta', 'rango'].includes(f.cuando) && <label>{f.cuando === 'rango' ? 'Desde' : 'Hora'}<input type="time" step={300} value={f.hora} onChange={set('hora')} required /></label>}
-            {f.cuando === 'rango' && <label>Hasta<input type="time" step={300} value={f.hora_hasta} onChange={set('hora_hasta')} required /></label>}
+            {['exacta', 'rango', 'desde'].includes(f.cuando) && <label>{f.cuando === 'exacta' ? 'Hora' : 'Desde'}<SelectorHora value={f.hora} onChange={(v) => setF({ ...f, hora: v })} /></label>}
+            {['rango', 'antes'].includes(f.cuando) && <label>{f.cuando === 'antes' ? 'Antes de' : 'Hasta'}<SelectorHora value={f.hora_hasta} onChange={(v) => setF({ ...f, hora_hasta: v })} /></label>}
             <label title="Cuánto se demora en el sitio (descargar, recibir, firmar…). Vacío = el promedio">Tiempo en el sitio<span className="con-unidad"><input type="number" min={5} step={5} value={f.min_parada} onChange={set('min_parada')} placeholder="prom." style={{ width: 70 }} /> min</span></label>
             <label>OP (opcional)<input value={f.op || ''} onChange={set('op')} style={{ width: 100 }} /></label>
           </div>
-          <AvisoHorario v={{ ...f, hora: ['exacta', 'rango'].includes(f.cuando) ? f.hora : null, hora_hasta: f.cuando === 'rango' ? f.hora_hasta : null, franja: f.cuando }} />
+          {!regreso && <AvisoHorario v={{ ...f, hora: ['exacta', 'rango', 'desde'].includes(f.cuando) ? f.hora : null, hora_hasta: ['rango', 'antes'].includes(f.cuando) ? f.hora_hasta : null, franja: f.cuando }} />}
           <label>Qué se lleva o se recoge<textarea rows={2} value={f.descripcion} onChange={set('descripcion')} required placeholder="p. ej. 3 avisos en acrílico, 2 cajas" /></label>
           <div className="fila-form">
             <label className="check"><input type="checkbox" checked={!!f.necesita_camion} onChange={set('necesita_camion')} /> Necesita camión (grande o pesado)</label>
             <label className="check"><input type="checkbox" checked={Number(f.prioridad) === 1} onChange={(e) => setF({ ...f, prioridad: e.target.checked ? 1 : 2 })} /> Urgente</label>
           </div>
+          {!regreso && f.tipo !== 'recogida' && (
+            <div className="fila-form volver-planta">
+              <label className="check"><input type="checkbox" checked={!!f.recoger_planta} onChange={(e) => setF({ ...f, recoger_planta: e.target.checked })} /> Antes, el camión debe pasar por la planta a recoger la mercancía</label>
+              {f.recoger_planta && <>
+                <span className="pequeño">Lista desde</span>
+                <SelectorHora value={f.lista_desde} onChange={(v) => setF({ ...f, lista_desde: v })} />
+                <span className="tenue pequeño">(vacío = ya está lista)</span>
+              </>}
+            </div>
+          )}
+          {!regreso && (
+            <div className="fila-form volver-planta">
+              <label className="check"><input type="checkbox" checked={!!f.volver_planta} onChange={(e) => setF({ ...f, volver_planta: e.target.checked, necesita_camion: e.target.checked ? true : f.necesita_camion })} /> Después de esta vuelta el camión debe volver a la planta a dejar lo que trae</label>
+              {f.volver_planta && <>
+                <select value={f.volver_antes ? 'antes' : 'pronto'} onChange={(e) => setF({ ...f, volver_antes: e.target.value === 'antes' ? (f.volver_antes || '11:00') : '' })}>
+                  <option value="pronto">Lo antes posible</option><option value="antes">Antes de una hora</option>
+                </select>
+                {f.volver_antes && <SelectorHora value={f.volver_antes} onChange={(v) => setF({ ...f, volver_antes: v })} />}
+              </>}
+            </div>
+          )}
         </fieldset>
+        {f.id && !f.lugar_id && !regreso && <GuardarRecurrente v={f} onHecho={(l) => setF({ ...f, lugar_id: l.id })} />}
         {f.id && <p className="tenue pequeño">Pidió: {f.solicitante_nombre || '—'} · {ESTADOS_VUELTA[f.estado]}{f.resultado ? ` · Nota del conductor: ${f.resultado}` : ''}</p>}
         <Aviso>{error}</Aviso>
         <div className="acciones">
@@ -269,6 +304,10 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
     setOcupado(true); setError(''); setOk('')
     try { await fn(); if (msg) setOk(msg); await cargar() } catch (e) { setError(e.message) }
     setOcupado(false)
+  }
+  const sacarTodas = (veh) => {
+    if (!window.confirm(`¿Sacar las vueltas pendientes de ${VEHICULOS[veh].toLowerCase()} para reorganizar? Vuelven a "Sin asignar".`)) return
+    accion(async () => { await Promise.all(deVeh(veh).filter((v) => v.estado === 'pendiente').map((v) => q(sb.from('vueltas').update({ recorrido_id: null, orden: null }).eq('id', v.id)))) }, 'Vueltas devueltas a Sin asignar.')
   }
   const mover = (v, destino) => accion(async () => {
     if (!destino) { await q(sb.from('vueltas').update({ recorrido_id: null, orden: null }).eq('id', v.id)); return }
@@ -348,12 +387,15 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
                       <button className="btn-icono" disabled={ocupado || i === ps.length - 1} onClick={() => subir(veh, i, 1)} title="Bajar">↓</button>
                       <select value={veh} disabled={ocupado} onChange={(e) => mover(v, e.target.value)}>
-                        <option value="">Quitar de la ruta</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}
+                        <option value="">Sacar de la ruta</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}
                       </select>
+                      <button className="btn-link peligro" disabled={ocupado} onClick={() => mover(v, '')} title="Vuelve a Sin asignar">Sacar</button>
                     </>} />
                 ))}
                 <div className="log-col-pie">
                   {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar</button>}
+                  {!conf && ps.some((x) => x.estado === 'pendiente') && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => sacarTodas(veh)} title="Pasa a Sin asignar todas las vueltas pendientes de esta ruta, para reorganizar">Sacar todas</button>}
+                  {conf && <span className="tenue pequeño">Para sacar o mover vueltas, vuelve la ruta a borrador.</span>}
                   {links.map((l, i) => <a key={l} className="btn btn-sec btn-sm" href={l} target="_blank" rel="noreferrer">Ver en Google Maps{links.length > 1 ? ` (${i + 1})` : ''}</a>)}
                   {ps.length > 0 && (conf
                     ? <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => confirmar(veh, false)}>Volver a borrador</button>
@@ -397,6 +439,8 @@ function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
             {paso.cerrado ? 'Ese día el sitio no recibe' : paso.choque ? 'Lo pedido no cae en su horario de recepción'
               : <>Llega ≈ {hm(paso.llega)}{paso.espera >= 5 ? ` · espera hasta ${hm(paso.inicio)}` : ''}{paso.tarde > 0 ? ` · ${Math.round(paso.tarde)} min tarde` : ''} · sale {hm(paso.sale)}</>}
           </div>}
+          {v.recoger_planta && <div className="log-llega">⤓ Antes pasa por la planta a recoger{v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}{paso?.carga ? ` · en la planta ≈ ${hm(paso.carga.llega)}–${hm(paso.carga.sale)}` : ''}</div>}
+          {v.volver_planta && <div className={`log-llega${paso?.vuelve?.tarde > 0 ? ' t-mal' : ''}`}>↩ Luego vuelve a la planta {v.volver_antes ? `antes de las ${h12(v.volver_antes)}` : 'lo antes posible'}{paso?.vuelve ? ` · llega ≈ ${hm(paso.vuelve.llega)}${paso.vuelve.tarde > 0 ? ` (${Math.round(paso.vuelve.tarde)} min tarde)` : ''}` : ''}</div>}
           {vp && (vp.cerrado || vp.choque) && <div className="log-llega t-mal">{vp.cerrado ? 'Ese día el sitio no recibe' : 'Lo pedido no cae en su horario de recepción'}</div>}
         </div>
       </div>
@@ -409,7 +453,7 @@ function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
 function AjustesLogistica({ aj, onClose, onGuardado }) {
   const c0 = cfgDe(aj)
   const [ubic, setUbic] = useState(tieneUbic(aj) ? `${aj.lat}, ${aj.lng}` : '')
-  const [c, setC] = useState({ salida: c0.salida, fin: c0.fin, almuerzo_desde: c0.almuerzo_desde, almuerzo_min: c0.almuerzo_min, min_parada: c0.min_parada, tolerancia: c0.tolerancia })
+  const [c, setC] = useState({ salida: c0.salida, fin: c0.fin, almuerzo_desde: c0.almuerzo_desde, almuerzo_min: c0.almuerzo_min, min_parada: c0.min_parada, tolerancia: c0.tolerancia, min_descargue: c0.min_descargue })
   const [error, setError] = useState('')
   const set = (k) => (e) => setC({ ...c, [k]: e.target.value })
   const u = leerUbicacion(ubic)
@@ -420,7 +464,7 @@ function AjustesLogistica({ aj, onClose, onGuardado }) {
     const { jornada_camion, ...resto } = aj // eslint-disable-line no-unused-vars
     try {
       await q(sb.from('ajustes').upsert({ clave: 'logistica', valor: { ...resto, lat: u.lat, lng: u.lng, salida: c.salida, fin: c.fin, almuerzo_desde: c.almuerzo_desde,
-        almuerzo_min: Number(c.almuerzo_min) || 0, min_parada: Number(c.min_parada) || 20, tolerancia: Number(c.tolerancia) || 0 } }))
+        almuerzo_min: Number(c.almuerzo_min) || 0, min_parada: Number(c.min_parada) || 20, tolerancia: Number(c.tolerancia) || 0, min_descargue: Number(c.min_descargue) || 15 } }))
       onGuardado()
     } catch (err) { setError(err.message) }
   }
@@ -431,17 +475,18 @@ function AjustesLogistica({ aj, onClose, onGuardado }) {
           <span className="tenue pequeño">{u ? `✓ ${u.lat}, ${u.lng}` : 'En Google Maps, mantén presionado el punto de la planta y copia las coordenadas que aparecen.'}</span></label>
         <h4 className="subt">Horario del recorrido</h4>
         <div className="fila-form">
-          <label>Sale de la planta<input type="time" step={300} value={c.salida} onChange={set('salida')} /></label>
-          <label>Debe regresar antes de<input type="time" step={300} value={c.fin} onChange={set('fin')} /></label>
-          <label>Almuerzo desde<input type="time" step={300} value={c.almuerzo_desde} onChange={set('almuerzo_desde')} /></label>
+          <label>Sale de la planta<SelectorHora value={c.salida} onChange={(v) => setC({ ...c, salida: v })} /></label>
+          <label>Debe regresar antes de<SelectorHora value={c.fin} onChange={(v) => setC({ ...c, fin: v })} /></label>
+          <label>Almuerzo desde<SelectorHora value={c.almuerzo_desde} onChange={(v) => setC({ ...c, almuerzo_desde: v })} /></label>
           <label>Duración del almuerzo<span className="con-unidad"><input type="number" min={0} step={5} value={c.almuerzo_min} onChange={set('almuerzo_min')} style={{ width: 70 }} /> min</span></label>
         </div>
         <div className="fila-form">
           <label>Tiempo promedio en cada sitio<span className="con-unidad"><input type="number" min={5} step={5} value={c.min_parada} onChange={set('min_parada')} style={{ width: 70 }} /> min</span></label>
+          <label title="Cuando una vuelta pide volver a la planta a dejar algo">Descargue en la planta<span className="con-unidad"><input type="number" min={0} step={5} value={c.min_descargue} onChange={set('min_descargue')} style={{ width: 70 }} /> min</span></label>
           <label>Margen para hora exacta<span className="con-unidad"><input type="number" min={0} step={5} value={c.tolerancia} onChange={set('tolerancia')} style={{ width: 70 }} /> min</span></label>
         </div>
         <p className="tenue pequeño">Así se arma la ruta: sale a la hora de salida; si llega a un sitio antes de que reciba (o antes de la hora pedida) espera; el almuerzo se toma cuando llega su hora
-          (o durante una espera larga); cada parada dura su tiempo en el sitio (o el promedio) y al final regresa a la planta. Una hora exacta se cumple si llega hasta {c.tolerancia || 0} min después.
+          (o durante una espera larga); cada parada dura su tiempo en el sitio (o el promedio) y al final regresa a la planta. Una hora exacta se cumple si llega hasta {c.tolerancia || 0} min después. Si una vuelta pide volver a la planta a dejar algo, el camión pasa por la planta justo después de esa parada.
           El viaje se estima por la distancia en línea recta × 1,4 a 22 km/h; cuando conectemos el GPS del camión se ajustará con datos reales.</p>
         <Aviso>{error}</Aviso>
         <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn">Guardar</button></div>
@@ -451,7 +496,7 @@ function AjustesLogistica({ aj, onClose, onGuardado }) {
 }
 
 // ---------------- Horario de recepción ----------------
-const CUANDO = { todo: 'Cualquier hora', manana: 'En la mañana', tarde: 'En la tarde', exacta: 'A una hora exacta', rango: 'Entre dos horas' }
+const CUANDO = { todo: 'Cualquier hora', manana: 'En la mañana', tarde: 'En la tarde', exacta: 'A una hora exacta', desde: 'A partir de una hora', antes: 'Antes de una hora', rango: 'Entre dos horas' }
 const L_V = [1, 2, 3, 4, 5]
 const PLANTILLAS = [
   ['L-V 8–12 y 2–5', [{ d: L_V, a: '08:00', b: '12:00' }, { d: L_V, a: '14:00', b: '17:00' }]],
@@ -459,9 +504,10 @@ const PLANTILLAS = [
   ['L-V 8–5 y S 8–12', [{ d: L_V, a: '08:00', b: '17:00' }, { d: [6], a: '08:00', b: '12:00' }]],
   ['L-S 7–4', [{ d: [...L_V, 6], a: '07:00', b: '16:00' }]],
 ]
-function EditorRecepcion({ valor, onChange, desdeLugar }) {
+function EditorRecepcion({ valor, onChange, desdeLugar, siempreAbierto }) {
   const lista = Array.isArray(valor) ? valor : []
-  const [abierto, setAbierto] = useState(false)
+  const [abierto0, setAbierto] = useState(false)
+  const abierto = siempreAbierto || abierto0
   const cambiar = (i, k, v) => onChange(lista.map((r, j) => (j === i ? { ...r, [k]: v } : r)))
   const dia = (i, n) => { const d = lista[i].d || []; cambiar(i, 'd', d.includes(n) ? d.filter((x) => x !== n) : [...d, n]) }
   const resumen = recepcionTxt(lista)
@@ -469,14 +515,15 @@ function EditorRecepcion({ valor, onChange, desdeLugar }) {
     <div className="recepcion">
       <div className="recepcion-cab">
         <span><b>Horario de recepción:</b> {resumen || <span className="tenue">recibe a cualquier hora</span>}{desdeLugar && resumen ? <span className="tenue pequeño"> (del cliente/proveedor guardado)</span> : null}</span>
-        <button type="button" className="btn-link" onClick={() => setAbierto(!abierto)}>{abierto ? 'Listo' : 'Cambiar'}</button>
+        {!siempreAbierto && <button type="button" className="btn-link" onClick={() => setAbierto(!abierto)}>{abierto ? 'Listo' : 'Cambiar'}</button>}
       </div>
       {abierto && <>
         {lista.map((r, i) => (
           <div key={i} className="recepcion-fila">
             <div className="dias">{DIAS_SEM.map(([n, l]) => <button type="button" key={n} className={(r.d || []).includes(n) ? 'sel' : ''} onClick={() => dia(i, n)}>{l}</button>)}</div>
-            <input type="time" step={300} value={r.a || ''} onChange={(e) => cambiar(i, 'a', e.target.value)} /> a
-            <input type="time" step={300} value={r.b || ''} onChange={(e) => cambiar(i, 'b', e.target.value)} />
+            <span className="tenue pequeño">de</span><SelectorHora value={r.a || ''} onChange={(v) => cambiar(i, 'a', v)} />
+            <span className="tenue pequeño">a</span><SelectorHora value={r.b || ''} onChange={(v) => cambiar(i, 'b', v)} />
+            {(!(r.d || []).length || !r.a || !r.b || r.b <= r.a) && <span className="t-mal pequeño">{!(r.d || []).length ? 'Marca los días' : 'Revisa las horas'}</span>}
             <button type="button" className="btn-link peligro" onClick={() => onChange(lista.filter((_, j) => j !== i))}>Quitar</button>
           </div>
         ))}
@@ -488,6 +535,58 @@ function EditorRecepcion({ valor, onChange, desdeLugar }) {
         </div>
       </>}
     </div>
+  )
+}
+
+// Convierte el sitio de una vuelta (hecha o no) en cliente/proveedor recurrente
+function GuardarRecurrente({ v, onHecho }) {
+  const [tipo, setTipo] = useState(v.tipo === 'recogida' ? 'proveedor' : 'cliente')
+  const [estado, setEstado] = useState('')
+  const guardar = async () => {
+    setEstado('guardando')
+    try {
+      const ubic = leerUbicacion(v.ubic)
+      const [l] = await q(sb.from('lugares').insert({ tipo, nombre: String(v.destino || '').trim(), direccion: v.direccion || null, municipio: v.municipio || null,
+        contacto: v.contacto || null, telefono: v.telefono || null, recepcion: v.recepcion || [], min_parada: Number(v.min_parada) || null,
+        lat: ubic?.lat ?? (tieneUbic(v) ? v.lat : null), lng: ubic?.lng ?? (tieneUbic(v) ? v.lng : null) }).select())
+      // Se enlaza la vuelta con el sitio guardado (si los permisos lo permiten)
+      await sb.from('vueltas').update({ lugar_id: l.id }).eq('id', v.id)
+      setEstado('ok'); onHecho(l)
+    } catch (e) { setEstado(e.message) }
+  }
+  if (estado === 'ok') return <Aviso tipo="ok">Guardado como {TIPOS_LUGAR[tipo].toLowerCase()} recurrente. Revisa su horario de recepción en "Clientes y proveedores".</Aviso>
+  return (
+    <div className="fila-form recurrente">
+      <span className="pequeño">¿Se vuelve a ir a <b>{v.destino}</b>?</span>
+      <select value={tipo} onChange={(e) => setTipo(e.target.value)}>{Object.entries(TIPOS_LUGAR).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select>
+      <button type="button" className="btn btn-sec btn-sm" disabled={estado === 'guardando'} onClick={guardar}>Guardar como recurrente</button>
+      {estado && estado !== 'guardando' && <span className="t-mal pequeño">{estado}</span>}
+    </div>
+  )
+}
+
+// Revisa que cada franja tenga días y horas válidas
+function validarRecepcion(rec) {
+  for (const r of rec || []) {
+    if (!(r.d || []).length) return 'En el horario de recepción, marca los días de cada franja.'
+    if (!r.a || !r.b) return 'En el horario de recepción, elige la hora de inicio y de fin de cada franja.'
+    if (r.b <= r.a) return 'En el horario de recepción, la hora de fin debe ser después de la de inicio.'
+  }
+  return ''
+}
+
+// Selector de hora en formato de 12 horas (cada 15 minutos), para que no haya confusiones de formato
+export function SelectorHora({ value, onChange, desde = '05:00', hasta = '21:00', paso = 15 }) {
+  const opts = []
+  for (let m = aMin(desde); m <= aMin(hasta); m += paso) opts.push(hm(m))
+  const v = value ? String(value).slice(0, 5) : ''
+  if (v && !opts.includes(v)) opts.push(v)
+  opts.sort()
+  return (
+    <select className="sel-hora" value={v} onChange={(e) => onChange(e.target.value)}>
+      <option value="">— hora —</option>
+      {opts.map((o) => <option key={o} value={o}>{h12(o)}</option>)}
+    </select>
   )
 }
 
@@ -528,7 +627,7 @@ function Lugares({ lugares, onCambio }) {
               <td><b>{l.nombre}</b></td><td>{TIPOS_LUGAR[l.tipo]}</td>
               <td>{[l.direccion, l.municipio].filter(Boolean).join(', ')}</td>
               <td>{l.contacto}{l.telefono && <div className="tenue pequeño">{l.telefono}</div>}</td>
-              <td className="pequeño">{recepcionTxt(l.recepcion) || <span className="tenue">cualquier hora</span>}{l.min_parada ? <div className="tenue">{l.min_parada} min en el sitio</div> : null}</td>
+              <td className="pequeño">{recepcionTxt(l.recepcion) || (l.horario ? <span className="t-mal">Falta pasar a días y horas: "{l.horario}"</span> : <span className="tenue">cualquier hora</span>)}{l.min_parada ? <div className="tenue">{l.min_parada} min en el sitio</div> : null}</td>
               <td>{tieneUbic(l) ? <a href={linkMaps(l)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Ver mapa</a> : <span className="tenue">—</span>}</td>
             </tr>
           ))}</tbody>
@@ -542,15 +641,21 @@ function Lugares({ lugares, onCambio }) {
 function FormLugar({ inicial, onClose, onGuardado }) {
   const [f, setF] = useState(() => ({ nombre: '', direccion: '', municipio: '', contacto: '', telefono: '', horario: '', notas: '', recepcion: [], min_parada: '', ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)),
     ubic: tieneUbic(inicial) ? `${inicial.lat}, ${inicial.lng}` : '' }))
+  // Horario de recepción: hay que decir explícitamente si tiene horario o si recibe a cualquier hora
+  const [conHorario, setConHorario] = useState(() => ((inicial.recepcion || []).length ? 'si' : inicial.id && !inicial.horario ? 'no' : ''))
   const [error, setError] = useState('')
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   const u = leerUbicacion(f.ubic)
   const guardar = async (e) => {
     e.preventDefault(); setError('')
+    if (!conHorario) { setError('Indica el horario de recepción: elige "Tiene horario" (días y horas) o "Recibe a cualquier hora".'); return }
+    if (conHorario === 'si' && !(f.recepcion || []).length) { setError('Agrega al menos una franja con sus días y horas, o elige "Recibe a cualquier hora".'); return }
+    const errRec = conHorario === 'si' ? validarRecepcion(f.recepcion) : ''
+    if (errRec) { setError(errRec); return }
     if (f.ubic && !u) { setError(esLinkCorto(f.ubic) ? 'Ese es un link corto de Google Maps: ábrelo y copia el link completo o las coordenadas.' : 'No reconozco esa ubicación. Pega el link completo de Google Maps o las coordenadas.'); return }
     const fila = { tipo: f.tipo, nombre: f.nombre.trim(), direccion: f.direccion.trim() || null, municipio: f.municipio.trim() || null, contacto: f.contacto.trim() || null,
-      telefono: f.telefono.trim() || null, horario: String(f.horario || '').trim() || null, notas: f.notas.trim() || null, lat: u?.lat ?? null, lng: u?.lng ?? null,
-      recepcion: f.recepcion || [], min_parada: Number(f.min_parada) || null }
+      telefono: f.telefono.trim() || null, horario: null, notas: f.notas.trim() || null, lat: u?.lat ?? null, lng: u?.lng ?? null,
+      recepcion: conHorario === 'si' ? f.recepcion : [], min_parada: Number(f.min_parada) || null }
     try {
       if (f.id) await q(sb.from('lugares').update(fila).eq('id', f.id))
       else await q(sb.from('lugares').insert(fila))
@@ -574,8 +679,16 @@ function FormLugar({ inicial, onClose, onGuardado }) {
           <label>Teléfono<input value={f.telefono} onChange={set('telefono')} inputMode="tel" /></label>
           <label title="Cuánto se demora normalmente en este sitio (descargar, recibir, firmar…). Vacío = el promedio">Tiempo en el sitio<span className="con-unidad"><input type="number" min={5} step={5} value={f.min_parada} onChange={set('min_parada')} placeholder="prom." style={{ width: 70 }} /> min</span></label>
         </div>
-        <EditorRecepcion valor={f.recepcion} onChange={(r) => setF({ ...f, recepcion: r })} />
-        {f.horario && <label>Indicaciones de horario (texto anterior)<input value={f.horario} onChange={set('horario')} /></label>}
+        <div className="recepcion">
+          <div className="recepcion-cab"><b>Horario de recepción</b>
+            <div className="segmentado">
+              <button type="button" className={conHorario === 'si' ? 'sel' : ''} onClick={() => { setConHorario('si'); if (!(f.recepcion || []).length) setF({ ...f, recepcion: [{ d: [1, 2, 3, 4, 5], a: '08:00', b: '17:00' }] }) }}>Tiene horario</button>
+              <button type="button" className={conHorario === 'no' ? 'sel' : ''} onClick={() => setConHorario('no')}>Recibe a cualquier hora</button>
+            </div>
+          </div>
+          {f.horario && <div className="aviso-texto-ant">Antes estaba escrito: <b>{f.horario}</b>. Pásalo a días y horas abajo.</div>}
+          {conHorario === 'si' && <EditorRecepcion valor={f.recepcion} onChange={(r) => setF({ ...f, recepcion: r })} siempreAbierto />}
+        </div>
         <label>Ubicación (link de Google Maps o coordenadas)<input value={f.ubic} onChange={set('ubic')} placeholder="https://www.google.com/maps/… o 6.2442, -75.5812" />
           <span className="tenue pequeño">{u ? `✓ ${u.lat}, ${u.lng}` : 'En Google Maps, mantén presionado el sitio y copia las coordenadas, o copia el link completo de la barra.'}</span></label>
         <label>Notas (portería, parqueo, a quién preguntar…)<textarea rows={2} value={f.notas} onChange={set('notas')} /></label>

@@ -1,7 +1,7 @@
 // Logística: ubicaciones, orden de las paradas y estimación del tiempo de un recorrido (sin GPS ni servicios pagos)
 
 export const VEHICULOS = { camion: 'Camión MQI', mensajero: 'Mensajero (moto o carro)', externo: 'Otro camión / transporte externo' }
-export const TIPOS_VUELTA = { entrega: 'Entrega', recogida: 'Recogida', diligencia: 'Diligencia' }
+export const TIPOS_VUELTA = { entrega: 'Entrega', recogida: 'Recogida', diligencia: 'Diligencia', regreso: 'Regreso a la planta' }
 export const FRANJAS = { todo: 'Cualquier hora', manana: 'Mañana', tarde: 'Tarde' }
 export const TIPOS_LUGAR = { cliente: 'Cliente', proveedor: 'Proveedor', otro: 'Otro' }
 export const ESTADOS_VUELTA = { pendiente: 'Pendiente', hecha: 'Hecha', no_hecha: 'No se pudo', cancelada: 'Cancelada' }
@@ -50,7 +50,7 @@ export const DIAS_SEM = [[1, 'L'], [2, 'M'], [3, 'X'], [4, 'J'], [5, 'V'], [6, '
 const diaSem = (fecha) => new Date(fecha + 'T12:00:00').getDay()
 
 // Configuración del día del vehículo (Logística → Punto de salida y horarios)
-export const CFG_DEF = { salida: '07:00', fin: '16:30', almuerzo_desde: '12:00', almuerzo_min: 60, min_parada: 20, tolerancia: 10 }
+export const CFG_DEF = { salida: '07:00', fin: '16:30', almuerzo_desde: '12:00', almuerzo_min: 60, min_parada: 20, tolerancia: 10, min_descargue: 15 }
 export function cfgDe(aj) {
   const c = { ...CFG_DEF, ...(aj || {}) }
   // Compatibilidad: antes se guardaba la jornada en minutos
@@ -72,7 +72,7 @@ export function recepcionTxt(rec) {
   const g = {}
   for (const r of rec) {
     const k = [...(r.d || [])].sort((x, y) => ((x + 6) % 7) - ((y + 6) % 7)).join(',')
-    ;(g[k] ||= []).push(`${hCorta(r.a)}–${hCorta(r.b)}`)
+    ;(g[k] ||= []).push(`${h12(r.a)} a ${h12(r.b)}`)
   }
   const lun = (k) => Math.min(...k.split(',').filter(Boolean).map((n) => (Number(n) + 6) % 7))
   return Object.entries(g).sort((x, y) => lun(x[0]) - lun(y[0])).map(([k, hs]) => `${diasTxt(k.split(',').filter(Boolean).map(Number))} ${hs.join(' y ')}`).join(' · ')
@@ -85,14 +85,25 @@ function diasTxt(ds) {
   return seguidos ? `${l(ord[0])}-${l(ord[ord.length - 1])}` : ord.map(l).join(' ')
 }
 
-// Cuándo se pidió la vuelta: hora exacta, entre dos horas, mañana, tarde o cualquier hora
+// Hora en formato de 12 horas, como se lee en Colombia: 8:00 a. m.
+export const h12 = (h) => {
+  if (!h) return ''
+  const m = aMin(h), hh = Math.floor(m / 60) % 24, mm = m % 60
+  return `${((hh + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${hh < 12 ? 'a. m.' : 'p. m.'}`
+}
+
+// Cuándo se pidió la vuelta: hora exacta, entre dos horas, antes de una hora, mañana, tarde o cualquier hora
 export function cuandoTxt(v) {
-  if (v.hora && v.hora_hasta) return `entre ${hCorta(v.hora)} y ${hCorta(v.hora_hasta)}`
-  if (v.hora) return `a las ${hCorta(v.hora)}`
+  if (v.cuando === 'desde' && v.hora) return `desde las ${h12(v.hora)}`
+  if (v.hora && v.hora_hasta) return `entre ${h12(v.hora)} y ${h12(v.hora_hasta)}`
+  if (!v.hora && v.hora_hasta) return `antes de las ${h12(v.hora_hasta)}`
+  if (v.hora) return `a las ${h12(v.hora)}`
   return v.franja === 'manana' ? 'en la mañana' : v.franja === 'tarde' ? 'en la tarde' : ''
 }
 function ventanasPedido(v, cfg) {
+  if (v.cuando === 'desde' && v.hora) return [[aMin(v.hora), DIA]]
   if (v.hora && v.hora_hasta) return [[aMin(v.hora), aMin(v.hora_hasta)]]
+  if (v.hora_hasta) return [[0, aMin(v.hora_hasta)]]
   if (v.hora) return [[aMin(v.hora), aMin(v.hora) + Number(cfg.tolerancia || 0)]]
   if (v.franja === 'manana') return [[0, 12 * 60]]
   if (v.franja === 'tarde') return [[12 * 60, DIA]]
@@ -124,8 +135,19 @@ export function simular(paradas, planta, cfg, fecha) {
   const almDesde = aMin(cfg.almuerzo_desde || '12:00'), almMin = Number(cfg.almuerzo_min) || 0
   let almuerzo = null
   const tomarAlmuerzo = () => { if (almMin && almuerzo === null && t >= almDesde) { almuerzo = t; t += almMin; return true } return false }
+  const pp = tieneUbic(planta) ? pos(planta) : null
   const pasos = paradas.map((v) => {
     const almuerzoAntes = tomarAlmuerzo()
+    // Antes de esta parada pasa por la planta a recoger la mercancía (esperando a que esté lista)
+    let carga = null
+    if (v.recoger_planta && pp) {
+      if (p && (p.lat !== pp.lat || p.lng !== pp.lng)) { t += minViaje(p, pp); kms += km(p, pp) * FACTOR_CALLE }
+      p = pp
+      const llegaP = t
+      if (v.lista_desde && t < aMin(v.lista_desde)) t = aMin(v.lista_desde)
+      t += Number(cfg.min_descargue) || 15
+      carga = { llega: llegaP, sale: t }
+    }
     if (tieneUbic(v)) { const q = pos(v); if (p) { t += minViaje(p, q); kms += km(p, q) * FACTOR_CALLE } p = q } else { sinUbic++; t += 20 }
     const llega = t
     const { ventanas, cerrado, choque } = ventanasParada(v, fecha, cfg)
@@ -137,7 +159,16 @@ export function simular(paradas, planta, cfg, fecha) {
     if (almMin && almuerzo === null && inicio - t >= almMin && inicio >= almDesde) almuerzo = Math.max(t, almDesde)
     const espera = inicio - t
     t = inicio + minParadaDe(v, cfg)
-    return { llega, inicio, sale: t, espera, tarde, cerrado, choque, almuerzoAntes }
+    const sale = t
+    // Después de esta parada el camión vuelve a la planta a dejar algo (lo antes posible o antes de una hora)
+    let vuelve = null
+    if (v.volver_planta && tieneUbic(planta)) {
+      if (p) { t += minViaje(p, pos(planta)); kms += km(p, pos(planta)) * FACTOR_CALLE }
+      p = pos(planta)
+      vuelve = { sale, llega: t, tarde: v.volver_antes ? Math.max(0, t - aMin(v.volver_antes)) : 0 }
+      t += Number(cfg.min_descargue) || 15
+    }
+    return { llega, inicio, sale, espera, tarde, cerrado, choque, almuerzoAntes, vuelve, carga }
   })
   if (paradas.length) {
     tomarAlmuerzo()
@@ -145,7 +176,7 @@ export function simular(paradas, planta, cfg, fecha) {
   }
   return { pasos, regreso: t, km: Math.round(kms), sinUbic, almuerzo }
 }
-export const problemas = (sim) => sim.pasos.filter((x) => x.tarde > 0 || x.cerrado || x.choque).length
+export const problemas = (sim) => sim.pasos.filter((x) => x.tarde > 0 || x.cerrado || x.choque || x.vuelve?.tarde > 0).length
 
 // Qué tan buena es una ruta: primero que nadie quede por fuera de su horario, luego volver temprano y atender pronto lo urgente
 function costo(paradas, sim, cfg) {
@@ -153,6 +184,7 @@ function costo(paradas, sim, cfg) {
   sim.pasos.forEach((x, i) => {
     if (x.cerrado || x.choque) c += 5000
     c += x.tarde * 100
+    if (x.vuelve) c += x.vuelve.tarde * 100 + (paradas[i].volver_antes ? 0 : x.vuelve.llega * 0.5) // "lo antes posible": cuanto antes, mejor
     if (paradas[i].prioridad === 1) c += x.inicio * 0.5
   })
   c += Math.max(0, sim.regreso - aMin(cfg.fin)) * 20

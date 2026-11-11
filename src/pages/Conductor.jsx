@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal } from '../ui.jsx'
 import { hoyCO } from '../cumplimiento.js'
-import { TIPOS_VUELTA, cuandoTxt, recepcionTxt, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
+import { TIPOS_VUELTA, cuandoTxt, h12, recepcionTxt, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
 
 // Celular del conductor: la ruta confirmada de hoy, en orden, para marcar cada parada
 export default function Conductor({ perfil }) {
@@ -80,6 +80,8 @@ export default function Conductor({ perfil }) {
                     </div>
                   </div>
                   <div className="cond-que">{v.descripcion}{v.op ? ` · OP ${v.op}` : ''}</div>
+                  {v.recoger_planta && <div className="cond-volver">⤓ Antes pasa por la planta a recoger la mercancía{v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}</div>}
+                  {v.volver_planta && <div className="cond-volver">↩ Después vuelve a la planta {v.volver_antes ? `antes de las ${h12(v.volver_antes)}` : 'lo antes posible'} a dejar lo que trae</div>}
                   {(v.contacto || v.horario || recepcionTxt(v.recepcion)) && <div className="cond-extra">{v.contacto && <span>👤 {v.contacto}</span>}{recepcionTxt(v.recepcion) && <span>🕒 Recibe {recepcionTxt(v.recepcion)}</span>}{v.horario && <span>{v.horario}</span>}</div>}
                   {hecha && <div className="cond-estado ok">✓ Hecha</div>}
                   {no && <div className="cond-estado mal">No se pudo: {v.resultado}</div>}
