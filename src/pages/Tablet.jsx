@@ -369,9 +369,6 @@ function FlujoMaquina({ accion, maquina, personas, onClose, onHecho }) {
   const [enviando, setEnviando] = useState(false)
   const cant = lista.reduce((s, t) => s + Number(t.cant_proceso || 0), 0)
   const calc = calcMaquina(maquina, cant)
-  const ya = lista.reduce((s, t) => s + Number(t.min_reales || 0), 0)
-  const abonoListo = Math.max((calc?.minOperario || 0) - ya, 0)
-  const abonoAvance = Math.max(Number(maquina?.min_montaje || 0) - ya, 0)
   const avanzado = lista.every((t) => t.estado === 'en_curso')
   const marcar = async (listo) => {
     setEnviando(true); setError('')
@@ -405,9 +402,9 @@ function FlujoMaquina({ accion, maquina, personas, onClose, onHecho }) {
           <Aviso>{error}</Aviso>
           <div className="acciones acciones-registro">
             {!avanzado && <button className="btn btn-sec btn-grande" disabled={enviando} onClick={() => marcar(false)}>
-              Avanzado · ya está montado{abonoAvance > 0 ? ` (+${fmtMin(abonoAvance)})` : ''}</button>}
+              Avanzado · ya está montado</button>}
             <button className="btn btn-ok btn-grande" disabled={enviando} onClick={() => marcar(true)}>
-              Listo{lista.length > 1 ? ' en todo el proyecto' : ''}{abonoListo > 0 ? ` (+${fmtMin(abonoListo)})` : ''}</button>
+              Listo{lista.length > 1 ? ' en todo el proyecto' : ''}</button>
           </div>
         </div>
       )}
