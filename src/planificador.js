@@ -66,7 +66,8 @@ export function planificar(demanda, op, bloques, horario) {
       }, 0)
     } else {
       const usadoArea = delDia.reduce((u, b) => u + hhBloque(b), 0)
-      capH = Math.max(0, Math.min(reloj, Math.max(1, op.operariosArea) * jor - usadoArea))
+      // Un trabajo grande puede repartirse entre varios operarios del área ese día
+      capH = Math.max(0, Math.min(reloj * Math.max(1, op.operariosArea), Math.max(1, op.operariosArea) * jor - usadoArea))
     }
     // Horas de máquina disponibles (una jornada por máquina y día, todas las áreas)
     const tomaM = {}
@@ -81,7 +82,7 @@ export function planificar(demanda, op, bloques, horario) {
     const fracM = Math.max(0, ...Object.entries(tomaM).map(([k, v]) => v / (demanda.maq[k] || v)))
     const ritmo = quedaMaq ? Math.max((demanda.hh || 0) * fracM, 15) : restoH
     const tomaH = Math.min(restoH, capH, ritmo)
-    const nP = Math.max(1, personas.length)
+    const nP = personas.length || Math.max(1, Math.ceil(tomaH / reloj - 1e-9))
     const dur = Math.max(tomaH / nP, ...Object.values(tomaM), 0)
     if (dur < 1) continue
     const fin = Math.min(ini + arriba15(dur), w[1])
@@ -163,4 +164,49 @@ export function planificarOP(tareas, ctx0, op, horario) {
   }
   const bloques = Object.values(g).sort((a, b) => (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio))
   return { bloques, terceros, fin: finOP }
+}
+
+// ---------- Reorganizar toda la programación ----------
+// Prueba varios órdenes de OPs (más corta primero, entrega más cercana primero, prioridad) y mejora con intercambios,
+// buscando que la menor cantidad de OPs termine después de su entrega y con el menor atraso total.
+const diasEntre = (a, b) => Math.round((new Date(a + 'T12:00:00') - new Date(b + 'T12:00:00')) / 864e5)
+export function reorganizar(ops, tareas, fijos, op, horario) {
+  const carga = {}
+  for (const t of tareas) {
+    if (['terminada', 'omitida'].includes(t.estado) || t.area === 'TERCEROS') continue
+    carga[t.orden_id] = (carga[t.orden_id] || 0) + Math.max(Number(t.min_std || 0) - Number(t.min_reales || 0), 0)
+      + (t.es_maquina ? Math.max(Number(t.min_maquina || 0) - Number(t.min_maquina_real || 0), 0) : 0)
+  }
+  const conTrabajo = ops.filter((o) => carga[o.id] > 0 || tareas.some((t) => t.orden_id === o.id && t.area === 'TERCEROS' && !['terminada', 'omitida'].includes(t.estado)))
+  const correr = (orden) => {
+    const ctx = [...fijos]
+    return orden.map((o) => {
+      const r = planificarOP(tareas.filter((t) => t.orden_id === o.id), ctx, op, horario)
+      const bs = r.bloques.map((b) => ({ ...b, orden_id: o.id }))
+      ctx.push(...bs)
+      const fin = r.fin?.fecha || null
+      return { op: o, bloques: bs, terceros: r.terceros, fin, atraso: fin && o.fecha_compromiso && fin > o.fecha_compromiso ? diasEntre(fin, o.fecha_compromiso) : 0 }
+    })
+  }
+  const nota = (R) => ({ tarde: R.filter((x) => x.atraso > 0).length, atraso: R.reduce((s, x) => s + x.atraso, 0) })
+  const mejor = (a, b) => a.tarde < b.tarde || (a.tarde === b.tarde && a.atraso < b.atraso)
+  const fc = (o) => String(o.fecha_compromiso || '9999')
+  const cands = [
+    [...conTrabajo].sort((a, b) => carga[a.id] - carga[b.id]),
+    [...conTrabajo].sort((a, b) => fc(a).localeCompare(fc(b)) || carga[a.id] - carga[b.id]),
+    [...conTrabajo].sort((a, b) => fc(a).localeCompare(fc(b)) || a.prioridad - b.prioridad),
+    [...conTrabajo].sort((a, b) => a.prioridad - b.prioridad || fc(a).localeCompare(fc(b))),
+  ]
+  let orden = cands[0]; let R = correr(orden); let s = nota(R)
+  for (const c of cands.slice(1)) { const r = correr(c); const n = nota(r); if (mejor(n, s)) { orden = c; R = r; s = n } }
+  for (let pasada = 0; pasada < 3; pasada++) {
+    let cambio = false
+    for (let i = 0; i < orden.length - 1; i++) {
+      const o2 = [...orden]; [o2[i], o2[i + 1]] = [o2[i + 1], o2[i]]
+      const r = correr(o2); const n = nota(r)
+      if (mejor(n, s)) { orden = o2; R = r; s = n; cambio = true }
+    }
+    if (!cambio) break
+  }
+  return { resultado: R, ...s }
 }

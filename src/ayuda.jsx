@@ -2,30 +2,32 @@ import { useState } from 'react'
 import { Modal } from './ui.jsx'
 
 // Instructivos por pantalla y rol. Cada uno: para qué sirve, pasos o funciones, y un consejo.
-// Roles: 'gestor' (Administrador y Dirección), 'consulta', 'tablet'.
+// Roles: 'gestor' (Administrador), 'consulta', 'tablet'.
 const AYUDA = {
   'tablero.gestor': {
     titulo: 'Tablero de planta',
     proposito: 'Ver de un vistazo todas las OPs en planta y cuáles necesitan atención.',
     puntos: [
-      ['Leer el cumplimiento', 'A tiempo · En riesgo (faltan 2 días o menos) · Vencida (pasó la fecha compromiso).'],
+      ['Cumplimiento según programación', 'Compara la fecha en que termina la OP según la programación (más los días de terceros que van al final) con la fecha de entrega: A tiempo · Justa (1 día hábil o menos de margen) · No alcanza · Programación incompleta · Sin programar · Vencida · Lista para entregar.'],
+      ['Alertas y pendientes', 'Lo que requiere acción: enviar a terceros, terceros atrasados, horas que faltan por programar, pasos sin tiempo estándar.'],
       ['Leer el avance', '% de los minutos estándar ya terminados. "Pasos" muestra cuántos van de cuántos.'],
       ['Filtrar y buscar', 'Activas, Terminadas o Todas. Busca por número de OP, cliente o proyecto.'],
-      ['Abrir una OP', 'Haz clic en la fila para ver sus ítems, pasos y el mapa.'],
+      ['Abrir una OP', 'Haz clic en la fila para ver sus alertas, las horas por área, sus ítems, pasos y el mapa.'],
       ['Crear una OP', 'Botón "+ Nueva OP".'],
     ],
-    consejo: 'Cada mañana revisa primero las Vencidas y En riesgo: son las que definen la prioridad del día.',
+    consejo: 'Cada mañana revisa primero las que dicen No alcanza o Vencida y atiende los envíos a terceros: son los que definen la prioridad del día.',
   },
   'tablero.consulta': {
     titulo: 'Tablero de planta',
     proposito: 'Consultar el estado de las OPs sin tener que llamar a la planta.',
     puntos: [
-      ['Leer el cumplimiento', 'A tiempo · En riesgo (faltan 2 días o menos) · Vencida (pasó la fecha compromiso).'],
+      ['Cumplimiento según programación', 'Compara la fecha en que termina la OP según la programación (más los días de terceros que van al final) con la fecha de entrega: A tiempo · Justa (1 día hábil o menos de margen) · No alcanza · Programación incompleta · Sin programar · Vencida · Lista para entregar.'],
+      ['Alertas y pendientes', 'Lo que requiere acción: enviar a terceros, terceros atrasados, horas que faltan por programar, pasos sin tiempo estándar.'],
       ['Leer el avance', '% del trabajo estándar ya terminado y pasos hechos de los totales.'],
       ['Buscar', 'Por número de OP, cliente o proyecto.'],
       ['Ver detalle', 'Haz clic en la fila para ver sus pasos y el mapa del proyecto.'],
     ],
-    consejo: 'Si necesitas cambiar una fecha o prioridad, pídelo a Dirección de Producción: tu acceso es solo de lectura.',
+    consejo: 'Si necesitas cambiar una fecha o prioridad, pídelo al Administrador: tu acceso es solo de lectura.',
   },
   'nueva.gestor': {
     titulo: 'Nueva OP',
@@ -84,7 +86,7 @@ const AYUDA = {
     titulo: 'Configuraciones',
     proposito: 'Administrar las personas y los datos base con que el sistema calcula tiempos.',
     puntos: [
-      ['Usuarios', 'Solo el Administrador: crea cuentas con correo y contraseña, asigna su permiso (Administrador, Dirección, Consulta o Tablet de un área), cambia contraseñas y elimina usuarios.'],
+      ['Usuarios', 'Solo el Administrador: crea cuentas con correo y contraseña, asigna su permiso (Administrador, Consulta o Tablet de un área), cambia contraseñas y elimina usuarios.'],
       ['Personas', 'Agrega operarios: aparecen en la tablet de su área para registrar su tiempo. Usa "Activo" para retirar a alguien sin borrar su historial.'],
       ['Productos y rutas', 'Crea o edita productos, familias y rutas. Cada proceso de la ruta lleva sus minutos para una unidad del tamaño de referencia. Un producto de terceros puede tener pasos previos en planta (ej. plantillas en Madera) antes del envío al proveedor.'],
       ['Procesos', 'Crea procesos nuevos (también de terceros, ej. Tapizado) y ajusta el tiempo del ensamble final de cada área. Un ítem multiárea puede tener varios ensambles (uno por área), se eligen en el detalle de la OP.'],
@@ -126,6 +128,7 @@ const AYUDA = {
       ['Programar (automático)', 'Toca "+ Programar", una celda o "Programar" en la tabla de abajo. Eliges la OP, el área, desde qué día y hora, y las horas hombre (vienen llenas con lo pendiente). El sistema reparte en los días hábiles: lo que no cabe en la jornada pasa al día siguiente, sin pasarse de las horas hombre del área (o de los operarios elegidos) ni de las horas de cada máquina. Ves el plan antes de confirmar.'],
       ['OP completa', 'Programa todas las áreas de una OP de una vez, en el orden de sus pasos: cada proceso empieza cuando terminan los anteriores de su producto, el ensamble cuando terminan todos los productos del ítem y los terceros ocupan sus días hábiles. Si un día no tiene espacio, pasa al siguiente. Puede reemplazar lo que ya estaba programado de esa OP.'],
       ['Gran Formato', 'Programa varios proyectos a la misma hora: el límite son las horas hombre del área y las de cada máquina (impresora, láser, plotter, DTF). Cada celda muestra la carga en horas hombre y el uso de cada máquina.'],
+      ['Reorganizar programación', 'Rehace toda la programación automática desde ahora probando varios órdenes entre OPs, para que se cumpla la mayor cantidad de entregas. Muestra antes y después y cuáles no alcanzan con la capacidad actual. Los bloques hechos a mano no se tocan.'],
       ['Programar todo lo pendiente', 'Programa todas las OPs que faltan, en orden de prioridad y fecha de entrega, y marca en rojo las que terminarían después de su entrega.'],
       ['Manual', 'Para un horario fijo, elige "Manual" en la ventana de programar. Un bloque guardado se puede editar, copiar al siguiente día o quitar (solo él, o todos los bloques de esa programación).'],
       ['Trabajo por programar', 'Abajo: horas estándar pendientes de cada OP por área frente a lo ya programado. "Programar" abre el bloque con la OP y el área listas.'],

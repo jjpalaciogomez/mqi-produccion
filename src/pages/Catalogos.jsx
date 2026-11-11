@@ -29,8 +29,7 @@ export default function Catalogos({ perfil }) {
 
 // ---------- Usuarios de la app (solo Administrador) ----------
 const PERMISOS = {
-  admin: ['Administrador', 'Todo: OPs, configuraciones, usuarios, indicadores y corrección de registros'],
-  direccion: ['Dirección', 'Todo lo de producción (OPs, configuraciones, indicadores, horas y correcciones), sin manejar usuarios'],
+  admin: ['Administrador', 'Todo: OPs, programación, configuraciones, usuarios, indicadores, horas y corrección de registros'],
   consulta: ['Consulta', 'Solo ve el tablero de planta y el detalle de las OPs; no cambia nada'],
   tablet: ['Tablet', 'Pantalla de registro de un área para los operarios'],
 }

@@ -3,7 +3,7 @@ import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { AREAS_PLANTA } from '../estandar.js'
-import { aMin, hhBloque, jornadaMin, maqBloque, planificar, planificarOP } from '../planificador.js'
+import { aMin, hhBloque, jornadaMin, maqBloque, planificar, planificarOP, reorganizar } from '../planificador.js'
 
 // Programación de la planta: bloques de trabajo (OP + área + día + horario + operarios opcionales)
 
@@ -86,6 +86,7 @@ export default function Programacion({ perfil, gestor }) {
   const opsPorId = useMemo(() => Object.fromEntries((pend?.ops || []).map((o) => [o.id, o])), [pend])
 
   const [todo, setTodo] = useState(false)
+  const [reorg, setReorg] = useState(false)
   const guardarEntrada = async (v) => {
     if (!v || v === d?.horario?.entrada) return
     try { await q(sb.from('ajustes').upsert({ clave: 'horario', valor: { ...(d?.horario || {}), entrada: v } })); recargar() } catch (e) { alert(e.message) }
@@ -97,6 +98,7 @@ export default function Programacion({ perfil, gestor }) {
       <div className="titulo-pagina">
         <div><h1>Programación de planta</h1><div className="tenue pequeño">Qué proyecto trabaja cada área, cada día y a qué hora. Lo que no cabe en la jornada pasa solo a los días siguientes.</div></div>
         <div className="titulo-acciones">
+          {gestor && <button className="btn btn-sec" onClick={() => setReorg(true)} disabled={!pend || !d} title="Rehace toda la programación automática de hoy en adelante para cumplir la mayor cantidad de entregas">Reorganizar programación</button>}
           {gestor && <button className="btn btn-sec" onClick={() => setTodo(areas)} disabled={!pend || !d}>Programar todo lo pendiente</button>}
           {gestor && <button className="btn" onClick={() => nuevoAuto({ alcance: 'op' })}>+ Programar</button>}
           <BotonAyuda clave="programacion" rol={perfil?.rol} />
@@ -120,6 +122,8 @@ export default function Programacion({ perfil, gestor }) {
 
       {form && d && pend && <FormBloque inicial={form} ops={pend.ops} pend={pend} personas={d.personas} bloques={d.bloques} horario={d.horario} maquinas={d.maquinas}
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); recargar() }} />}
+      {reorg && d && pend && <Reorganizar pend={pend} personas={d.personas} horario={d.horario}
+        onClose={() => setReorg(false)} onGuardado={() => { setReorg(false); recargar() }} />}
       {todo && d && pend && <ProgramarTodo pend={pend} opsPorId={opsPorId} areas={todo} personas={d.personas} horario={d.horario}
         onClose={() => setTodo(false)} onGuardado={() => { setTodo(false); recargar() }} />}
     </div>
@@ -342,6 +346,62 @@ function ListaPlan({ bloques, maquinas, personas }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+// Rehace la programación automática de hoy en adelante, buscando que se cumpla la mayor cantidad de entregas
+function Reorganizar({ pend, personas, horario, onClose, onGuardado }) {
+  const [tareas, setTareas] = useState(null)
+  const [error, setError] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  useEffect(() => {
+    q(sb.from('v_tareas').select('id, orden_id, item_id, item_numero, componente_id, paso, area, proceso, proceso_nombre, estado, min_std, min_reales, es_maquina, min_maquina, min_maquina_real, tiempo_std_unit')
+      .in('op_estado', ['borrador', 'en_planta'])).then(setTareas).catch((e) => setError(e.message))
+  }, [])
+  const fijos = pend.futuros.filter((b) => !b.grupo)
+  const plan = useMemo(() => {
+    if (!tareas) return null
+    const operarios = {}
+    for (const p of personas) operarios[p.area] = (operarios[p.area] || 0) + 1
+    return reorganizar(pend.ops, tareas, fijos, { ...inicioPlan(hoyCO(), null), operarios }, horario)
+  }, [tareas, pend, personas, horario]) // eslint-disable-line react-hooks/exhaustive-deps
+  const antes = (id) => pend.futuros.filter((b) => b.orden_id === id).reduce((m, b) => (b.fecha > m ? b.fecha : m), '')
+  const guardar = async () => {
+    setEnviando(true); setError('')
+    try {
+      await q(sb.from('programacion').delete().gte('fecha', hoyCO()).not('grupo', 'is', null))
+      const filas = plan.resultado.flatMap((x) => { const grupo = crypto.randomUUID(); return x.bloques.map((b) => ({ ...b, grupo, nota: 'Reorganizada para cumplir entregas' })) })
+      if (filas.length) await q(sb.from('programacion').insert(filas))
+      onGuardado()
+    } catch (e) { setError(e.message); setEnviando(false) }
+  }
+  return (
+    <Modal titulo="Reorganizar la programación" onClose={onClose} ancho={820}>
+      <p className="tenue">Rehace la programación automática desde ahora: cada OP completa en el orden de sus pasos y con los días de terceros,
+        probando varios órdenes entre OPs para que la menor cantidad termine después de su entrega. Los bloques hechos a mano ({fijos.length}) no se tocan.</p>
+      {!plan ? (error ? null : <Cargando />) : <>
+        <p><b>{plan.tarde === 0 ? 'Todas las OPs alcanzan su entrega.' : `${plan.tarde} ${plan.tarde === 1 ? 'OP no alcanza' : 'OPs no alcanzan'} su entrega con la capacidad actual (${plan.atraso} días de atraso en total).`}</b></p>
+        <table className="tabla">
+          <thead><tr><th>Orden</th><th>OP</th><th>Entrega</th><th>Hoy termina</th><th>Reorganizada termina</th><th /></tr></thead>
+          <tbody>{plan.resultado.map((x, i) => (
+            <tr key={x.op.id} className={x.atraso ? 'fila-tarde' : ''}>
+              <td>{i + 1}</td>
+              <td><span className="punto" style={{ background: colorOP(x.op.numero) }} /><b>OP {x.op.numero}</b> <span className="tenue">{x.op.proyecto}</span></td>
+              <td>{fmtFecha(x.op.fecha_compromiso)}</td>
+              <td className="tenue">{antes(x.op.id) ? fmtFecha(antes(x.op.id)) : 'sin programar'}</td>
+              <td className={x.atraso ? 't-mal' : ''}>{x.fin ? fmtFecha(x.fin) : '—'}{x.atraso ? ` · ${x.atraso} ${x.atraso === 1 ? 'día' : 'días'} tarde` : ''}</td>
+              <td className="tenue pequeño">{x.bloques.length} bloques{x.terceros.length ? ` · ${x.terceros.length} terceros` : ''}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+        {plan.tarde > 0 && <Aviso tipo="warn">Las OPs en rojo no alcanzan aunque se reorganice: hace falta más capacidad (horas extra, más operarios, apoyo de otra área) o acordar otra fecha con el cliente.</Aviso>}
+      </>}
+      <Aviso>{error}</Aviso>
+      <div className="acciones">
+        <button className="btn btn-sec" onClick={onClose}>Cancelar</button>
+        <button className="btn" disabled={enviando || !plan} onClick={guardar}>Reemplazar la programación</button>
+      </div>
+    </Modal>
   )
 }
 

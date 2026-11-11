@@ -1,4 +1,5 @@
 import { useOPExistente } from '../numeroOP.js'
+import { evaluarOP, hoyCO } from '../cumplimiento.js'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, EstadoTarea, Modal, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
@@ -15,7 +16,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
 
   const cargar = useCallback(async () => {
     try {
-      const [orden, items, comps, tareas, productos, rutas, difs] = await Promise.all([
+      const [orden, items, comps, tareas, productos, rutas, difs, prog] = await Promise.all([
         q(sb.from('v_ordenes').select('*').eq('id', id).maybeSingle()),
         q(sb.from('items').select('*').eq('orden_id', id).order('numero')),
         q(sb.from('componentes').select('*, items!inner(orden_id)').eq('items.orden_id', id)),
@@ -23,13 +24,14 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         q(sb.from('productos').select('*').order('codigo')),
         q(sb.from('rutas').select('*, procesos(nombre, area, unidad, es_maquina, rendimiento, capacidad_ciclo, min_montaje)').order('paso').order('id')),
         q(sb.from('dificultades').select('*').order('orden')),
+        q(sb.from('programacion').select('area, fecha, hora_inicio, hora_fin, personas, min_hombre').eq('orden_id', id).gte('fecha', hoyCO()).order('fecha')),
       ])
       if (!orden) { setError('No se encontró la OP.'); return }
       const ids = tareas.map((t) => t.id)
       const registros = ids.length ? await q(sb.from('registros')
         .select('id, tarea_id, inicio, fin, minutos, cantidad, observacion, lote, motivo_pausa, personas(nombre)')
         .in('tarea_id', ids).is('motivo_pausa', null).order('inicio')) : []
-      setD({ orden, items, comps, tareas, productos, rutas, difs, registros }); setError('')
+      setD({ orden, items, comps, tareas, productos, rutas, difs, registros, prog }); setError('')
     } catch (e) { setError(e.message) }
   }, [id])
 
@@ -38,6 +40,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
   if (error && !d) return <Aviso>{error}</Aviso>
   if (!d) return <Cargando />
   const { orden } = d
+  const ev = evaluarOP(orden, d.tareas.filter((t) => t.estado !== 'omitida'), d.prog)
 
   return (
     <div>
@@ -61,12 +64,14 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
 
       <div className="kpis">
         <div className="kpi"><span>Compromiso</span><b>{fmtFecha(orden.fecha_compromiso)}</b></div>
-        <div className="kpi"><span>Cumplimiento</span><b><Semaforo valor={orden.semaforo} /></b></div>
+        <div className="kpi"><span>Cumplimiento según programación</span><b><span className={`badge badge-${ev.tono}`}>{ev.texto}</span></b></div>
         <div className="kpi"><span>Estado</span><b>{ESTADO_OP[orden.estado]}</b></div>
         <div className="kpi"><span>Avance</span><b><Barra pct={orden.avance_pct} /></b></div>
         <div className="kpi"><span>Trabajo estándar</span><b>{fmtMin(orden.min_std_terminado)} / {fmtMin(orden.min_std_total)}</b></div>
       </div>
       {orden.notas && <p className="notas-op">{orden.notas}</p>}
+      {ev.alertas.length > 0 && <div className="alertas-op">{ev.alertas.map((a, i) => <div key={i} className={`alerta-op t-${a.tono}`}>{a.tono === 'bad' ? '⚠' : '•'} {a.texto}</div>)}</div>}
+      <HorasPorArea tareas={d.tareas} prog={d.prog} />
       <Aviso>{error}</Aviso>
 
       <div className="segmentado pestañas">
@@ -230,6 +235,40 @@ function Componente({ c, it, prod, tareas, productos, rutas, difs, gestor, perfi
         )}
       </div>
       <TablaTareas tareas={tareas} gestor={gestor} perfil={perfil} accion={accion} />
+    </div>
+  )
+}
+
+// Horas hombre registradas / estándar por área (y máquina aparte), con lo programado de hoy en adelante
+const ORDEN_AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
+function HorasPorArea({ tareas, prog }) {
+  const g = {}
+  for (const t of tareas) {
+    if (t.estado === 'omitida' || t.area === 'TERCEROS') continue
+    const x = (g[t.area] ||= { real: 0, std: 0, pend: 0, maq: 0, maqReal: 0, prog: 0 })
+    x.real += Number(t.min_reales || 0); x.std += Number(t.min_std || 0)
+    if (t.estado !== 'terminada') x.pend += Math.max(Number(t.min_std || 0) - Number(t.min_reales || 0), 0)
+    if (t.es_maquina) { x.maq += Number(t.min_maquina || 0); x.maqReal += Number(t.min_maquina_real || 0) }
+  }
+  for (const b of prog) if (g[b.area]) g[b.area].prog += b.min_hombre !== null && b.min_hombre !== undefined ? Number(b.min_hombre) : 0
+  const areas = Object.keys(g).sort((a, b) => (ORDEN_AREAS.indexOf(a) + 9) % 99 - (ORDEN_AREAS.indexOf(b) + 9) % 99)
+  if (!areas.length) return null
+  const h = (m) => fmtNum(Number(m) / 60, 1)
+  return (
+    <div className="horas-area">
+      {areas.map((a) => {
+        const x = g[a]
+        const p = x.std ? x.real / x.std : 0
+        return (
+          <div key={a} className="ha-celda">
+            <div className="ha-area">{a}</div>
+            <div><b>{h(x.real)}</b> / {h(x.std)} h <span className="tenue pequeño">hombre</span></div>
+            <i className={`mini-barra t-${p > 1.1 ? 'mal' : p > 0.9 ? 'alerta' : 'ok'}`}><em style={{ width: `${Math.min(p, 1) * 100}%` }} /></i>
+            <div className="tenue pequeño">Pendiente {h(x.pend)} h · programado {h(x.prog)} h</div>
+            {x.maq > 0 && <div className="tenue pequeño">⚙ Máquina {h(x.maqReal)} / {h(x.maq)} h (aparte)</div>}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -458,7 +497,7 @@ function FormComponente({ item, productos, rutas, difs, inicial, onClose, accion
   )
 }
 
-// Registros de tiempo de un paso: Administración y Dirección pueden corregirlos o borrarlos
+// Registros de tiempo de un paso: el Administrador puede corregirlos o borrarlos
 function ListaRegistros({ regs, accion }) {
   const [edit, setEdit] = useState({})
   const num = (v) => (v === '' || v === null || v === undefined ? null : Number(String(v).replace(',', '.')))

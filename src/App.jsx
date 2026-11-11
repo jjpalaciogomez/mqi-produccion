@@ -25,7 +25,7 @@ export const ir = (ruta) => { window.location.hash = ruta }
 
 // Modo prueba del Administrador: ver la app como otro rol sin cambiar de usuario
 const VISTAS = [
-  ['admin|', 'Administrador'], ['direccion|', 'Dirección'], ['consulta|', 'Consulta'],
+  ['admin|', 'Administrador'], ['consulta|', 'Consulta'],
   ['tablet|METAL', 'Tablet Metal'], ['tablet|MADERA', 'Tablet Madera'],
   ['tablet|ACRILICO', 'Tablet Acrílico'], ['tablet|GRAN FORMATO', 'Tablet Gran Formato'],
 ]
@@ -71,7 +71,7 @@ export default function App() {
     if (!session) { setPerfil(null); return }
     sb.from('perfiles').select('*').eq('user_id', session.user.id).maybeSingle().then(({ data, error }) => {
       if (error) setError(error.message)
-      else if (!data) setError('Tu usuario no tiene un perfil asignado. Pide a Dirección de Producción que lo configure.')
+      else if (!data) setError('Tu usuario no tiene un perfil asignado. Pide al Administrador que lo configure.')
       else setPerfil(data)
     })
   }, [session])
@@ -138,4 +138,4 @@ function Shell({ perfil, prueba }) {
   )
 }
 
-const ROLES = { admin: 'Administrador', direccion: 'Dirección', consulta: 'Consulta', tablet: 'Tablet' }
+const ROLES = { admin: 'Administrador', direccion: 'Administrador', consulta: 'Consulta', tablet: 'Tablet' }
