@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal } from '../ui.jsx'
 import { hoyCO } from '../cumplimiento.js'
@@ -67,8 +67,19 @@ export default function Conductor({ perfil }) {
             {vs.map((v, i) => {
               const hecha = v.estado === 'hecha', no = v.estado === 'no_hecha'
               const siguiente = v.id === faltan[0]?.id
-              return (
-                <div key={v.id} className={`cond-parada ${v.tipo}${hecha ? ' hecha' : ''}${no ? ' no-hecha' : ''}${siguiente ? ' siguiente' : ''}`}>
+              const pasoPlanta = (txt) => (
+                <div className={`cond-parada regreso${hecha || no ? ' hecha' : ''}`}>
+                  <div className="cond-p-cab"><span className="log-n planta">P</span>
+                    <div className="crece"><span className="etq-vuelta regreso">Planta MQI</span><div className="cond-destino">{txt}</div></div></div>
+                  {planta && <div className="cond-acc">
+                    <a className="btn btn-sec" href={linkMaps(planta)} target="_blank" rel="noreferrer">Maps</a>
+                    <a className="btn btn-sec" href={linkWaze(planta)} target="_blank" rel="noreferrer">Waze</a>
+                  </div>}
+                </div>
+              )
+              return (<Fragment key={v.id}>
+                {v.recoger_planta && pasoPlanta(`Recoger la mercancía para ${v.destino}${v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}`)}
+                <div className={`cond-parada ${v.tipo}${hecha ? ' hecha' : ''}${no ? ' no-hecha' : ''}${siguiente ? ' siguiente' : ''}`}>
                   <div className="cond-p-cab">
                     <span className="log-n">{i + 1}</span>
                     <div className="crece">
@@ -80,8 +91,6 @@ export default function Conductor({ perfil }) {
                     </div>
                   </div>
                   <div className="cond-que">{v.descripcion}{v.op ? ` · OP ${v.op}` : ''}</div>
-                  {v.recoger_planta && <div className="cond-volver">⤓ Antes pasa por la planta a recoger la mercancía{v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}</div>}
-                  {v.volver_planta && <div className="cond-volver">↩ Después vuelve a la planta {v.volver_antes ? `antes de las ${h12(v.volver_antes)}` : 'lo antes posible'} a dejar lo que trae</div>}
                   {(v.contacto || v.horario || recepcionTxt(v.recepcion)) && <div className="cond-extra">{v.contacto && <span>👤 {v.contacto}</span>}{recepcionTxt(v.recepcion) && <span>🕒 Recibe {recepcionTxt(v.recepcion)}</span>}{v.horario && <span>{v.horario}</span>}</div>}
                   {hecha && <div className="cond-estado ok">✓ Hecha</div>}
                   {no && <div className="cond-estado mal">No se pudo: {v.resultado}</div>}
@@ -97,7 +106,8 @@ export default function Conductor({ perfil }) {
                     </div>
                   )}
                 </div>
-              )
+                {v.volver_planta && pasoPlanta(`Volver a dejar lo que trae de ${v.destino}${v.volver_antes ? ` · antes de las ${h12(v.volver_antes)}` : ' · lo antes posible'}`)}
+              </Fragment>)
             })}
           </div>
         </>

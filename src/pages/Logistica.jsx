@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
@@ -381,8 +381,9 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                 </div>
                 <input className="log-conductor" placeholder={veh === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || ''} key={r?.id || veh} disabled={conf}
                   onBlur={(e) => e.target.value !== (r?.conductor || '') && guardarConductor(veh, e.target.value)} />
-                {ps.map((v, i) => (
-                  <Parada key={v.id} v={v} n={i + 1} fecha={fecha} paso={est.sim.pasos[i]} onAbrir={() => setForm(v)}
+                {ps.map((v, i) => (<Fragment key={v.id}>
+                  {v.recoger_planta && <ParadaPlanta motivo="recoger" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} />}
+                  <Parada v={v} n={i + 1} fecha={fecha} paso={est.sim.pasos[i]} onAbrir={() => setForm(v)}
                     acciones={conf ? null : <>
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
                       <button className="btn-icono" disabled={ocupado || i === ps.length - 1} onClick={() => subir(veh, i, 1)} title="Bajar">↓</button>
@@ -391,7 +392,8 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                       </select>
                       <button className="btn-link peligro" disabled={ocupado} onClick={() => mover(v, '')} title="Vuelve a Sin asignar">Sacar</button>
                     </>} />
-                ))}
+                  {v.volver_planta && <ParadaPlanta motivo="dejar" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} />}
+                </Fragment>))}
                 <div className="log-col-pie">
                   {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar</button>}
                   {!conf && ps.some((x) => x.estado === 'pendiente') && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => sacarTodas(veh)} title="Pasa a Sin asignar todas las vueltas pendientes de esta ruta, para reorganizar">Sacar todas</button>}
@@ -409,6 +411,29 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
       {form && <FormVuelta inicial={form} lugares={lugares} perfil={perfil} gestor
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); cargar(); onLugares() }} />}
       {verAjustes && aj && <AjustesLogistica aj={aj} onClose={() => setVerAjustes(false)} onGuardado={() => { setVerAjustes(false); cargarAj() }} />}
+    </div>
+  )
+}
+
+// Paso por la planta dentro de la ruta: recoger la mercancía antes de una vuelta o volver a dejar algo después
+function ParadaPlanta({ motivo, v, paso, sinPlanta }) {
+  const x = motivo === 'recoger' ? paso?.carga : paso?.vuelve
+  const tarde = motivo === 'dejar' && x?.tarde > 0
+  return (
+    <div className={`log-parada planta${tarde ? ' no-hecha' : ''}`}>
+      <div className="log-parada-cab">
+        <span className="log-n planta">P</span>
+        <div className="crece">
+          <div><span className="etq-vuelta regreso">{motivo === 'recoger' ? 'Recoger en la planta' : 'Volver a la planta'}</span><b>Planta MQI</b></div>
+          <div className="pequeño">{motivo === 'recoger' ? `Recoger la mercancía para ${v.destino}` : `Dejar lo que trae de ${v.destino}`}</div>
+          <div className={`log-llega${tarde ? ' t-mal' : ''}`}>
+            {sinPlanta ? 'Falta la ubicación de la planta para calcular este paso.'
+              : motivo === 'recoger'
+                ? <>{v.lista_desde ? `Lista desde las ${h12(v.lista_desde)} · ` : ''}{x ? `en la planta ≈ ${hm(x.llega)}, sale ${hm(x.sale)}` : ''}</>
+                : <>{v.volver_antes ? `Debe llegar antes de las ${h12(v.volver_antes)} · ` : 'Lo antes posible · '}{x ? `llega ≈ ${hm(x.llega)}${tarde ? ` (${Math.round(x.tarde)} min tarde)` : ''}` : ''}</>}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -439,8 +464,8 @@ function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
             {paso.cerrado ? 'Ese día el sitio no recibe' : paso.choque ? 'Lo pedido no cae en su horario de recepción'
               : <>Llega ≈ {hm(paso.llega)}{paso.espera >= 5 ? ` · espera hasta ${hm(paso.inicio)}` : ''}{paso.tarde > 0 ? ` · ${Math.round(paso.tarde)} min tarde` : ''} · sale {hm(paso.sale)}</>}
           </div>}
-          {v.recoger_planta && <div className="log-llega">⤓ Antes pasa por la planta a recoger{v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}{paso?.carga ? ` · en la planta ≈ ${hm(paso.carga.llega)}–${hm(paso.carga.sale)}` : ''}</div>}
-          {v.volver_planta && <div className={`log-llega${paso?.vuelve?.tarde > 0 ? ' t-mal' : ''}`}>↩ Luego vuelve a la planta {v.volver_antes ? `antes de las ${h12(v.volver_antes)}` : 'lo antes posible'}{paso?.vuelve ? ` · llega ≈ ${hm(paso.vuelve.llega)}${paso.vuelve.tarde > 0 ? ` (${Math.round(paso.vuelve.tarde)} min tarde)` : ''}` : ''}</div>}
+          {!paso && v.recoger_planta && <div className="log-llega">⤓ Antes pasa por la planta a recoger{v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}{paso?.carga ? ` · en la planta ≈ ${hm(paso.carga.llega)}–${hm(paso.carga.sale)}` : ''}</div>}
+          {!paso && v.volver_planta && <div className={`log-llega${paso?.vuelve?.tarde > 0 ? ' t-mal' : ''}`}>↩ Luego vuelve a la planta {v.volver_antes ? `antes de las ${h12(v.volver_antes)}` : 'lo antes posible'}{paso?.vuelve ? ` · llega ≈ ${hm(paso.vuelve.llega)}${paso.vuelve.tarde > 0 ? ` (${Math.round(paso.vuelve.tarde)} min tarde)` : ''}` : ''}</div>}
           {vp && (vp.cerrado || vp.choque) && <div className="log-llega t-mal">{vp.cerrado ? 'Ese día el sitio no recibe' : 'Lo pedido no cae en su horario de recepción'}</div>}
         </div>
       </div>

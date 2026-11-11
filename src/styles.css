@@ -587,3 +587,6 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .volver-planta { background: #fff8ec; border-radius: 8px; padding: 6px 10px; align-items: center; }
 .cond-volver { margin-top: 6px; font-weight: 700; color: #a35a00; background: #fff1e0; border-radius: 8px; padding: 6px 10px; }
 .aviso-texto-ant { font-size: 13px; color: #8a5a00; background: #fff4dc; border-radius: 6px; padding: 4px 8px; margin-top: 6px; }
+
+.log-parada.planta { border-left-color: #e08a1e; background: #fffaf2; }
+.log-n.planta { background: #e08a1e; }

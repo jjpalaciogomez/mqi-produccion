@@ -263,8 +263,21 @@ const punto = (v) => (tieneUbic(v) ? `${v.lat},${v.lng}` : [v.direccion, v.munic
 export const linkMaps = (v) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(punto(v))}`
 export const linkWaze = (v) => (tieneUbic(v) ? `https://waze.com/ul?ll=${v.lat},${v.lng}&navigate=yes` : `https://waze.com/ul?q=${encodeURIComponent(punto(v))}&navigate=yes`)
 // Recorrido completo en Google Maps (hasta 9 paradas intermedias; si hay más, se parte en tramos)
+// Paradas del recorrido incluyendo los pasos por la planta (recoger mercancía antes / volver a dejar algo después)
+export const PLANTA_NOMBRE = 'Planta MQI'
+export function puntosRuta(paradas, planta) {
+  const pl = tieneUbic(planta) ? { ...planta, destino: PLANTA_NOMBRE, esPlanta: true } : null
+  const out = []
+  for (const v of paradas) {
+    for (const x of [...(v.recoger_planta && pl ? [pl] : []), v, ...(v.volver_planta && pl ? [pl] : [])]) {
+      if (x.esPlanta && out[out.length - 1]?.esPlanta) continue // dos pasos seguidos por la planta = uno
+      out.push(x)
+    }
+  }
+  return out
+}
 export function linksRecorrido(paradas, planta) {
-  const pts = paradas.filter((v) => tieneUbic(v) || v.direccion)
+  const pts = puntosRuta(paradas, planta).filter((v) => tieneUbic(v) || v.direccion)
   if (!pts.length) return []
   const tramos = []
   let origen = tieneUbic(planta) ? `${planta.lat},${planta.lng}` : null
