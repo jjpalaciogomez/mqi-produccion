@@ -4,13 +4,14 @@ import { Aviso, Cargando, Modal, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  ESTADOS_VUELTA, FRANJAS, TIPOS_LUGAR, TIPOS_VUELTA, VEHICULOS, esLinkCorto, estimar, leerUbicacion, linkMaps,
+  ESTADOS_VUELTA, FRANJAS, TIPOS_LUGAR, TIPOS_VUELTA, VEHICULOS, esLinkCorto, estimar, hm, leerUbicacion, linkMaps, llegadas,
   linksRecorrido, ordenarParadas, proponerAsignacion, tieneUbic,
 } from '../logistica.js'
 
 const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
 const diaTxt = (f) => new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
-const AJ_DEF = { lat: null, lng: null, min_parada: 20, jornada_camion: 510 }
+const AJ_DEF = { lat: null, lng: null, min_parada: 20, jornada_camion: 510, salida: '07:00' }
+const horaTxt = (h) => (h ? String(h).slice(0, 5) : '')
 
 function useAjustesLog() {
   const [aj, setAj] = useState(null)
@@ -52,7 +53,7 @@ function Vueltas({ perfil, gestor, lugares, onLugares }) {
   const yo = perfil?.user_id
   const cargar = useCallback(async () => {
     try {
-      let c = sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado)').order('fecha').order('creado')
+      let c = sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado)').order('fecha').order('hora', { nullsFirst: false }).order('creado')
       if (filtro === 'pendientes') c = c.in('estado', ['pendiente', 'no_hecha'])
       else c = c.gte('fecha', sumarDias(hoy, -30))
       if (filtro === 'mias') c = c.eq('solicitante', yo)
@@ -80,13 +81,13 @@ function Vueltas({ perfil, gestor, lugares, onLugares }) {
         <div key={f} className="tarjeta log-dia">
           <h3 className="subt" style={{ marginTop: 0 }}>{diaTxt(f)}{f < hoy && vs.some((v) => v.estado === 'pendiente') ? <span className="badge badge-bad" style={{ marginLeft: 8 }}>atrasada</span> : null}</h3>
           <table className="tabla tabla-click">
-            <thead><tr><th>Tipo</th><th>Destino</th><th>Qué</th><th>Franja</th><th>Pidió</th><th>Estado</th></tr></thead>
+            <thead><tr><th>Tipo</th><th>Destino</th><th>Qué</th><th>Cuándo</th><th>Pidió</th><th>Estado</th></tr></thead>
             <tbody>{vs.map((v) => (
               <tr key={v.id} onClick={() => setForm(v)} className={v.estado === 'cancelada' ? 'omitida' : ''}>
                 <td><span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span>{v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}</td>
                 <td><b>{v.destino}</b><div className="tenue pequeño">{[v.direccion, v.municipio].filter(Boolean).join(', ')}</div></td>
                 <td>{v.descripcion}{v.op && <span className="tenue"> · OP {v.op}</span>}{v.necesita_camion && <span className="etq">camión</span>}</td>
-                <td>{FRANJAS[v.franja]}</td>
+                <td>{v.hora ? <b className="hora-exacta">⏰ {horaTxt(v.hora)}</b> : FRANJAS[v.franja]}</td>
                 <td className="tenue pequeño">{v.solicitante_nombre || '—'}</td>
                 <td><EstadoVuelta v={v} /></td>
               </tr>
@@ -109,12 +110,12 @@ function EstadoVuelta({ v }) {
 }
 
 const VACIA = { tipo: 'entrega', lugar_id: '', destino: '', direccion: '', municipio: 'Medellín', contacto: '', telefono: '', horario: '', ubic: '',
-  franja: 'todo', descripcion: '', op: '', necesita_camion: false, prioridad: 2, guardarLugar: false, tipoLugar: 'cliente' }
+  franja: 'todo', hora: '', descripcion: '', op: '', necesita_camion: false, prioridad: 2, guardarLugar: false, tipoLugar: 'cliente' }
 
 function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, onGuardado }) {
   const hoy = hoyCO()
   const [f, setF] = useState(() => ({ ...VACIA, fecha: hoy, ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)),
-    ubic: tieneUbic(inicial) ? `${inicial.lat}, ${inicial.lng}` : '', lugar_id: inicial.lugar_id || '' }))
+    ubic: tieneUbic(inicial) ? `${inicial.lat}, ${inicial.lng}` : '', lugar_id: inicial.lugar_id || '', hora: horaTxt(inicial.hora) }))
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
@@ -138,7 +139,7 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
       }
       const fila = { tipo: f.tipo, lugar_id: lugarId, destino: f.destino.trim(), direccion: f.direccion.trim() || null, municipio: f.municipio.trim() || null,
         contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, horario: f.horario.trim() || null, lat: ubic?.lat ?? null, lng: ubic?.lng ?? null,
-        fecha: f.fecha, franja: f.franja, descripcion: f.descripcion.trim(), op: String(f.op || '').trim() || null, necesita_camion: !!f.necesita_camion, prioridad: Number(f.prioridad) }
+        fecha: f.fecha, hora: f.hora || null, franja: f.hora ? (f.hora < '12:00' ? 'manana' : 'tarde') : f.franja, descripcion: f.descripcion.trim(), op: String(f.op || '').trim() || null, necesita_camion: !!f.necesita_camion, prioridad: Number(f.prioridad) }
       if (f.id) await q(sb.from('vueltas').update(fila).eq('id', f.id))
       else await q(sb.from('vueltas').insert({ ...fila, solicitante_nombre: perfil?.nombre || null }))
       onGuardado()
@@ -188,7 +189,10 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
           )}
           <div className="fila-form">
             <label>Día<input type="date" value={f.fecha} min={f.id ? undefined : hoy} onChange={set('fecha')} required /></label>
-            <label>Franja<select value={f.franja} onChange={set('franja')}>{Object.entries(FRANJAS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
+            <label>Hora exacta (opcional)<input type="time" step={300} value={f.hora} onChange={set('hora')} title="Para vueltas que hay que coordinar, p. ej. con Instalaciones" /></label>
+            {f.hora
+              ? <label>Franja<input value={f.hora < '12:00' ? 'Mañana' : 'Tarde'} disabled /></label>
+              : <label>Franja<select value={f.franja} onChange={set('franja')}>{Object.entries(FRANJAS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>}
             <label>OP (opcional)<input value={f.op || ''} onChange={set('op')} style={{ width: 100 }} /></label>
           </div>
           <label>Qué se lleva o se recoge<textarea rows={2} value={f.descripcion} onChange={set('descripcion')} required placeholder="p. ej. 3 avisos en acrílico, 2 cajas" /></label>
@@ -269,10 +273,11 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
     ;[l[i], l[j]] = [l[j], l[i]]
     await guardarOrden(veh, l)
   })
-  const ordenar = (veh) => accion(() => guardarOrden(veh, ordenarParadas(deVeh(veh), planta)), 'Paradas ordenadas por cercanía y franja.')
+  const opOrden = { minParada: aj?.min_parada || 20, salida: aj?.salida || '07:00' }
+  const ordenar = (veh) => accion(() => guardarOrden(veh, ordenarParadas(deVeh(veh), planta, opOrden)), 'Paradas ordenadas: las de hora exacta a su hora y las demás por cercanía y franja.')
   const proponer = () => accion(async () => {
     const libres = [...sinAsignar, ...(bloqueado('camion') ? [] : deVeh('camion')), ...(bloqueado('mensajero') ? [] : deVeh('mensajero'))]
-    const p = proponerAsignacion(libres, planta, aj.min_parada, aj.jornada_camion)
+    const p = proponerAsignacion(libres, planta, aj.min_parada, aj.jornada_camion, aj.salida || '07:00')
     if (!bloqueado('camion')) await guardarOrden('camion', p.camion)
     if (!bloqueado('mensajero') && p.mensajero.length) await guardarOrden('mensajero', p.mensajero)
   }, 'Asignación propuesta: el camión se llena primero hasta su jornada; lo demás va con mensajero. Revísala y confirma.')
@@ -316,6 +321,8 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
             const est = estimar(ps, planta, aj.min_parada)
             const pasa = veh === 'camion' && est.total > aj.jornada_camion
             const links = linksRecorrido(ps, planta)
+            const ll = llegadas(ps, planta, aj.min_parada, aj.salida || '07:00')
+            const tardes = ll.filter((x) => x.tarde > 10).length
             return (
               <div key={veh} className={`log-col${conf ? ' confirmada' : ''}`}>
                 <div className="log-col-cab">
@@ -326,11 +333,12 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                   {ps.length} {ps.length === 1 ? 'parada' : 'paradas'} · ≈ <b className={pasa ? 't-mal' : ''}>{fmtMin(est.total)}</b>{planta && est.km ? ` · ${fmtNum(est.km, 0)} km` : ''}
                   {pasa && <div className="t-mal pequeño">Pasa la jornada del camión ({fmtMin(aj.jornada_camion)}): mueve algo al mensajero.</div>}
                   {est.sinUbic > 0 && ps.length > 0 && <div className="tenue pequeño">{est.sinUbic} sin ubicación: el tiempo es aproximado.</div>}
+                  {tardes > 0 && <div className="t-mal pequeño">{tardes === 1 ? 'Una vuelta con hora exacta no alcanza' : `${tardes} vueltas con hora exacta no alcanzan`} a su hora con este orden: usa "Ordenar" o pásala a otro vehículo.</div>}
                 </div>
                 <input className="log-conductor" placeholder={veh === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || ''} key={r?.id || veh} disabled={conf}
                   onBlur={(e) => e.target.value !== (r?.conductor || '') && guardarConductor(veh, e.target.value)} />
                 {ps.map((v, i) => (
-                  <Parada key={v.id} v={v} n={i + 1} fecha={fecha} onAbrir={() => setForm(v)}
+                  <Parada key={v.id} v={v} n={i + 1} fecha={fecha} llega={ll[i]} onAbrir={() => setForm(v)}
                     acciones={conf ? null : <>
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
                       <button className="btn-icono" disabled={ocupado || i === ps.length - 1} onClick={() => subir(veh, i, 1)} title="Bajar">↓</button>
@@ -340,7 +348,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                     </>} />
                 ))}
                 <div className="log-col-pie">
-                  {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar por cercanía</button>}
+                  {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar</button>}
                   {links.map((l, i) => <a key={l} className="btn btn-sec btn-sm" href={l} target="_blank" rel="noreferrer">Ver en Google Maps{links.length > 1 ? ` (${i + 1})` : ''}</a>)}
                   {ps.length > 0 && (conf
                     ? <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => confirmar(veh, false)}>Volver a borrador</button>
@@ -358,7 +366,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
   )
 }
 
-function Parada({ v, n, fecha, acciones, onAbrir }) {
+function Parada({ v, n, fecha, llega, acciones, onAbrir }) {
   return (
     <div className={`log-parada ${v.tipo}${v.estado === 'hecha' ? ' hecha' : ''}${v.estado === 'no_hecha' ? ' no-hecha' : ''}`}>
       <div className="log-parada-cab" onClick={onAbrir}>
@@ -368,7 +376,8 @@ function Parada({ v, n, fecha, acciones, onAbrir }) {
           <div className="tenue pequeño">{[v.direccion, v.municipio].filter(Boolean).join(', ') || 'Sin dirección'}{!tieneUbic(v) && ' · sin ubicación'}</div>
           <div className="pequeño">{v.descripcion}{v.op ? ` · OP ${v.op}` : ''}</div>
           <div className="log-tags">
-            {v.franja !== 'todo' && <span className="etq">{FRANJAS[v.franja].toLowerCase()}</span>}
+            {v.hora ? <b className="hora-exacta">⏰ {horaTxt(v.hora)}</b> : v.franja !== 'todo' && <span className="etq">{FRANJAS[v.franja].toLowerCase()}</span>}
+            {llega && <span className={`pequeño ${llega.tarde > 10 ? 't-mal' : 'tenue'}`}>llega ≈ {hm(llega.llega)}{llega.tarde > 10 ? ` (${Math.round(llega.tarde)} min tarde)` : ''}</span>}
             {v.necesita_camion && <span className="etq">camión</span>}
             {v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}
             {v.fecha < fecha && <span className="badge badge-warn">de {fmtFecha(v.fecha).slice(0, 5)}</span>}
@@ -387,13 +396,14 @@ function AjustesLogistica({ aj, onClose, onGuardado }) {
   const [ubic, setUbic] = useState(tieneUbic(aj) ? `${aj.lat}, ${aj.lng}` : '')
   const [minParada, setMinParada] = useState(aj.min_parada)
   const [jornada, setJornada] = useState(aj.jornada_camion / 60)
+  const [salida, setSalida] = useState(aj.salida || '07:00')
   const [error, setError] = useState('')
   const u = leerUbicacion(ubic)
   const guardar = async (e) => {
     e.preventDefault()
     if (!u) { setError(esLinkCorto(ubic) ? 'Ese es un link corto: ábrelo y copia el link completo o las coordenadas.' : 'Pega el link completo de Google Maps de la planta o sus coordenadas.'); return }
     try {
-      await q(sb.from('ajustes').upsert({ clave: 'logistica', valor: { ...aj, lat: u.lat, lng: u.lng, min_parada: Number(minParada) || 20, jornada_camion: Math.round((Number(String(jornada).replace(',', '.')) || 8.5) * 60) } }))
+      await q(sb.from('ajustes').upsert({ clave: 'logistica', valor: { ...aj, lat: u.lat, lng: u.lng, min_parada: Number(minParada) || 20, salida: salida || '07:00', jornada_camion: Math.round((Number(String(jornada).replace(',', '.')) || 8.5) * 60) } }))
       onGuardado()
     } catch (err) { setError(err.message) }
   }
@@ -405,6 +415,7 @@ function AjustesLogistica({ aj, onClose, onGuardado }) {
         <div className="fila-form">
           <label>Minutos promedio por parada<input type="number" min={5} value={minParada} onChange={(e) => setMinParada(e.target.value)} /></label>
           <label>Jornada del camión (horas)<input value={jornada} onChange={(e) => setJornada(e.target.value)} inputMode="decimal" /></label>
+          <label>Hora de salida<input type="time" step={900} value={salida} onChange={(e) => setSalida(e.target.value)} /></label>
         </div>
         <p className="tenue pequeño">El tiempo de viaje se estima por la distancia en línea recta × 1,4 a 22 km/h (tráfico de ciudad). Cuando conectemos el GPS del camión se podrá ajustar con datos reales.</p>
         <Aviso>{error}</Aviso>

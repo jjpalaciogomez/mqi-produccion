@@ -562,3 +562,7 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .cond-acc > * { flex: 1; text-align: center; text-decoration: none; }
 .cond-razones { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .cond-razones .sel { background: var(--azul); color: #fff; }
+
+/* Logística: hora exacta */
+.hora-exacta { color: #8a4b00; background: #ffefd6; border-radius: 6px; padding: 1px 7px; font-size: 13px; white-space: nowrap; }
+.hora-exacta.grande { font-size: 16px; padding: 3px 9px; display: inline-block; margin: 2px 0; }

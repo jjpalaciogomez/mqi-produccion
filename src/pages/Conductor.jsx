@@ -74,7 +74,7 @@ export default function Conductor({ perfil }) {
                     <div className="crece">
                       <span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span>
                       {v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}
-                      {v.franja !== 'todo' && <span className="etq">{FRANJAS[v.franja].toLowerCase()}</span>}
+                      {v.hora ? <b className="hora-exacta grande">⏰ A las {String(v.hora).slice(0, 5)}</b> : v.franja !== 'todo' && <span className="etq">{FRANJAS[v.franja].toLowerCase()}</span>}
                       <div className="cond-destino">{v.destino}</div>
                       <div className="cond-dir">{[v.direccion, v.municipio].filter(Boolean).join(', ')}</div>
                     </div>

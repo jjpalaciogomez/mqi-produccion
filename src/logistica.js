@@ -41,11 +41,56 @@ export const minViaje = (a, b) => (km(a, b) * FACTOR_CALLE / KMH) * 60
 
 const pos = (x) => ({ lat: Number(x.lat), lng: Number(x.lng) })
 
+// Horas
+export const aMin = (h) => { const [a, b] = String(h).split(':'); return Number(a) * 60 + Number(b || 0) }
+export const hm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m % 60)).padStart(2, '0')}`
+const TOLERANCIA = 10 // minutos que se acepta llegar después de la hora acordada
+
 /**
- * Ordena las paradas para recorrer menos: primero las de la mañana, luego las de cualquier hora y al final las de la tarde;
+ * Hora estimada de llegada a cada parada saliendo de la planta a la hora de salida.
+ * Si una parada tiene hora exacta y se llega antes, se espera hasta esa hora.
+ * @returns [{llega, inicio, tarde}] en minutos del día (tarde = minutos después de la hora acordada)
+ */
+export function llegadas(paradas, planta, minParada = 20, salida = '07:00') {
+  let t = aMin(salida), p = tieneUbic(planta) ? pos(planta) : null
+  return paradas.map((v) => {
+    if (tieneUbic(v)) { const q = pos(v); if (p) t += minViaje(p, q); p = q } else t += 20
+    const llega = t
+    const fija = v.hora ? aMin(v.hora) : null
+    if (fija !== null && t < fija) t = fija
+    const inicio = t
+    t += minParada
+    return { llega, inicio, tarde: fija !== null ? Math.max(0, llega - fija) : 0 }
+  })
+}
+
+/**
+ * Ordena las paradas: las que no tienen hora exacta por cercanía y franja; luego cada parada con hora exacta
+ * se mete donde se llegue a tiempo (o lo menos tarde posible) terminando más temprano.
+ */
+export function ordenarParadas(vueltas, planta, opts = {}) {
+  const { minParada = 20, salida = '07:00' } = opts
+  const fijas = vueltas.filter((v) => v.hora).sort((a, b) => String(a.hora).localeCompare(String(b.hora)))
+  let ruta = ordenarLibres(vueltas.filter((v) => !v.hora), planta)
+  for (const f of fijas) {
+    let mejor = null
+    for (let i = 0; i <= ruta.length; i++) {
+      const cand = [...ruta.slice(0, i), f, ...ruta.slice(i)]
+      const ll = llegadas(cand, planta, minParada, salida)
+      const tarde = ll.reduce((s, x) => s + Math.max(0, x.tarde - TOLERANCIA), 0)
+      const fin = ll.length ? ll[ll.length - 1].inicio : 0
+      if (!mejor || tarde < mejor.tarde || (tarde === mejor.tarde && fin < mejor.fin)) mejor = { cand, tarde, fin }
+    }
+    ruta = mejor.cand
+  }
+  return ruta
+}
+
+/**
+ * Ordena las paradas sin hora exacta para recorrer menos: primero las de la mañana, luego las de cualquier hora y al final las de la tarde;
  * dentro de cada franja, la más cercana primero y luego se mejora con intercambios (2-opt). Las paradas sin ubicación van al final de su franja.
  */
-export function ordenarParadas(vueltas, planta) {
+function ordenarLibres(vueltas, planta) {
   const orden = ['manana', 'todo', 'tarde']
   let desde = tieneUbic(planta) ? pos(planta) : null
   const out = []
@@ -107,16 +152,20 @@ export function estimar(paradas, planta, minParada = 20) {
  * Propone qué va en el camión y qué con mensajero: el camión se llena primero (lo que necesita camión y lo urgente),
  * hasta su jornada; lo que no cabe y no necesita camión pasa al mensajero.
  */
-export function proponerAsignacion(vueltas, planta, minParada, jornadaCamion) {
+export function proponerAsignacion(vueltas, planta, minParada, jornadaCamion, salida = '07:00') {
+  const op = { minParada, salida }
   const orden = [...vueltas].sort((a, b) => (b.necesita_camion - a.necesita_camion) || (a.prioridad - b.prioridad)
     || (tieneUbic(planta) && tieneUbic(a) && tieneUbic(b) ? km(pos(planta), pos(a)) - km(pos(planta), pos(b)) : 0))
   const camion = [], mensajero = []
   for (const v of orden) {
-    const prueba = ordenarParadas([...camion, v], planta)
-    if (v.necesita_camion || estimar(prueba, planta, minParada).total <= jornadaCamion) camion.push(v)
+    const prueba = ordenarParadas([...camion, v], planta, op)
+    const ll = llegadas(prueba, planta, minParada, salida)
+    const aTiempo = ll.every((x) => x.tarde <= TOLERANCIA)
+    const dura = ll.length ? ll[ll.length - 1].inicio + minParada - aMin(salida) : 0
+    if (v.necesita_camion || (aTiempo && Math.max(dura, estimar(prueba, planta, minParada).total) <= jornadaCamion)) camion.push(v)
     else mensajero.push(v)
   }
-  return { camion: ordenarParadas(camion, planta), mensajero: ordenarParadas(mensajero, planta) }
+  return { camion: ordenarParadas(camion, planta, op), mensajero: ordenarParadas(mensajero, planta, op) }
 }
 
 // Links para navegar
