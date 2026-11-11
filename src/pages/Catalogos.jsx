@@ -32,6 +32,8 @@ const PERMISOS = {
   admin: ['Administrador', 'Todo: OPs, programación, configuraciones, usuarios, indicadores, horas y corrección de registros'],
   consulta: ['Consulta', 'Solo ve el tablero de planta y el detalle de las OPs; no cambia nada'],
   tablet: ['Tablet', 'Pantalla de registro de un área para los operarios'],
+  logistica: ['Pide vueltas', 'Solo Logística: pide entregas, recogidas y diligencias y guarda clientes y proveedores (compras, Litografía…)'],
+  conductor: ['Conductor', 'Celular del conductor: ve la ruta confirmada del día y marca cada parada'],
 }
 async function usuarios(body) {
   const { data, error } = await sb.functions.invoke('usuarios', { body })

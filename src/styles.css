@@ -503,3 +503,62 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 /* Horas extra en el calendario */
 .ps-extra { display: block; font-size: 11px; font-weight: 600; color: #8a5a00; }
 .ps-extra-area { display: inline-block; font-size: 11px; font-weight: 600; color: #8a5a00; background: #fff4dc; border-radius: 6px; padding: 1px 6px; margin: 2px 0; }
+
+/* ---------- Logística ---------- */
+.sin-borde { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.sin-borde .fila-form, .form > .fila-form { margin-top: 0; display: flex; gap: 12px; }
+label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 500; min-width: 0; flex: 0 0 auto; }
+.crece { flex: 2 !important; min-width: 0; }
+.recurrente { align-items: center; background: #f2f7ff; border-radius: 8px; padding: 8px 10px; }
+.barra-fechas { display: flex; align-items: center; gap: 6px; }
+.fecha-larga { margin-left: 6px; display: inline-block; }
+.fecha-larga::first-letter, .log-dia h3::first-letter { text-transform: uppercase; }
+.etq-vuelta { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 6px; margin-right: 6px; background: #e6f0fb; color: #1f5fa8; }
+.etq-vuelta.recogida { background: #e8f6ee; color: #1f7a45; }
+.etq-vuelta.diligencia { background: #f3ecfb; color: #6b3fa0; }
+.log-columnas { display: grid; gap: 12px; overflow-x: auto; padding-bottom: 8px; align-items: start; }
+.log-col { background: #eef1f5; border-radius: var(--radio); padding: 10px; min-height: 120px; display: flex; flex-direction: column; gap: 8px; }
+.log-col.confirmada { background: #e6f0fb; }
+.log-col-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.log-est { font-size: 13px; color: var(--tinta-2); }
+.log-conductor { padding: 5px 8px; border: 1px solid var(--linea); border-radius: 6px; font-size: 13px; }
+.log-parada { background: var(--blanco); border: 1px solid var(--linea); border-left: 4px solid var(--azul); border-radius: 8px; padding: 8px 10px; }
+.log-parada.recogida { border-left-color: var(--ok); }
+.log-parada.diligencia { border-left-color: #8a5cc2; }
+.log-parada.hecha { opacity: .6; }
+.log-parada.no-hecha { border-color: #f1c4c4; }
+.log-parada-cab { display: flex; gap: 8px; cursor: pointer; }
+.log-parada-cab b { font-size: 14px; }
+.log-n { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%; background: var(--tinta); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; }
+.log-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+.log-tags .etq { margin-left: 0; }
+.log-parada-acc { display: flex; gap: 4px; align-items: center; margin-top: 6px; }
+.log-parada-acc select { flex: 1; font-size: 12.5px; padding: 3px; }
+.log-col-pie { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.log-col-pie a.btn { text-decoration: none; }
+
+/* Celular del conductor */
+.conductor { max-width: 640px; margin: 0 auto; padding: 0 12px 24px; }
+.cond-cab { position: sticky; top: 0; z-index: 10; margin: 0 -12px 12px; padding: 12px 14px; background: var(--tinta); color: #fff; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.cond-botones { display: flex; align-items: center; gap: 8px; }
+.btn-link.claro { color: #dfe6ee; }
+.cond-veh { margin-bottom: 10px; }
+.cond-resumen { display: flex; justify-content: space-between; font-size: 14px; margin: 6px 0 10px; }
+.cond-todo { display: block; text-align: center; text-decoration: none; margin-bottom: 10px; }
+.cond-lista { display: grid; gap: 10px; }
+.cond-parada { background: var(--blanco); border: 1px solid var(--linea); border-left: 6px solid var(--azul); border-radius: 12px; padding: 12px; }
+.cond-parada.recogida { border-left-color: var(--ok); }
+.cond-parada.diligencia { border-left-color: #8a5cc2; }
+.cond-parada.siguiente { box-shadow: 0 0 0 2px var(--acento); }
+.cond-parada.hecha { opacity: .55; }
+.cond-p-cab { display: flex; gap: 10px; }
+.cond-destino { font-size: 18px; font-weight: 700; margin-top: 4px; }
+.cond-dir { font-size: 15px; color: var(--tinta-2); }
+.cond-que { font-size: 15px; margin: 8px 0 4px; }
+.cond-extra { display: flex; flex-wrap: wrap; gap: 12px; font-size: 14px; color: var(--tinta-2); }
+.cond-estado { font-weight: 700; margin-top: 6px; }
+.cond-estado.ok { color: var(--ok); } .cond-estado.mal { color: var(--bad); }
+.cond-acc { display: flex; gap: 8px; margin-top: 10px; }
+.cond-acc > * { flex: 1; text-align: center; text-decoration: none; }
+.cond-razones { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.cond-razones .sel { background: var(--azul); color: #fff; }

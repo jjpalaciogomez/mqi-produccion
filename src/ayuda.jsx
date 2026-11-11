@@ -140,6 +140,33 @@ const AYUDA = {
     ],
     consejo: 'Programa el día siguiente antes de terminar la jornada y usa "Copiar al…" en los bloques que se repiten.',
   },
+  'logistica.gestor': {
+    titulo: 'Logística',
+    proposito: 'Pedir entregas, recogidas y diligencias, y armar con ellas la ruta de cada día, aprovechando primero el camión de MQI.',
+    puntos: [
+      ['Ruta del día', 'Columnas: Sin asignar, Camión MQI y Mensajero (y "Otro transporte" si hace falta). "Proponer asignación" llena primero el camión, lo que necesita camión y lo urgente, hasta su jornada; lo que no cabe va con mensajero. Puedes mover cada vuelta, subirla o bajarla.'],
+      ['Ordenar por cercanía', 'Ordena las paradas saliendo de la planta: primero las de la mañana, luego las de cualquier hora y al final las de la tarde; dentro de cada franja, la más cercana primero. Necesita la ubicación de la planta y de cada sitio.'],
+      ['Tiempo estimado', 'Paradas × minutos por parada + trayectos (línea recta × 1,4 a 22 km/h, con regreso a la planta). Si el camión pasa su jornada, se marca en rojo.'],
+      ['Confirmar ruta', 'Al confirmarla, el conductor la ve en su celular y ya no se mueve. "Volver a borrador" para cambiarla.'],
+      ['Lo que no se hizo', 'Lo pendiente o lo que "No se pudo" de días anteriores aparece en Sin asignar con la fecha original, para volver a programarlo.'],
+      ['Clientes y proveedores', 'Sitios recurrentes con dirección, contacto, teléfono, horario y ubicación. Al pedir una vuelta, elegirlos llena todo solo. También se guardan marcando "Guardar este sitio como recurrente".'],
+      ['Ubicación', 'Pega el link completo de Google Maps (no el corto maps.app.goo.gl) o las coordenadas: en Google Maps mantén presionado el punto y copia los números que aparecen.'],
+      ['Permisos', '"Pide vueltas" (compras, Litografía…) solo ve Logística: pide vueltas y guarda clientes y proveedores. "Conductor" ve en el celular la ruta confirmada del día, con botones para Maps, Waze, llamar, y marcar "Hecha" o "No se pudo".'],
+    ],
+    consejo: 'Arma y confirma la ruta del día siguiente en la tarde; el conductor la tiene lista al llegar.',
+  },
+  'logistica.consulta': {
+    titulo: 'Pedir vueltas',
+    proposito: 'Pedir entregas, recogidas y diligencias para que se programen en la ruta del camión o con mensajero.',
+    pasos: [
+      'Toca "+ Pedir vuelta".',
+      'Elige el cliente o proveedor guardado (se llenan dirección, contacto y teléfono) o escribe el sitio. Si vas a volver a ir, marca "Guardar este sitio como recurrente".',
+      'Pon el día, la franja (mañana, tarde o cualquier hora), qué se lleva o se recoge y, si aplica, la OP.',
+      'Marca "Necesita camión" si es grande o pesado, y "Urgente" si no puede esperar.',
+      'En "Las que pedí" ves si ya está asignada, confirmada, hecha o si no se pudo. Mientras la ruta no esté confirmada, puedes corregirla o cancelarla.',
+    ],
+    consejo: 'Pídela con un día de anticipación: la ruta se arma y se confirma la tarde anterior.',
+  },
   'tablet.tablet': {
     titulo: 'Cómo registrar en la tablet',
     proposito: 'Anotar cuánto tiempo trabajaste en cada tarea y cuánto hiciste. Con eso la planta sabe cómo va cada pedido.',

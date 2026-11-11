@@ -10,6 +10,8 @@ import Tablet from './pages/Tablet.jsx'
 import Horas from './pages/Horas.jsx'
 import Indicadores from './pages/Indicadores.jsx'
 import Programacion from './pages/Programacion.jsx'
+import Logistica from './pages/Logistica.jsx'
+import Conductor from './pages/Conductor.jsx'
 
 function useRuta() {
   const [h, setH] = useState(window.location.hash || '#/')
@@ -28,6 +30,7 @@ const VISTAS = [
   ['admin|', 'Administrador'], ['consulta|', 'Consulta'],
   ['tablet|METAL', 'Tablet Metal'], ['tablet|MADERA', 'Tablet Madera'],
   ['tablet|ACRILICO', 'Tablet Acrílico'], ['tablet|GRAN FORMATO', 'Tablet Gran Formato'],
+  ['logistica|', 'Pide vueltas (logística)'], ['conductor|', 'Conductor'],
 ]
 const leerVista = () => { try { return localStorage.getItem('mqi_ver_como') || 'admin|' } catch { return 'admin|' } }
 const guardarVista = (v) => { try { localStorage.setItem('mqi_ver_como', v) } catch { /* sin almacenamiento */ } }
@@ -96,6 +99,12 @@ export default function App() {
       <Tablet key={vista} perfil={efectivo} />
     </>
   )
+  if (efectivo.rol === 'conductor') return (
+    <>
+      {prueba && <div className="barra-prueba-tablet"><SelectorVista {...prueba} /><AvisoPrueba {...prueba} /></div>}
+      <Conductor key={vista} perfil={efectivo} />
+    </>
+  )
   return <Shell key={vista} perfil={efectivo} prueba={prueba} />
 }
 
@@ -104,7 +113,10 @@ function Shell({ perfil, prueba }) {
   const gestor = ['admin', 'direccion'].includes(perfil.rol)
   let pagina
   const m = ruta.match(/^\/op\/([0-9a-f-]+)/)
-  if (m) pagina = <OrdenDetalle id={m[1]} perfil={perfil} gestor={gestor} />
+  // Quien solo pide vueltas (compras, Litografía…) ve únicamente Logística
+  if (perfil.rol === 'logistica') pagina = <Logistica perfil={perfil} gestor={false} />
+  else if (ruta === '/logistica' && gestor) pagina = <Logistica perfil={perfil} gestor />
+  else if (m) pagina = <OrdenDetalle id={m[1]} perfil={perfil} gestor={gestor} />
   else if (ruta === '/nueva' && gestor) pagina = <NuevaOP rol={perfil.rol} />
   else if (ruta === '/catalogos' && gestor) pagina = <Catalogos perfil={perfil} />
   else if (ruta === '/horas' && gestor) pagina = <Horas perfil={perfil} />
@@ -120,11 +132,14 @@ function Shell({ perfil, prueba }) {
       <header className="barra-sup">
         <div className="marca"><img src="./logo-mqi.png" alt="MQI" className="logo" /><span>Producción</span></div>
         <nav>
+          {perfil.rol === 'logistica' ? link('/', 'Logística') : <>
           {link('/', 'Tablero de planta')}
           {link('/programacion', 'Programación')}
           {gestor && link('/indicadores', 'Indicadores')}
           {gestor && link('/horas', 'Horas del personal')}
+          {gestor && link('/logistica', 'Logística')}
           {gestor && link('/catalogos', 'Configuraciones')}
+          </>}
         </nav>
         <div className="usuario">
           {prueba && <SelectorVista {...prueba} />}
@@ -138,4 +153,4 @@ function Shell({ perfil, prueba }) {
   )
 }
 
-const ROLES = { admin: 'Administrador', direccion: 'Administrador', consulta: 'Consulta', tablet: 'Tablet' }
+const ROLES = { admin: 'Administrador', direccion: 'Administrador', consulta: 'Consulta', tablet: 'Tablet', logistica: 'Logística', conductor: 'Conductor' }
