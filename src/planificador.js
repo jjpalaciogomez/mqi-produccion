@@ -1,6 +1,6 @@
 // Planificador automático de la programación.
 // Reparte las horas pendientes de una OP en un área por los días hábiles, respetando:
-//  · la jornada de cada día (lunes a jueves 8,5 h, viernes 8 h, sábado y domingo no se programa),
+//  · la jornada de cada día (lunes a jueves 8,5 h, viernes 8 h, sábado y domingo no se programa) más las horas extra programadas,
 //  · las horas hombre libres del área (operarios × jornada) o de los operarios elegidos,
 //  · las horas libres de cada máquina (una jornada por máquina y día; si hay varias iguales, p. ej. 3 impresoras, un montaje en cada una a la vez).
 // En Gran Formato (en paralelo) varios proyectos se ponen a la misma hora; el límite son las horas hombre y las máquinas.
@@ -32,12 +32,28 @@ export function capacidadArea(area, operarios) {
   return { base, pool: [...new Set([area, ...pool])], operariosArea: operarios?.[base] || 0 }
 }
 
-export function ventana(f, horario) {
-  const j = jornadaMin(f)
-  if (!j) return null
-  const ini = aMin(horario?.entrada || '07:00')
-  return [ini, ini + j]
+// Horas extra programadas: la planta (o un área) trabaja ese día hasta más tarde; también sirve para sábados
+let EXTRA = {}
+export function fijarExtras(lista) {
+  EXTRA = {}
+  for (const x of lista || []) (EXTRA[x.fecha] ||= {})[x.area || '*'] = String(x.hasta).slice(0, 5)
 }
+export const extraDe = (f, area) => {
+  const e = EXTRA[f]
+  if (!e) return null
+  const v = [e['*'], area && e[area]].filter(Boolean).sort()
+  return v.length ? v[v.length - 1] : null
+}
+
+// Horario de trabajo de un día para un área: [inicio, fin] en minutos (con horas extra si las hay)
+export function ventana(f, horario, area) {
+  const ini = aMin(horario?.entrada || '07:00')
+  const j = jornadaMin(f)
+  const ex = extraDe(f, area)
+  const fin = Math.max(j ? ini + j : 0, ex ? aMin(ex) : 0)
+  return fin > ini ? [ini, fin] : null
+}
+export const jornadaArea = (f, area, horario) => { const w = ventana(f, horario, area); return w ? w[1] - w[0] : 0 }
 
 /**
  * @param demanda {hh: minutos hombre, maq: {proceso: minutos de máquina}}
@@ -51,9 +67,9 @@ export function planificar(demanda, op, bloques, horario) {
   const out = []
   let f = op.desde
   for (let n = 0; n < 90 && (restoH >= 1 || Object.values(restoM).some((v) => v >= 1)); n++, f = sumarDias(f, 1)) {
-    const w = ventana(f, horario)
+    const w = ventana(f, horario, op.base || op.area)
     if (!w) continue
-    const jor = jornadaMin(f)
+    const jor = w[1] - w[0] // jornada del día, con horas extra si las hay
     const pool = op.pool || [op.area]
     const delDia = [...bloques, ...out].filter((b) => pool.includes(b.area) && b.fecha === f)
     let ini = w[0]

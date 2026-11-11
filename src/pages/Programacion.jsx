@@ -3,7 +3,7 @@ import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { AREAS_PLANTA } from '../estandar.js'
-import { APOYO, aMin, capacidadArea, fijarMaquinas, hhBloque, jornadaMin, maqBloque, numMaquinas, planificar, planificarOP, reorganizar } from '../planificador.js'
+import { APOYO, aMin, capacidadArea, extraDe, fijarExtras, fijarMaquinas, hhBloque, jornadaArea, jornadaMin, maqBloque, numMaquinas, planificar, planificarOP, reorganizar } from '../planificador.js'
 
 // Programación de la planta: bloques de trabajo (OP + área + día + horario + operarios opcionales)
 
@@ -30,10 +30,12 @@ export function useProgramacion(desde, hasta, areas) {
       let c = sb.from('programacion').select('*, ordenes(numero, proyecto, cliente, estado, fecha_compromiso)')
         .gte('fecha', desde).lte('fecha', hasta).order('hora_inicio')
       if (areas) c = c.in('area', areas)
-      const [bloques, personas, maquinas, aj] = await Promise.all([q(c), q(sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre')),
-        q(sb.from('procesos').select('codigo, nombre, area, num_maquinas, min_maquina_ciclo').eq('es_maquina', true).order('codigo')), q(sb.from('ajustes').select('valor').eq('clave', 'horario'))])
-      fijarMaquinas(maquinas)
-      setD({ bloques, personas, maquinas, horario: aj[0]?.valor || { entrada: '07:00' } }); setError('')
+      const [bloques, personas, maquinas, aj, extras] = await Promise.all([q(c), q(sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre')),
+        q(sb.from('procesos').select('codigo, nombre, area, num_maquinas, min_maquina_ciclo').eq('es_maquina', true).order('codigo')), q(sb.from('ajustes').select('valor').eq('clave', 'horario')),
+        // Horas extra de este rango y de hoy en adelante (el planificador las usa para programar)
+        q(sb.from('horas_extra').select('*').gte('fecha', desde < hoyCO() ? desde : hoyCO()).order('fecha'))])
+      fijarMaquinas(maquinas); fijarExtras(extras)
+      setD({ bloques, personas, maquinas, extras, horario: aj[0]?.valor || { entrada: '07:00' } }); setError('')
     } catch (e) { setError(e.message) }
   }, [desde, hasta, clave]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { cargar() }, [cargar])
@@ -90,6 +92,7 @@ export default function Programacion({ perfil, gestor }) {
 
   const [todo, setTodo] = useState(false)
   const [reorg, setReorg] = useState(false)
+  const [verExtra, setVerExtra] = useState(false)
   const guardarEntrada = async (v) => {
     if (!v || v === d?.horario?.entrada) return
     try { await q(sb.from('ajustes').upsert({ clave: 'horario', valor: { ...(d?.horario || {}), entrada: v } })); recargar() } catch (e) { alert(e.message) }
@@ -101,6 +104,7 @@ export default function Programacion({ perfil, gestor }) {
       <div className="titulo-pagina">
         <div><h1>Programación de planta</h1><div className="tenue pequeño">Qué proyecto trabaja cada área, cada día y a qué hora. Lo que no cabe en la jornada pasa solo a los días siguientes.</div></div>
         <div className="titulo-acciones">
+          {gestor && <button className="btn btn-sec" onClick={() => setVerExtra(true)} disabled={!d} title="Días en que la planta o un área se queda trabajando hasta más tarde">Horas extra</button>}
           {gestor && <button className="btn btn-sec" onClick={() => setReorg(true)} disabled={!pend || !d} title="Rehace toda la programación automática de hoy en adelante para cumplir la mayor cantidad de entregas">Reorganizar programación</button>}
           {gestor && <button className="btn btn-sec" onClick={() => setTodo(areas)} disabled={!pend || !d}>Programar todo lo pendiente</button>}
           {gestor && <button className="btn" onClick={() => nuevoAuto({ alcance: 'op' })}>+ Programar</button>}
@@ -113,7 +117,7 @@ export default function Programacion({ perfil, gestor }) {
       </BarraFechas>
       <Aviso>{error}</Aviso>
       {!d ? <Cargando /> : (
-        <Calendario vista={vista} dia={dia} lunes={lunes} areas={areas} bloques={d.bloques} personas={d.personas} maquinas={d.maquinas}
+        <Calendario vista={vista} dia={dia} lunes={lunes} areas={areas} bloques={d.bloques} personas={d.personas} maquinas={d.maquinas} horario={d.horario}
           onDia={(f) => { setDia(f); setVista('dia') }}
           onNuevo={gestor ? (area, fecha, hora) => nuevoAuto({ area, fecha, hora_inicio: hora || d.horario.entrada }) : null}
           onEditar={gestor ? (b) => setForm(b) : null} />
@@ -125,6 +129,8 @@ export default function Programacion({ perfil, gestor }) {
 
       {form && d && pend && <FormBloque inicial={form} ops={pend.ops} pend={pend} personas={d.personas} bloques={d.bloques} horario={d.horario} maquinas={d.maquinas}
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); recargar() }} />}
+      {verExtra && d && <HorasExtra dia={dia} horario={d.horario} onClose={() => setVerExtra(false)}
+        onCambio={() => recargar()} onReorganizar={() => { setVerExtra(false); setReorg(true) }} />}
       {reorg && d && pend && <Reorganizar pend={pend} personas={d.personas} horario={d.horario}
         onClose={() => setReorg(false)} onGuardado={() => { setReorg(false); recargar() }} />}
       {todo && d && pend && <ProgramarTodo pend={pend} opsPorId={opsPorId} areas={todo} personas={d.personas} horario={d.horario}
@@ -152,7 +158,7 @@ export function BarraFechas({ vista, setVista, dia, setDia, children }) {
 }
 
 // Vista semana (filas = áreas, columnas = días) o día (agenda por horas, columnas = áreas)
-export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquinas = [], onDia, onNuevo, onEditar }) {
+export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquinas = [], horario, onDia, onNuevo, onEditar }) {
   const perPorId = Object.fromEntries(personas.map((p) => [p.id, p]))
   const gente = (a) => personas.filter((p) => p.area === a).length
   const hoy = hoyCO()
@@ -161,9 +167,10 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquin
     const usado = bloques.filter((b) => b.fecha === f).reduce((s, b) => s + maqBloque(b, m.codigo), 0)
     if (!usado) return null
     const n = numMaquinas(m.codigo)
-    const pct = jornadaMin(f) ? usado / (jornadaMin(f) * n) : 1
+    const jor = jornadaArea(f, m.area, horario)
+    const pct = jor ? usado / (jor * n) : 1
     return (
-      <div key={m.codigo} className={`ps-carga maq ${pct > 1 ? 'mal' : pct > 0.85 ? 'alerta' : 'bien'}`} title={`${m.nombre}${n > 1 ? ` (${n} máquinas)` : ''}: ${fmtH(usado)} de máquina programadas de ${fmtH(jornadaMin(f) * n)} disponibles`}>
+      <div key={m.codigo} className={`ps-carga maq ${pct > 1 ? 'mal' : pct > 0.85 ? 'alerta' : 'bien'}`} title={`${m.nombre}${n > 1 ? ` (${n} máquinas)` : ''}: ${fmtH(usado)} de máquina programadas de ${fmtH(jor * n)} disponibles`}>
         <i style={{ width: `${Math.min(pct, 1) * 100}%` }} /><span>⚙ {m.nombre.toLowerCase()}{n > 1 ? ` ×${n}` : ''} {fmtH(usado)}</span>
       </div>
     )
@@ -177,6 +184,7 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquin
         {dias.map((f, i) => (
           <button key={f} className={`ps-dia${f === hoy ? ' es-hoy' : ''}`} onClick={() => onDia?.(f)} title="Ver el día por horas">
             {DIAS[i]} <b>{new Date(f + 'T12:00:00').getDate()}</b>
+            {extraDe(f) && <span className="ps-extra">extra hasta {extraDe(f)}</span>}
           </button>
         ))}
         {areas.map((a) => [
@@ -184,7 +192,8 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquin
           ...dias.map((f) => {
             const bs = bloques.filter((b) => b.area === a && b.fecha === f)
             const prog = bs.reduce((s, b) => s + horasBloque(b), 0)
-            const cap = gente(a) * jornadaMin(f)
+            const cap = gente(a) * jornadaArea(f, APOYO[a] && !gente(a) ? APOYO[a] : a, horario)
+            const ex = extraDe(f, a)
             const pct = cap ? prog / cap : 0
             return (
               <div key={a + f} className={`ps-celda${f === hoy ? ' es-hoy' : ''}${f < hoy ? ' pasado' : ''}`}
@@ -194,6 +203,7 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquin
                     <i style={{ width: `${Math.min(pct, 1) * 100}%` }} /><span>{fmtNum(prog / 60, 1)}{cap ? ` / ${fmtNum(cap / 60, 1)}` : ''} h-h</span>
                   </div>
                 )}
+                {ex && ex !== extraDe(f) && <div className="ps-extra-area">⏰ extra hasta {ex}</div>}
                 {barrasMaq(a, f)}
                 {bs.map((b) => <Bloque key={b.id} b={b} perPorId={perPorId} onClick={onEditar} compacto />)}
                 {onNuevo && <button className="ps-mas" onClick={() => onNuevo(a, f)}>+</button>}
@@ -218,8 +228,10 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquin
       <div className="pd-esq" />
       {areas.map((a) => {
         const prog = bsDia.filter((b) => b.area === a).reduce((s, b) => s + horasBloque(b), 0)
-        const cap = gente(a) * jornadaMin(dia)
-        return <div key={a} className="pd-area"><b>{a}</b><span className="tenue pequeño">{fmtNum(prog / 60, 1)}{cap ? ` de ${fmtNum(cap / 60, 1)}` : ''} h-h</span>{barrasMaq(a, dia)}</div>
+        const cap = gente(a) * jornadaArea(dia, a, horario)
+        const ex = extraDe(dia, a)
+        return <div key={a} className="pd-area"><b>{a}</b><span className="tenue pequeño">{fmtNum(prog / 60, 1)}{cap ? ` de ${fmtNum(cap / 60, 1)}` : ''} h-h</span>
+          {ex && <span className="ps-extra-area">⏰ extra hasta {ex}</span>}{barrasMaq(a, dia)}</div>
       })}
       <div className="pd-horas" style={{ height: (h1 - h0) * PX + 12 }}>
         {horas.map((m) => <span key={m} style={{ top: (m - h0) * PX }}>{String(m / 60).padStart(2, '0')}:00</span>)}
@@ -350,6 +362,69 @@ function ListaPlan({ bloques, maquinas, personas }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+// Horas extra: días en que la planta (o un área) trabaja hasta más tarde, incluidos sábados
+function HorasExtra({ dia, horario, onClose, onCambio, onReorganizar }) {
+  const hoy = hoyCO()
+  const [lista, setLista] = useState(null)
+  const [f, setF] = useState({ fecha: dia < hoy ? hoy : dia, area: '', hasta: '18:00', nota: '' })
+  const [error, setError] = useState('')
+  const [cambio, setCambio] = useState(false)
+  const cargar = useCallback(() => q(sb.from('horas_extra').select('*').gte('fecha', hoy).order('fecha').order('area', { nullsFirst: true }))
+    .then(setLista).catch((e) => setError(e.message)), [hoy])
+  useEffect(() => { cargar() }, [cargar])
+  const sabado = new Date(f.fecha + 'T12:00:00').getDay() === 6
+  const finNormal = (() => { const j = jornadaMin(f.fecha); return j ? hmm(aMin(horario?.entrada || '07:00') + j) : null })()
+  const agregar = async (e) => {
+    e.preventDefault(); setError('')
+    if (new Date(f.fecha + 'T12:00:00').getDay() === 0) { setError('Los domingos no se programan.'); return }
+    if (finNormal && f.hasta <= finNormal) { setError(`Ese día la jornada normal termina a las ${finNormal}; la hora extra debe ser después.`); return }
+    if (f.hasta <= (horario?.entrada || '07:00')) { setError('La hora debe ser después de la entrada.'); return }
+    try {
+      // Si ya había horas extra ese día para lo mismo, se reemplazan
+      let del = sb.from('horas_extra').delete().eq('fecha', f.fecha)
+      del = f.area ? del.eq('area', f.area) : del.is('area', null)
+      await q(del)
+      await q(sb.from('horas_extra').insert({ fecha: f.fecha, area: f.area || null, hasta: f.hasta, nota: f.nota.trim() || null }))
+      setCambio(true); cargar(); onCambio()
+    } catch (err) { setError(err.message) }
+  }
+  const quitar = async (x) => {
+    try { await q(sb.from('horas_extra').delete().eq('id', x.id)); setCambio(true); cargar(); onCambio() } catch (err) { setError(err.message) }
+  }
+  return (
+    <Modal titulo="Horas extra en la planta" onClose={onClose} ancho={640}>
+      <p className="tenue">Indica el día y la hora hasta la que se quedan los trabajadores. La programación usa ese tiempo de más (también los sábados).
+        Entrada: {horario?.entrada || '07:00'}; jornada normal de lunes a jueves 8,5 h y viernes 8 h.</p>
+      <form className="form fila-form" onSubmit={agregar}>
+        <label>Día<input type="date" min={hoy} value={f.fecha} onChange={(e) => setF({ ...f, fecha: e.target.value })} required /></label>
+        <label>Área<select value={f.area} onChange={(e) => setF({ ...f, area: e.target.value })}><option value="">Toda la planta</option>{AREAS_PLANTA.map((a) => <option key={a}>{a}</option>)}</select></label>
+        <label>Hasta las<input type="time" step={900} value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.target.value })} required /></label>
+        <label>Nota<input value={f.nota} onChange={(e) => setF({ ...f, nota: e.target.value })} placeholder="Opcional" /></label>
+        <button className="btn">Agregar</button>
+      </form>
+      <p className="tenue pequeño">{sabado ? `Sábado: se trabaja de ${horario?.entrada || '07:00'} a ${f.hasta}.` : finNormal ? `Ese día la jornada normal termina a las ${finNormal}: serían ${fmtH(Math.max(aMin(f.hasta) - aMin(finNormal), 0))} de más por persona.` : ''}</p>
+      <Aviso>{error}</Aviso>
+      {!lista ? <Cargando /> : lista.length === 0 ? <div className="vacio">No hay horas extra programadas.</div> : (
+        <table className="tabla">
+          <thead><tr><th>Día</th><th>Área</th><th>Hasta</th><th>Nota</th><th /></tr></thead>
+          <tbody>{lista.map((x) => (
+            <tr key={x.id}>
+              <td>{new Date(x.fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
+              <td>{x.area || 'Toda la planta'}</td><td><b>{String(x.hasta).slice(0, 5)}</b></td><td className="tenue">{x.nota || ''}</td>
+              <td><button className="btn-link peligro" onClick={() => quitar(x)}>Quitar</button></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      {cambio && <Aviso tipo="ok">Las horas extra ya cuentan para lo que se programe desde ahora. Para mover lo ya programado y aprovecharlas, usa "Reorganizar programación".</Aviso>}
+      <div className="acciones">
+        <button className="btn btn-sec" onClick={onClose}>Cerrar</button>
+        {cambio && <button className="btn" onClick={onReorganizar}>Reorganizar programación</button>}
+      </div>
+    </Modal>
   )
 }
 
