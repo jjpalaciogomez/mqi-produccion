@@ -3,7 +3,7 @@ import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { AREAS_PLANTA } from '../estandar.js'
-import { aMin, hhBloque, jornadaMin, maqBloque, planificar, planificarOP, reorganizar } from '../planificador.js'
+import { APOYO, aMin, capacidadArea, hhBloque, jornadaMin, maqBloque, planificar, planificarOP, reorganizar } from '../planificador.js'
 
 // Programación de la planta: bloques de trabajo (OP + área + día + horario + operarios opcionales)
 
@@ -178,7 +178,7 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquin
           </button>
         ))}
         {areas.map((a) => [
-          <div key={a} className="ps-area"><b>{a}</b><span className="tenue pequeño">{gente(a)} {gente(a) === 1 ? 'operario' : 'operarios'}</span></div>,
+          <div key={a} className="ps-area"><b>{a}</b><span className="tenue pequeño">{!gente(a) && APOYO[a] ? `lo hacen los de ${APOYO[a].toLowerCase()}` : `${gente(a)} ${gente(a) === 1 ? 'operario' : 'operarios'}`}</span></div>,
           ...dias.map((f) => {
             const bs = bloques.filter((b) => b.area === a && b.fecha === f)
             const prog = bs.reduce((s, b) => s + horasBloque(b), 0)
@@ -372,7 +372,7 @@ function Reorganizar({ pend, personas, horario, onClose, onGuardado }) {
     setEnviando(true); setError('')
     try {
       await q(sb.from('programacion').delete().gte('fecha', hoyCO()).not('grupo', 'is', null))
-      const filas = plan.resultado.flatMap((x) => { const grupo = crypto.randomUUID(); return x.bloques.map((b) => ({ ...b, grupo, nota: 'Reorganizada para cumplir entregas' })) })
+      const filas = plan.resultado.flatMap((x) => { const grupo = crypto.randomUUID(); return x.bloques.map((b) => ({ ...b, grupo })) })
       if (filas.length) await q(sb.from('programacion').insert(filas))
       onGuardado()
     } catch (e) { setError(e.message); setEnviando(false) }
@@ -444,7 +444,7 @@ export function ProgramarTodo({ pend, opsPorId, areas, personas, horario, onClos
         continue
       }
       const r = planificar({ hh: f.faltaH, maq: f.faltaM }, {
-        area: f.area, ...ini, personas: [], operariosArea: operarios[f.area] || 0, paralelo: enParalelo(f.area),
+        area: f.area, ...ini, personas: [], ...capacidadArea(f.area, operarios), paralelo: enParalelo(f.area),
       }, ctx, horario)
       const bs = r.bloques.map((b) => ({ ...b, orden_id: f.orden_id }))
       ctx.push(...bs)
@@ -597,7 +597,7 @@ export function FormBloque({ inicial, ops, pend, personas, bloques, horario, maq
     if (hh < 1 && !Object.keys(maq).length) return { bloques: [] }
     return planificar({ hh, maq }, {
       area: f.area, ...inicioPlan(f.fecha, f.hora_inicio), personas: f.personas,
-      operariosArea: personas.filter((p) => p.area === f.area).length, paralelo: enParalelo(f.area),
+      ...capacidadArea(f.area, Object.fromEntries(AREAS_PLANTA.map((a) => [a, personas.filter((p) => p.area === a).length]))), paralelo: enParalelo(f.area),
     }, pend.futuros, horario)
   }, [modo, f.orden_id, f.area, f.fecha, f.hora_inicio, f.personas, horasTxt, info, pend, personas, horario])
 

@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Modal, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
-import { AREAS_PLANTA, DIF_NOMBRE, calcMaquina, textoMedidas, unidadProc } from '../estandar.js'
-import { BarraFechas, Calendario, hoyCO, lunesDe, sumarDias, useProgramacion } from './Programacion.jsx'
+import { DIF_NOMBRE, calcMaquina, textoMedidas, unidadProc } from '../estandar.js'
+import { BarraFechas, hoyCO, lunesDe, sumarDias, useProgramacion } from './Programacion.jsx'
 
 // Pantalla de la tablet de un área. Muestra las tareas de su área y de Pintura
 // (Pintura no tiene tablet propia). El operario toca su nombre y escribe cuánto trabajó.
@@ -107,7 +107,7 @@ export default function Tablet({ perfil }) {
         {vista.nivel === 'calendario' && <><span>›</span><button className="sel">Programación</button></>}
       </nav>
 
-      {vista.nivel === 'calendario' && <CalendarioTablet areas={areas} />}
+      {vista.nivel === 'calendario' && <CalendarioTablet areas={areas} tareas={tareas} personas={personas} />}
 
       {vista.nivel === 'ops' && (
         tareas === null ? <div className="vacio">Cargando…</div> : ops.length === 0 ? <div className="vacio">No hay proyectos con tareas para esta área.</div> : (
@@ -188,22 +188,64 @@ function contar(ts) {
   }
 }
 
-// Calendario de solo lectura para la tablet
-function CalendarioTablet({ areas }) {
-  const [vista, setVista] = useState('dia')
+// Programación para la tablet: agenda en lista (más clara que la vista por horas cuando hay varios trabajos a la vez)
+const NOTAS_SISTEMA = ['Reorganizada para cumplir entregas']
+function CalendarioTablet({ areas, tareas, personas }) {
+  const [modo, setModo] = useState('dia')
   const [dia, setDia] = useState(hoyCO())
   const lunes = lunesDe(dia)
-  const desde = vista === 'semana' ? lunes : dia
-  const hasta = vista === 'semana' ? sumarDias(lunes, 5) : dia
+  const desde = modo === 'semana' ? lunes : dia
+  const hasta = modo === 'semana' ? sumarDias(lunes, 5) : dia
   const { d, error } = useProgramacion(desde, hasta, areas)
+  const dias = []
+  for (let f = desde; f <= hasta; f = sumarDias(f, 1)) dias.push(f)
+  const perPorId = Object.fromEntries([...(d?.personas || []), ...personas].map((p) => [p.id, p]))
+  // Qué falta hacer de esa OP en esa área (procesos no terminados)
+  const queHacer = (b) => {
+    const ts = (tareas || []).filter((t) => t.orden_id === b.orden_id && t.area === b.area && !['terminada', 'omitida'].includes(t.estado))
+    const g = {}
+    for (const t of ts) {
+      const k = t.proceso_nombre || t.proceso
+      const x = (g[k] ||= { nombre: k, maquina: t.es_maquina, items: new Set() })
+      x.items.add(t.item_numero)
+    }
+    return Object.values(g)
+  }
   return (
     <section>
-      <BarraFechas vista={vista} setVista={setVista} dia={dia} setDia={setDia} />
+      <BarraFechas vista={modo} setVista={setModo} dia={dia} setDia={setDia} />
       <Aviso>{error}</Aviso>
-      {!d ? <div className="vacio">Cargando…</div> : (
-        <Calendario vista={vista} dia={dia} lunes={lunes} areas={areas || AREAS_PLANTA} bloques={d.bloques} personas={d.personas} maquinas={d.maquinas}
-          onDia={(f) => { setDia(f); setVista('dia') }} />
-      )}
+      {!d ? <div className="vacio">Cargando…</div> : dias.map((f) => {
+        const bs = d.bloques.filter((b) => b.fecha === f).sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio) || String(a.ordenes?.numero).localeCompare(String(b.ordenes?.numero)))
+        if (modo === 'semana' && !bs.length && new Date(f + 'T12:00:00').getDay() === 6) return null
+        return (
+          <div key={f} className="agenda-dia">
+            {modo === 'semana' && <h3 className="agenda-fecha">{new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>}
+            {bs.length === 0 ? <div className="vacio">Nada programado.</div> : (
+              <div className="agenda-lista">
+                {bs.map((b) => {
+                  const hacer = queHacer(b)
+                  const quien = (b.personas || []).map((id) => perPorId[id]?.nombre.split(' ')[0]).filter(Boolean)
+                  const nota = b.nota && !NOTAS_SISTEMA.includes(b.nota) ? b.nota : null
+                  return (
+                    <div key={b.id} className="agenda-item">
+                      <div className="agenda-hora">{b.hora_inicio.slice(0, 5)}<span>a {b.hora_fin.slice(0, 5)}</span></div>
+                      <div className="agenda-cuerpo">
+                        <div className="agenda-op"><b>OP {b.ordenes?.numero}</b> {b.ordenes?.proyecto}
+                          {areas && areas.length > 1 && b.area !== areas[0] && <span className="etq">{b.area.toLowerCase()}</span>}</div>
+                        {hacer.length > 0
+                          ? <div className="agenda-hacer">{hacer.map((h) => <span key={h.nombre} className={`chip-proc${h.maquina ? ' maq' : ''}`}>{h.maquina ? '⚙ ' : ''}{h.nombre.toLowerCase()}<small> · ítem {[...h.items].sort((x, y) => x - y).join(', ')}</small></span>)}</div>
+                          : <div className="tenue pequeño">Sin procesos pendientes en esta área</div>}
+                        {(quien.length > 0 || nota) && <div className="agenda-extra">{quien.length > 0 && <span>👤 {quien.join(', ')}</span>}{nota && <span>📝 {nota}</span>}</div>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </section>
   )
 }

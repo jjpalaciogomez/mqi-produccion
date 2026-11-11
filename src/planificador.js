@@ -17,6 +17,15 @@ export const hhBloque = (b) => (b.min_hombre !== null && b.min_hombre !== undefi
   ? Number(b.min_hombre) : (aMin(b.hora_fin) - aMin(b.hora_inicio)) * Math.max(1, b.personas?.length || 0))
 export const maqBloque = (b, proc) => Number(b.maquinas?.[proc] || 0)
 
+// Áreas sin personal propio que hace otra área (hoy: Pintura la hacen los de Metal).
+// Mientras Pintura no tenga operarios activos, comparte la capacidad de Metal.
+export const APOYO = { PINTURA: 'METAL' }
+export function capacidadArea(area, operarios) {
+  const base = !operarios?.[area] && APOYO[area] ? APOYO[area] : area
+  const pool = [base, ...Object.keys(APOYO).filter((a) => APOYO[a] === base && !operarios?.[a])]
+  return { base, pool: [...new Set([area, ...pool])], operariosArea: operarios?.[base] || 0 }
+}
+
 export function ventana(f, horario) {
   const j = jornadaMin(f)
   if (!j) return null
@@ -39,7 +48,8 @@ export function planificar(demanda, op, bloques, horario) {
     const w = ventana(f, horario)
     if (!w) continue
     const jor = jornadaMin(f)
-    const delDia = [...bloques, ...out].filter((b) => b.area === op.area && b.fecha === f)
+    const pool = op.pool || [op.area]
+    const delDia = [...bloques, ...out].filter((b) => pool.includes(b.area) && b.fecha === f)
     let ini = w[0]
     if (f === op.desde && op.desdeHora) ini = Math.max(ini, aMin(op.desdeHora))
     if (!op.paralelo) {
@@ -143,7 +153,7 @@ export function planificarOP(tareas, ctx0, op, horario) {
     if (hh < 1 && !Object.values(maq).some((v) => v >= 1)) { fin[t.id] = start; continue }
     const r = planificar({ hh, maq }, {
       area: t.area, desde: start.fecha, desdeHora: hm(start.min), personas: [],
-      operariosArea: op.operarios?.[t.area] || 0, paralelo: t.area === 'GRAN FORMATO',
+      ...capacidadArea(t.area, op.operarios), paralelo: t.area === 'GRAN FORMATO',
     }, ctx, horario)
     ctx.push(...r.bloques)
     crudos.push(...r.bloques)

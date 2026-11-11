@@ -481,3 +481,18 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .ha-celda .mini-barra { margin: 5px 0; width: 100%; }
 .maq-lectura { max-width: 420px; line-height: 1.4; } .t-warn { color: #8a5a00; }
 .aviso-oculta { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: #eef1f5; border: 1px solid #d5dbe3; border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 14px; }
+
+/* Agenda de la tablet */
+.agenda-dia { margin-bottom: 14px; }
+.agenda-fecha { font-size: 17px; margin: 14px 0 8px; text-transform: capitalize; }
+.agenda-lista { display: grid; gap: 8px; }
+.agenda-item { display: flex; gap: 14px; background: var(--blanco); border: 1px solid var(--linea); border-left: 5px solid var(--azul); border-radius: 10px; padding: 12px 14px; }
+.agenda-hora { min-width: 70px; font-size: 20px; font-weight: 700; line-height: 1.1; }
+.agenda-hora span { display: block; font-size: 13px; font-weight: 500; color: var(--tenue); }
+.agenda-cuerpo { flex: 1; min-width: 0; }
+.agenda-op { font-size: 17px; margin-bottom: 6px; }
+.agenda-hacer { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-proc { background: #eef1f5; border-radius: 14px; padding: 4px 10px; font-size: 14px; font-weight: 600; }
+.chip-proc.maq { background: #e6f0fb; color: #1f5fa8; }
+.chip-proc small { font-weight: 400; color: var(--tenue); }
+.agenda-extra { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 14px; color: var(--tinta-2); }
