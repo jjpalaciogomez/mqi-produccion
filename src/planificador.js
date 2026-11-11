@@ -2,7 +2,7 @@
 // Reparte las horas pendientes de una OP en un área por los días hábiles, respetando:
 //  · la jornada de cada día (lunes a jueves 8,5 h, viernes 8 h, sábado y domingo no se programa),
 //  · las horas hombre libres del área (operarios × jornada) o de los operarios elegidos,
-//  · las horas libres de cada máquina (impresora, láser, plotter, DTF: una jornada por día).
+//  · las horas libres de cada máquina (una jornada por máquina y día; si hay varias iguales, p. ej. 3 impresoras, un montaje en cada una a la vez).
 // En Gran Formato (en paralelo) varios proyectos se ponen a la misma hora; el límite son las horas hombre y las máquinas.
 // En las demás áreas el trabajo va en fila después de lo ya programado.
 
@@ -16,6 +16,12 @@ const arriba15 = (m) => Math.ceil(m / 15 - 1e-9) * 15
 export const hhBloque = (b) => (b.min_hombre !== null && b.min_hombre !== undefined
   ? Number(b.min_hombre) : (aMin(b.hora_fin) - aMin(b.hora_inicio)) * Math.max(1, b.personas?.length || 0))
 export const maqBloque = (b, proc) => Number(b.maquinas?.[proc] || 0)
+
+// Cuántas máquinas iguales hay de cada proceso (p. ej. 3 impresoras): cada una trabaja un montaje a la vez.
+// Se fija al cargar la programación; por defecto 1.
+let MAQ = {}
+export function fijarMaquinas(lista) { MAQ = Object.fromEntries((lista || []).map((m) => [m.codigo, { n: Math.max(1, Number(m.num_maquinas) || 1), mc: Number(m.min_maquina_ciclo) || 0 }])) }
+export const numMaquinas = (proc) => MAQ[proc]?.n || 1
 
 // Áreas sin personal propio que hace otra área (hoy: Pintura la hacen los de Metal).
 // Mientras Pintura no tenga operarios activos, comparte la capacidad de Metal.
@@ -80,12 +86,15 @@ export function planificar(demanda, op, bloques, horario) {
       capH = Math.max(0, Math.min(reloj * Math.max(1, op.operariosArea), Math.max(1, op.operariosArea) * jor - usadoArea))
     }
     // Horas de máquina disponibles (una jornada por máquina y día, todas las áreas)
-    const tomaM = {}
+    const tomaM = {}, paraleloM = {}
     for (const [proc, m] of Object.entries(restoM)) {
       if (m < 1) continue
       const usado = [...bloques, ...out].filter((b) => b.fecha === f).reduce((u, b) => u + maqBloque(b, proc), 0)
-      const libre = Math.max(0, Math.min(reloj, jor - usado))
-      if (libre >= 1) tomaM[proc] = Math.min(m, libre)
+      // Con varias máquinas iguales, se trabajan a la vez tantos montajes como máquinas (sin pasar de los montajes que quedan)
+      const nM = numMaquinas(proc), mc = MAQ[proc]?.mc
+      const k = Math.min(nM, mc > 0 ? Math.max(1, Math.ceil(m / mc - 1e-9)) : nM)
+      const libre = Math.max(0, Math.min(reloj * k, nM * jor - usado))
+      if (libre >= 1) { tomaM[proc] = Math.min(m, libre); paraleloM[proc] = k }
     }
     // Con máquina de por medio, los montajes del operario van al ritmo de la máquina
     const quedaMaq = Object.entries(restoM).some(([k, v]) => v - (tomaM[k] || 0) >= 1)
@@ -93,7 +102,7 @@ export function planificar(demanda, op, bloques, horario) {
     const ritmo = quedaMaq ? Math.max((demanda.hh || 0) * fracM, 15) : restoH
     const tomaH = Math.min(restoH, capH, ritmo)
     const nP = personas.length || Math.max(1, Math.ceil(tomaH / reloj - 1e-9))
-    const dur = Math.max(tomaH / nP, ...Object.values(tomaM), 0)
+    const dur = Math.max(tomaH / nP, ...Object.entries(tomaM).map(([k, v]) => v / (paraleloM[k] || 1)), 0)
     if (dur < 1) continue
     const fin = Math.min(ini + arriba15(dur), w[1])
     out.push({

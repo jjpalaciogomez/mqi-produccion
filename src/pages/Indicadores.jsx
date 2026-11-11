@@ -33,7 +33,7 @@ export default function Indicadores({ perfil }) {
         q(sb.rpc('horas_personal', { p_desde: desde, p_hasta: hoy })),
         q(sb.from('v_estandar_producto').select('*')),
         q(sb.rpc('horas_maquina', { p_desde: desde, p_hasta: hoy })),
-        q(sb.from('procesos').select('codigo, nombre').eq('es_maquina', true).order('codigo')),
+        q(sb.from('procesos').select('codigo, nombre, num_maquinas').eq('es_maquina', true).order('codigo')),
       ])
       setD({ ordenes, pendientes, regs: regs.filter((r) => r.tareas?.area !== 'TERCEROS'), paros, personas, horas, desv, maq, procMaq })
       setError(''); setHora(new Date())
@@ -104,7 +104,7 @@ function calcular(d, desde, hoy) {
   const maquinas = d.procMaq.map((p) => {
     const pend = d.pendientes.filter((t) => t.proceso === p.codigo).reduce((s, t) => s + Math.max(Number(t.min_maquina || 0) - Number(t.min_maquina_real || 0), 0), 0)
     const hecho = d.maq.filter((x) => x.proceso === p.codigo).reduce((s, x) => s + Number(x.min_maquina || 0), 0)
-    return { ...p, pend, hecho, uso: minHabiles ? pct(hecho, minHabiles) : null }
+    return { ...p, pend, hecho, uso: minHabiles ? pct(hecho, minHabiles * Math.max(1, Number(p.num_maquinas) || 1)) : null }
   })
 
   // Paros por motivo

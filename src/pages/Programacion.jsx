@@ -3,7 +3,7 @@ import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { AREAS_PLANTA } from '../estandar.js'
-import { APOYO, aMin, capacidadArea, hhBloque, jornadaMin, maqBloque, planificar, planificarOP, reorganizar } from '../planificador.js'
+import { APOYO, aMin, capacidadArea, fijarMaquinas, hhBloque, jornadaMin, maqBloque, numMaquinas, planificar, planificarOP, reorganizar } from '../planificador.js'
 
 // Programación de la planta: bloques de trabajo (OP + área + día + horario + operarios opcionales)
 
@@ -31,7 +31,8 @@ export function useProgramacion(desde, hasta, areas) {
         .gte('fecha', desde).lte('fecha', hasta).order('hora_inicio')
       if (areas) c = c.in('area', areas)
       const [bloques, personas, maquinas, aj] = await Promise.all([q(c), q(sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre')),
-        q(sb.from('procesos').select('codigo, nombre, area').eq('es_maquina', true).order('codigo')), q(sb.from('ajustes').select('valor').eq('clave', 'horario'))])
+        q(sb.from('procesos').select('codigo, nombre, area, num_maquinas, min_maquina_ciclo').eq('es_maquina', true).order('codigo')), q(sb.from('ajustes').select('valor').eq('clave', 'horario'))])
+      fijarMaquinas(maquinas)
       setD({ bloques, personas, maquinas, horario: aj[0]?.valor || { entrada: '07:00' } }); setError('')
     } catch (e) { setError(e.message) }
   }, [desde, hasta, clave]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -159,10 +160,11 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquin
   const barrasMaq = (a, f) => maquinas.filter((m) => m.area === a).map((m) => {
     const usado = bloques.filter((b) => b.fecha === f).reduce((s, b) => s + maqBloque(b, m.codigo), 0)
     if (!usado) return null
-    const pct = jornadaMin(f) ? usado / jornadaMin(f) : 1
+    const n = numMaquinas(m.codigo)
+    const pct = jornadaMin(f) ? usado / (jornadaMin(f) * n) : 1
     return (
-      <div key={m.codigo} className={`ps-carga maq ${pct > 1 ? 'mal' : pct > 0.85 ? 'alerta' : 'bien'}`} title={`${m.nombre}: ${fmtH(usado)} de máquina programadas`}>
-        <i style={{ width: `${Math.min(pct, 1) * 100}%` }} /><span>⚙ {m.nombre.toLowerCase()} {fmtH(usado)}</span>
+      <div key={m.codigo} className={`ps-carga maq ${pct > 1 ? 'mal' : pct > 0.85 ? 'alerta' : 'bien'}`} title={`${m.nombre}${n > 1 ? ` (${n} máquinas)` : ''}: ${fmtH(usado)} de máquina programadas de ${fmtH(jornadaMin(f) * n)} disponibles`}>
+        <i style={{ width: `${Math.min(pct, 1) * 100}%` }} /><span>⚙ {m.nombre.toLowerCase()}{n > 1 ? ` ×${n}` : ''} {fmtH(usado)}</span>
       </div>
     )
   })

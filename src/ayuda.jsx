@@ -91,7 +91,7 @@ const AYUDA = {
       ['Personas', 'Agrega operarios: aparecen en la tablet de su área para registrar su tiempo. Usa "Activo" para retirar a alguien sin borrar su historial.'],
       ['Productos y rutas', 'Crea o edita productos, familias y rutas. Cada proceso de la ruta lleva sus minutos para una unidad del tamaño de referencia. Un producto de terceros puede tener pasos previos en planta (ej. plantillas en Madera) antes del envío al proveedor.'],
       ['Procesos', 'Crea procesos nuevos (también de terceros, ej. Tapizado) y ajusta el tiempo del ensamble final de cada área. Un ítem multiárea puede tener varios ensambles (uno por área), se eligen en el detalle de la OP.'],
-      ['Procesos de máquina', 'Imprimir, corte láser, corte plotter y DTF no llevan dificultad. Se configuran por montaje: cuánto carga cada montaje (área de la cama, rollo), cuántos minutos trabaja la máquina y cuántos pone el operario montando y cambiando material. La columna "Qué significa" lo traduce a rendimiento por hora y montajes por jornada.'],
+      ['Procesos de máquina', 'Imprimir, corte láser, corte plotter y DTF no llevan dificultad. Se configuran por montaje: cuánto carga cada montaje (área de la cama, rollo), cuántos minutos trabaja la máquina y cuántos pone el operario montando y cambiando material. La columna "Qué significa" lo traduce a rendimiento por hora y montajes por jornada. "Cantidad de máquinas" dice cuántas iguales hay (hay 3 impresoras): cada una trabaja un montaje a la vez y la programación las usa en paralelo.'],
       ['Dificultad', 'Multiplicadores de Baja, Media y Alta.'],
       ['Estándar real', 'Compara lo real con lo estándar por producto y área, y sugiere el nuevo valor. "Aplicar" lo actualiza.'],
     ],

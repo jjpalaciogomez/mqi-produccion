@@ -499,6 +499,7 @@ function Maquinas({ procesos, onOk, onError }) {
   const otros = procesos.filter((p) => !p.es_maquina && !['TERCEROS'].includes(p.area) && !p.codigo.startsWith('ENS-'))
   const guardar = async (p, campo, v) => {
     if (campo !== 'unidad') { v = num(v); if (v !== null && (isNaN(v) || v < 0 || (v === 0 && campo !== 'min_montaje'))) return }
+    if (campo === 'num_maquinas') { if (v === null || v < 1) return; v = Math.round(v) }
     if (v === (campo === 'unidad' ? p.unidad : (p[campo] === null ? null : Number(p[campo])))) return
     const fila = { [campo]: v }
     // El rendimiento por hora se deduce del montaje: capacidad ÷ minutos de máquina por montaje
@@ -517,21 +518,23 @@ function Maquinas({ procesos, onOk, onError }) {
   const lectura = (p) => {
     const cap = Number(p.capacidad_ciclo), mc = Number(p.min_maquina_ciclo), mo = Number(p.min_montaje || 0)
     if (!(cap > 0) || !(mc > 0)) return <span className="t-warn">Falta {!(cap > 0) ? 'la capacidad por montaje' : 'el tiempo de máquina por montaje'}: sin eso no se puede programar.</span>
-    const porJornada = Math.floor(510 / mc)
+    const n = Math.max(1, Number(p.num_maquinas) || 1)
+    const porJornada = Math.floor(510 / mc) * n
     const rinde = (cap / mc) * 60
     return <>Cada montaje carga hasta <b>{fmtNum(cap, 2)} {u(p)}</b>: la máquina trabaja <b>{fmtMin(mc)}</b> y el operario pone <b>{fmtMin(mo)}</b> montando y cambiando material.
-      Rinde <b>{fmtNum(rinde, 1)} {u(p)}/h</b>; en una jornada de 8,5 h hace hasta <b>{porJornada} {porJornada === 1 ? 'montaje' : 'montajes'}</b> (≈ {fmtNum(porJornada * cap, 1)} {u(p)}) y le ocupa al operario {fmtMin(porJornada * mo)}.</>
+      {n > 1 ? <> Hay <b>{n} máquinas</b>, cada una con un montaje a la vez: rinden juntas <b>{fmtNum(rinde * n, 1)} {u(p)}/h</b></> : <> Rinde <b>{fmtNum(rinde, 1)} {u(p)}/h</b></>}; en una jornada de 8,5 h {n > 1 ? 'hacen' : 'hace'} hasta <b>{porJornada} {porJornada === 1 ? 'montaje' : 'montajes'}</b> (≈ {fmtNum(porJornada * cap, 1)} {u(p)}) y le ocupa al operario {fmtMin(porJornada * mo)}.</>
   }
   return (
     <div className="tarjeta">
       <h3 className="subt" style={{ marginTop: 0 }}>Procesos de máquina</h3>
       <p className="tenue pequeño">Se programan por montaje y no llevan dificultad. Montajes = cantidad ÷ capacidad por montaje (redondeado hacia arriba).
-        Tiempo de máquina = montajes × minutos de máquina por montaje (el último montaje, en proporción a lo que lleva). Al operario solo se le abonan los montajes × sus minutos de montaje.</p>
+        Tiempo de máquina = montajes × minutos de máquina por montaje (el último montaje, en proporción a lo que lleva). Al operario solo se le abonan los montajes × sus minutos de montaje. Si hay varias máquinas iguales (p. ej. 3 impresoras), cada una trabaja un montaje a la vez y la programación las usa en paralelo.</p>
       <table className="tabla maq-tabla">
-        <thead><tr><th>Proceso</th><th>Se mide en</th><th>Capacidad por montaje</th><th>Máquina por montaje</th><th>Operario por montaje</th><th>Qué significa</th><th /></tr></thead>
+        <thead><tr><th>Proceso</th><th>Cantidad de máquinas</th><th>Se mide en</th><th>Capacidad por montaje</th><th>Máquina por montaje</th><th>Operario por montaje</th><th>Qué significa</th><th /></tr></thead>
         <tbody>{maq.map((p) => (
           <tr key={p.codigo}>
             <td><b>{p.codigo}</b> {p.nombre}</td>
+            <td><input className="input-cant" defaultValue={p.num_maquinas ?? 1} onBlur={(e) => guardar(p, 'num_maquinas', e.target.value)} inputMode="numeric" /></td>
             <td><select defaultValue={String(p.unidad).toUpperCase() === 'M2' ? 'M2' : 'UND'} onChange={(e) => guardar(p, 'unidad', e.target.value)}><option value="M2">m²</option><option value="UND">unidades</option></select></td>
             <td><input className="input-cant" defaultValue={p.capacidad_ciclo ?? ''} onBlur={(e) => guardar(p, 'capacidad_ciclo', e.target.value)} inputMode="decimal" /> {u(p)}</td>
             <td><input className="input-cant" defaultValue={p.min_maquina_ciclo ?? ''} onBlur={(e) => guardar(p, 'min_maquina_ciclo', e.target.value)} inputMode="decimal" /> min</td>
