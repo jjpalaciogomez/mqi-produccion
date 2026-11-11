@@ -123,7 +123,10 @@ const AYUDA = {
     puntos: [
       ['Semana', 'Filas = áreas, columnas = días. La barra de cada celda compara las horas-persona programadas con la capacidad del área (operarios × jornada): verde bien, amarillo casi lleno, rojo sobrecargado. Toca el día para verlo por horas.'],
       ['Día', 'Agenda por horas con una columna por área. Los bloques que se cruzan van lado a lado: varios operarios o trabajos cortos en simultáneo.'],
-      ['Programar', 'Toca "+ Programar", una celda vacía o una hora libre. Eliges la OP, el área, el día, el horario y, si quieres, los operarios. Sin operarios, el bloque queda abierto a toda el área.'],
+      ['Programar (automático)', 'Toca "+ Programar", una celda o "Programar" en la tabla de abajo. Eliges la OP, el área, desde qué día y hora, y las horas hombre (vienen llenas con lo pendiente). El sistema reparte en los días hábiles: lo que no cabe en la jornada pasa al día siguiente, sin pasarse de las horas hombre del área (o de los operarios elegidos) ni de las horas de cada máquina. Ves el plan antes de confirmar.'],
+      ['Gran Formato', 'Programa varios proyectos a la misma hora: el límite son las horas hombre del área y las de cada máquina (impresora, láser, plotter, DTF). Cada celda muestra la carga en horas hombre y el uso de cada máquina.'],
+      ['Programar todo lo pendiente', 'Programa todas las OPs que faltan, en orden de prioridad y fecha de entrega, y marca en rojo las que terminarían después de su entrega.'],
+      ['Manual', 'Para un horario fijo, elige "Manual" en la ventana de programar. Un bloque guardado se puede editar, copiar al siguiente día o quitar (solo él, o todos los bloques de esa programación).'],
       ['Trabajo por programar', 'Abajo: horas estándar pendientes de cada OP por área frente a lo ya programado. "Programar" abre el bloque con la OP y el área listas.'],
       ['Tablet', 'Muestra lo programado hoy con su horario y operarios. Lo demás queda en "Ver otros proyectos", para urgencias o adelantos. Tiene su propia vista del calendario.'],
     ],

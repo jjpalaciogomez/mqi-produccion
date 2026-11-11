@@ -3,6 +3,7 @@ import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { AREAS_PLANTA } from '../estandar.js'
+import { aMin, hhBloque, jornadaMin, maqBloque, planificar } from '../planificador.js'
 
 // Programación de la planta: bloques de trabajo (OP + área + día + horario + operarios opcionales)
 
@@ -11,14 +12,13 @@ const COLORES = ['#2a78d6', '#1d8a4e', '#b5530f', '#7a4cc2', '#c0392b', '#0f8a8a
 export const hoyCO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
 export const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
 export const lunesDe = (f) => { const d = new Date(f + 'T12:00:00'); const w = (d.getDay() + 6) % 7; return sumarDias(f, -w) }
-const aMin = (h) => { const [a, b] = String(h).split(':'); return Number(a) * 60 + Number(b) }
 const hhmm = (h) => String(h).slice(0, 5)
-const jornadaMin = (f) => { const w = new Date(f + 'T12:00:00').getDay(); return w === 5 ? 480 : w >= 1 && w <= 4 ? 510 : 0 }
 const colorOP = (n) => COLORES[[...String(n)].reduce((s, c) => s + c.charCodeAt(0), 0) % COLORES.length]
 const fmtH = (m) => `${fmtNum(m / 60, 1)} h`
 const nombreCorto = (n) => String(n || '').split(' ')[0]
-// Horas-persona de un bloque: duración × operarios (1 si no tiene asignados)
-const horasBloque = (b) => (aMin(b.hora_fin) - aMin(b.hora_inicio)) * Math.max(1, b.personas?.length || 0)
+const horasBloque = hhBloque
+const ahoraCO = () => { const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' })); return d.getHours() * 60 + d.getMinutes() }
+const hmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 
 // Bloques de un rango de fechas y áreas (lo usan esta página y la tablet)
 export function useProgramacion(desde, hasta, areas) {
@@ -30,8 +30,9 @@ export function useProgramacion(desde, hasta, areas) {
       let c = sb.from('programacion').select('*, ordenes(numero, proyecto, cliente, estado, fecha_compromiso)')
         .gte('fecha', desde).lte('fecha', hasta).order('hora_inicio')
       if (areas) c = c.in('area', areas)
-      const [bloques, personas] = await Promise.all([q(c), q(sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre'))])
-      setD({ bloques, personas }); setError('')
+      const [bloques, personas, maquinas, aj] = await Promise.all([q(c), q(sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre')),
+        q(sb.from('procesos').select('codigo, nombre, area').eq('es_maquina', true).order('codigo')), q(sb.from('ajustes').select('valor').eq('clave', 'horario'))])
+      setD({ bloques, personas, maquinas, horario: aj[0]?.valor || { entrada: '07:00' } }); setError('')
     } catch (e) { setError(e.message) }
   }, [desde, hasta, clave]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { cargar() }, [cargar])
@@ -54,45 +55,72 @@ export default function Programacion({ perfil, gestor }) {
   const cargarPend = useCallback(async () => {
     const hoy = hoyCO()
     const [ts, futuros, ops] = await Promise.all([
-      q(sb.from('v_tareas').select('orden_id, area, min_std, estado').in('estado', ['pendiente', 'en_curso', 'pausada']).in('op_estado', ['borrador', 'en_planta']).neq('area', 'TERCEROS')),
-      q(sb.from('programacion').select('orden_id, area, hora_inicio, hora_fin, personas').gte('fecha', hoy)),
+      q(sb.from('v_tareas').select('orden_id, area, proceso, min_std, min_reales, estado, es_maquina, min_maquina, min_maquina_real').in('estado', ['pendiente', 'en_curso', 'pausada']).in('op_estado', ['borrador', 'en_planta']).neq('area', 'TERCEROS')),
+      q(sb.from('programacion').select('*').gte('fecha', hoy)),
       q(sb.from('v_ordenes').select('id, numero, proyecto, cliente, fecha_compromiso, prioridad, semaforo, estado').in('estado', ['borrador', 'en_planta']).order('numero')),
     ])
     const g = {}
-    for (const t of ts) { const k = `${t.orden_id}|${t.area}`; (g[k] ||= { orden_id: t.orden_id, area: t.area, std: 0, prog: 0 }).std += Number(t.min_std || 0) }
-    for (const b of futuros) { const k = `${b.orden_id}|${b.area}`; if (g[k]) g[k].prog += horasBloque(b) }
-    setPend({ filas: Object.values(g), ops })
+    // Pendiente = estándar de lo que falta menos lo ya registrado; máquina aparte por proceso
+    for (const t of ts) {
+      const k = `${t.orden_id}|${t.area}`
+      const x = (g[k] ||= { orden_id: t.orden_id, area: t.area, std: 0, prog: 0, maq: {}, progM: {} })
+      x.std += Math.max(Number(t.min_std || 0) - Number(t.min_reales || 0), 0)
+      if (t.es_maquina) x.maq[t.proceso] = (x.maq[t.proceso] || 0) + Math.max(Number(t.min_maquina || 0) - Number(t.min_maquina_real || 0), 0)
+    }
+    for (const b of futuros) {
+      const x = g[`${b.orden_id}|${b.area}`]
+      if (!x) continue
+      x.prog += horasBloque(b)
+      for (const [p, m] of Object.entries(b.maquinas || {})) x.progM[p] = (x.progM[p] || 0) + Number(m)
+    }
+    for (const x of Object.values(g)) {
+      x.faltaH = Math.max(x.std - x.prog, 0)
+      x.faltaM = Object.fromEntries(Object.entries(x.maq).map(([p, m]) => [p, Math.max(m - (x.progM[p] || 0), 0)]).filter(([, v]) => v >= 1))
+      x.maqTotal = Object.values(x.maq).reduce((s, v) => s + v, 0)
+    }
+    setPend({ filas: Object.values(g), ops, futuros })
   }, [])
   useEffect(() => { cargarPend().catch(() => {}) }, [cargarPend])
   const recargar = () => { cargar(); cargarPend().catch(() => {}) }
 
   const opsPorId = useMemo(() => Object.fromEntries((pend?.ops || []).map((o) => [o.id, o])), [pend])
 
+  const [todo, setTodo] = useState(false)
+  const guardarEntrada = async (v) => {
+    if (!v || v === d?.horario?.entrada) return
+    try { await q(sb.from('ajustes').upsert({ clave: 'horario', valor: { ...(d?.horario || {}), entrada: v } })); recargar() } catch (e) { alert(e.message) }
+  }
+  const nuevoAuto = (extra) => setForm({ area: filtro || 'METAL', fecha: dia < hoyCO() ? hoyCO() : dia, hora_inicio: d?.horario?.entrada || '07:00', hora_fin: '11:00', personas: [], modo: 'auto', ...extra })
+
   return (
     <div>
       <div className="titulo-pagina">
-        <div><h1>Programación de planta</h1><div className="tenue pequeño">Qué proyecto trabaja cada área, cada día y a qué hora. Las tablets muestran primero lo programado para hoy.</div></div>
+        <div><h1>Programación de planta</h1><div className="tenue pequeño">Qué proyecto trabaja cada área, cada día y a qué hora. Lo que no cabe en la jornada pasa solo a los días siguientes.</div></div>
         <div className="titulo-acciones">
-          {gestor && <button className="btn" onClick={() => setForm({ area: filtro || 'METAL', fecha: dia < hoyCO() ? hoyCO() : dia, hora_inicio: '07:00', hora_fin: '11:00', personas: [] })}>+ Programar</button>}
+          {gestor && <button className="btn btn-sec" onClick={() => setTodo(true)} disabled={!pend || !d}>Programar todo lo pendiente</button>}
+          {gestor && <button className="btn" onClick={() => nuevoAuto()}>+ Programar</button>}
           <BotonAyuda clave="programacion" rol={perfil?.rol} />
         </div>
       </div>
       <BarraFechas vista={vista} setVista={setVista} dia={dia} setDia={setDia}>
         <select value={filtro} onChange={(e) => setFiltro(e.target.value)}><option value="">Todas las áreas</option>{AREAS_PLANTA.map((a) => <option key={a}>{a}</option>)}</select>
+        {gestor && d && <label className="entrada-planta">Entrada<input type="time" step={900} defaultValue={d.horario.entrada} onBlur={(e) => guardarEntrada(e.target.value)} /></label>}
       </BarraFechas>
       <Aviso>{error}</Aviso>
       {!d ? <Cargando /> : (
-        <Calendario vista={vista} dia={dia} lunes={lunes} areas={areas} bloques={d.bloques} personas={d.personas}
+        <Calendario vista={vista} dia={dia} lunes={lunes} areas={areas} bloques={d.bloques} personas={d.personas} maquinas={d.maquinas}
           onDia={(f) => { setDia(f); setVista('dia') }}
-          onNuevo={gestor ? (area, fecha, hora) => setForm({ area, fecha, hora_inicio: hora || '07:00', hora_fin: hora ? `${String(Math.min(Number(hora.slice(0, 2)) + 2, 23)).padStart(2, '0')}:00` : '11:00', personas: [] }) : null}
+          onNuevo={gestor ? (area, fecha, hora) => nuevoAuto({ area, fecha, hora_inicio: hora || d.horario.entrada }) : null}
           onEditar={gestor ? (b) => setForm(b) : null} />
       )}
 
-      {pend && <PorProgramar pend={pend} areas={areas} opsPorId={opsPorId}
-        onProgramar={gestor ? (f) => setForm({ orden_id: f.orden_id, area: f.area, fecha: dia < hoyCO() ? hoyCO() : dia, hora_inicio: '07:00', hora_fin: '11:00', personas: [] }) : null} />}
+      {pend && <PorProgramar pend={pend} areas={areas} opsPorId={opsPorId} maquinas={d?.maquinas || []}
+        onProgramar={gestor ? (f) => nuevoAuto({ orden_id: f.orden_id, area: f.area }) : null} />}
 
-      {form && d && <FormBloque inicial={form} ops={pend?.ops || []} pend={pend} personas={d.personas} bloques={d.bloques}
+      {form && d && pend && <FormBloque inicial={form} ops={pend.ops} pend={pend} personas={d.personas} bloques={d.bloques} horario={d.horario} maquinas={d.maquinas}
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); recargar() }} />}
+      {todo && d && pend && <ProgramarTodo pend={pend} opsPorId={opsPorId} areas={areas} personas={d.personas} horario={d.horario}
+        onClose={() => setTodo(false)} onGuardado={() => { setTodo(false); recargar() }} />}
     </div>
   )
 }
@@ -116,10 +144,21 @@ export function BarraFechas({ vista, setVista, dia, setDia, children }) {
 }
 
 // Vista semana (filas = áreas, columnas = días) o día (agenda por horas, columnas = áreas)
-export function Calendario({ vista, dia, lunes, areas, bloques, personas, onDia, onNuevo, onEditar }) {
+export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquinas = [], onDia, onNuevo, onEditar }) {
   const perPorId = Object.fromEntries(personas.map((p) => [p.id, p]))
   const gente = (a) => personas.filter((p) => p.area === a).length
   const hoy = hoyCO()
+  // Uso de cada máquina del área en el día (horas de máquina programadas frente a la jornada)
+  const barrasMaq = (a, f) => maquinas.filter((m) => m.area === a).map((m) => {
+    const usado = bloques.filter((b) => b.fecha === f).reduce((s, b) => s + maqBloque(b, m.codigo), 0)
+    if (!usado) return null
+    const pct = jornadaMin(f) ? usado / jornadaMin(f) : 1
+    return (
+      <div key={m.codigo} className={`ps-carga maq ${pct > 1 ? 'mal' : pct > 0.85 ? 'alerta' : 'bien'}`} title={`${m.nombre}: ${fmtH(usado)} de máquina programadas`}>
+        <i style={{ width: `${Math.min(pct, 1) * 100}%` }} /><span>⚙ {m.nombre.toLowerCase()} {fmtH(usado)}</span>
+      </div>
+    )
+  })
 
   if (vista === 'semana') {
     const dias = DIAS.map((_, i) => sumarDias(lunes, i))
@@ -143,9 +182,10 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, onDia,
                 onClick={(e) => { if (e.target === e.currentTarget && onNuevo) onNuevo(a, f) }}>
                 {(prog > 0 || cap > 0) && (
                   <div className={`ps-carga ${pct > 1 ? 'mal' : pct > 0.85 ? 'alerta' : 'bien'}`} title="Horas-persona programadas frente a la capacidad del área">
-                    <i style={{ width: `${Math.min(pct, 1) * 100}%` }} /><span>{fmtH(prog)}{cap ? ` / ${fmtH(cap)}` : ''}</span>
+                    <i style={{ width: `${Math.min(pct, 1) * 100}%` }} /><span>{fmtNum(prog / 60, 1)}{cap ? ` / ${fmtNum(cap / 60, 1)}` : ''} h-h</span>
                   </div>
                 )}
+                {barrasMaq(a, f)}
                 {bs.map((b) => <Bloque key={b.id} b={b} perPorId={perPorId} onClick={onEditar} compacto />)}
                 {onNuevo && <button className="ps-mas" onClick={() => onNuevo(a, f)}>+</button>}
               </div>
@@ -170,7 +210,7 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, onDia,
       {areas.map((a) => {
         const prog = bsDia.filter((b) => b.area === a).reduce((s, b) => s + horasBloque(b), 0)
         const cap = gente(a) * jornadaMin(dia)
-        return <div key={a} className="pd-area"><b>{a}</b><span className="tenue pequeño">{fmtH(prog)}{cap ? ` de ${fmtH(cap)}` : ''}</span></div>
+        return <div key={a} className="pd-area"><b>{a}</b><span className="tenue pequeño">{fmtNum(prog / 60, 1)}{cap ? ` de ${fmtNum(cap / 60, 1)}` : ''} h-h</span>{barrasMaq(a, dia)}</div>
       })}
       <div className="pd-horas" style={{ height: (h1 - h0) * PX + 12 }}>
         {horas.map((m) => <span key={m} style={{ top: (m - h0) * PX }}>{String(m / 60).padStart(2, '0')}:00</span>)}
@@ -216,40 +256,131 @@ function Bloque({ b, perPorId, onClick, compacto }) {
       <div className="bl-hora">{hhmm(b.hora_inicio)}–{hhmm(b.hora_fin)}</div>
       <div className="bl-op"><b>OP {o.numero}</b> {o.proyecto}</div>
       {quienes.length > 0 && <div className="bl-quien">{quienes.join(', ')}</div>}
+      {!compacto && (b.min_hombre !== null && b.min_hombre !== undefined) && <div className="bl-quien">{fmtH(Number(b.min_hombre))} h-h{Object.keys(b.maquinas || {}).length ? ` · ⚙ ${fmtH(Object.values(b.maquinas).reduce((s, v) => s + Number(v), 0))} máq.` : ''}</div>}
       {!compacto && b.nota && <div className="bl-quien">{b.nota}</div>}
     </div>
   )
 }
 
+const nombreMaq = (maquinas, p) => (maquinas.find((m) => m.codigo === p)?.nombre || p).toLowerCase()
+const textoMaq = (maquinas, obj) => Object.entries(obj || {}).filter(([, v]) => v >= 1).map(([p, v]) => `${nombreMaq(maquinas, p)} ${fmtH(v)}`).join(' · ')
+
 // Lista de OPs con trabajo pendiente por área y cuánto falta por programar
-function PorProgramar({ pend, areas, opsPorId, onProgramar }) {
-  const filas = pend.filas.filter((f) => areas.includes(f.area) && f.std > 0 && opsPorId[f.orden_id])
-    .map((f) => ({ ...f, op: opsPorId[f.orden_id], falta: Math.max(f.std - f.prog, 0) }))
+function PorProgramar({ pend, areas, opsPorId, maquinas, onProgramar }) {
+  const filas = pend.filas.filter((f) => areas.includes(f.area) && (f.std > 0 || f.maqTotal > 0) && opsPorId[f.orden_id])
+    .map((f) => ({ ...f, op: opsPorId[f.orden_id] }))
     .sort((a, b) => (a.op.prioridad - b.op.prioridad) || String(a.op.fecha_compromiso || '9').localeCompare(String(b.op.fecha_compromiso || '9')))
   if (!filas.length) return null
   return (
     <section className="tarjeta prog-pend">
       <h3 className="subt" style={{ marginTop: 0 }}>Trabajo por programar</h3>
-      <p className="tenue pequeño">Horas estándar pendientes de cada OP por área, frente a las horas-persona ya programadas de hoy en adelante.</p>
+      <p className="tenue pequeño">Horas hombre pendientes de cada OP por área (y horas de máquina aparte), frente a lo ya programado de hoy en adelante.</p>
       <table className="tabla">
-        <thead><tr><th>OP</th><th>Área</th><th>Entrega</th><th>Pendiente</th><th>Programado</th><th>Falta</th><th /></tr></thead>
-        <tbody>{filas.map((f) => (
-          <tr key={f.orden_id + f.area}>
-            <td><span className="punto" style={{ background: colorOP(f.op.numero) }} /><b>OP {f.op.numero}</b> <span className="tenue">{f.op.proyecto}</span></td>
-            <td>{f.area}</td>
-            <td className={f.op.semaforo === 'vencida' ? 't-mal' : ''}>{fmtFecha(f.op.fecha_compromiso)}</td>
-            <td>{fmtH(f.std)}</td><td>{f.prog ? fmtH(f.prog) : '—'}</td>
-            <td>{f.falta > 0 ? <b>{fmtH(f.falta)}</b> : <span className="tenue">cubierto</span>}</td>
-            <td>{onProgramar && <button className="btn-link" onClick={() => onProgramar(f)}>Programar</button>}</td>
-          </tr>
-        ))}</tbody>
+        <thead><tr><th>OP</th><th>Área</th><th>Entrega</th><th>Pendiente h-h</th><th>Programado</th><th>Falta</th><th>Máquina por programar</th><th /></tr></thead>
+        <tbody>{filas.map((f) => {
+          const cubierto = f.faltaH < 1 && !Object.keys(f.faltaM).length
+          return (
+            <tr key={f.orden_id + f.area}>
+              <td><span className="punto" style={{ background: colorOP(f.op.numero) }} /><b>OP {f.op.numero}</b> <span className="tenue">{f.op.proyecto}</span></td>
+              <td>{f.area}</td>
+              <td className={f.op.semaforo === 'vencida' ? 't-mal' : ''}>{fmtFecha(f.op.fecha_compromiso)}</td>
+              <td>{fmtH(f.std)}</td><td>{f.prog ? fmtH(f.prog) : '—'}</td>
+              <td>{f.faltaH >= 1 ? <b>{fmtH(f.faltaH)}</b> : <span className="tenue">{cubierto ? 'cubierto' : '—'}</span>}</td>
+              <td className="pequeño">{textoMaq(maquinas, f.faltaM) || <span className="tenue">—</span>}</td>
+              <td>{onProgramar && !cubierto && <button className="btn-link" onClick={() => onProgramar(f)}>Programar</button>}</td>
+            </tr>
+          )
+        })}</tbody>
       </table>
     </section>
   )
 }
 
-function FormBloque({ inicial, ops, pend, personas, bloques, onClose, onGuardado }) {
+// Contexto del planificador: inicio (hoy desde ahora, o el día elegido) y si el área trabaja en paralelo
+const inicioPlan = (fecha, hora) => {
+  const hoy = hoyCO()
+  if (fecha > hoy) return { desde: fecha, desdeHora: hora || null }
+  const ahora = hmm(Math.ceil(ahoraCO() / 15) * 15)
+  return { desde: hoy, desdeHora: hora && hora > ahora ? hora : ahora }
+}
+const enParalelo = (area) => area === 'GRAN FORMATO'
+
+function ListaPlan({ bloques, maquinas, personas }) {
+  const perPorId = Object.fromEntries(personas.map((p) => [p.id, p]))
+  return (
+    <ul className="plan-lista">
+      {bloques.map((b, i) => (
+        <li key={i}>
+          <b>{new Date(b.fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}</b> {b.hora_inicio}–{b.hora_fin}
+          <span className="tenue"> · {fmtH(b.min_hombre)} h-h{textoMaq(maquinas, b.maquinas) ? ` · ⚙ ${textoMaq(maquinas, b.maquinas)}` : ''}
+            {b.personas?.length ? ` · ${b.personas.map((id) => nombreCorto(perPorId[id]?.nombre)).join(', ')}` : ''}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// Programa todas las OPs pendientes, en orden de prioridad y fecha de entrega
+export function ProgramarTodo({ pend, opsPorId, areas, personas, horario, onClose, onGuardado }) {
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState('')
+  const plan = useMemo(() => {
+    const ini = inicioPlan(hoyCO(), null)
+    const filas = pend.filas.filter((f) => areas.includes(f.area) && opsPorId[f.orden_id] && (f.faltaH >= 1 || Object.keys(f.faltaM).length))
+      .map((f) => ({ ...f, op: opsPorId[f.orden_id] }))
+      .sort((a, b) => (a.op.prioridad - b.op.prioridad) || String(a.op.fecha_compromiso || '9').localeCompare(String(b.op.fecha_compromiso || '9')))
+    const ctx = [...pend.futuros]
+    return filas.map((f) => {
+      const r = planificar({ hh: f.faltaH, maq: f.faltaM }, {
+        area: f.area, ...ini, personas: [], operariosArea: personas.filter((p) => p.area === f.area).length, paralelo: enParalelo(f.area),
+      }, ctx, horario)
+      const bs = r.bloques.map((b) => ({ ...b, orden_id: f.orden_id }))
+      ctx.push(...bs)
+      const fin = bs.length ? bs[bs.length - 1].fecha : null
+      return { ...f, bs, fin, tarde: fin && f.op.fecha_compromiso && fin > f.op.fecha_compromiso }
+    })
+  }, [pend, opsPorId, areas, personas, horario])
+  const total = plan.reduce((s, f) => s + f.bs.length, 0)
+  const guardar = async () => {
+    setEnviando(true); setError('')
+    try {
+      const filas = plan.flatMap((f) => { const grupo = crypto.randomUUID(); return f.bs.map((b) => ({ ...b, grupo })) })
+      if (filas.length) await q(sb.from('programacion').insert(filas))
+      onGuardado()
+    } catch (e) { setError(e.message); setEnviando(false) }
+  }
+  return (
+    <Modal titulo="Programar todo lo pendiente" onClose={onClose} ancho={820}>
+      <p className="tenue">Se programa cada OP en orden de prioridad y fecha de entrega, desde ahora. Lo que no cabe en la jornada de un día pasa al siguiente día hábil.
+        Gran Formato programa varios proyectos a la vez, limitado por las horas hombre del área y por las horas de cada máquina. No se mueve nada de lo ya programado.</p>
+      {plan.length === 0 ? <p>No hay trabajo pendiente sin programar.</p> : (
+        <table className="tabla">
+          <thead><tr><th>OP</th><th>Área</th><th>Horas</th><th>Bloques</th><th>Termina</th><th>Entrega</th></tr></thead>
+          <tbody>{plan.map((f) => (
+            <tr key={f.orden_id + f.area} className={f.tarde ? 'fila-tarde' : ''}>
+              <td><span className="punto" style={{ background: colorOP(f.op.numero) }} /><b>OP {f.op.numero}</b> <span className="tenue">{f.op.proyecto}</span></td>
+              <td>{f.area}</td>
+              <td className="pequeño">{fmtH(f.faltaH)} h-h{Object.keys(f.faltaM).length ? <><br />⚙ {fmtH(Object.values(f.faltaM).reduce((s, v) => s + v, 0))} máq.</> : ''}</td>
+              <td>{f.bs.length}</td>
+              <td>{f.fin ? fmtFecha(f.fin) : '—'}</td>
+              <td className={f.tarde ? 't-mal' : ''}>{fmtFecha(f.op.fecha_compromiso)}{f.tarde ? ' · no alcanza' : ''}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      {plan.some((f) => f.tarde) && <Aviso tipo="warn">Las OPs en rojo terminarían después de su fecha de entrega con la capacidad actual. Puedes subirles la prioridad, asignar más operarios o renegociar la fecha.</Aviso>}
+      <Aviso>{error}</Aviso>
+      <div className="acciones">
+        <button className="btn btn-sec" onClick={onClose}>Cancelar</button>
+        <button className="btn" disabled={enviando || !total} onClick={guardar}>Programar {total} bloques</button>
+      </div>
+    </Modal>
+  )
+}
+
+export function FormBloque({ inicial, ops, pend, personas, bloques, horario, maquinas, onClose, onGuardado }) {
   const [f, setF] = useState({ orden_id: '', nota: '', ...inicial, hora_inicio: hhmm(inicial.hora_inicio), hora_fin: hhmm(inicial.hora_fin), personas: inicial.personas || [] })
+  const modo = f.id ? 'manual' : (f.modo || 'auto')
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
@@ -257,32 +388,59 @@ function FormBloque({ inicial, ops, pend, personas, bloques, onClose, onGuardado
   const otros = personas.filter((p) => p.area !== f.area && !f.personas.includes(p.id))
   const toggle = (id) => setF({ ...f, personas: f.personas.includes(id) ? f.personas.filter((x) => x !== id) : [...f.personas, id] })
   const info = pend?.filas.find((x) => x.orden_id === f.orden_id && x.area === f.area)
+  const [horasTxt, setHorasTxt] = useState(() => (info ? String(Math.round((info.faltaH / 60) * 10) / 10) : ''))
+  useEffect(() => { setHorasTxt(info ? String(Math.round((info.faltaH / 60) * 10) / 10) : '') }, [f.orden_id, f.area]) // eslint-disable-line react-hooks/exhaustive-deps
   // Operarios que ya tienen otro bloque que se cruza
-  const cruces = f.personas.filter((id) => bloques.some((b) => b.id !== f.id && b.fecha === f.fecha && (b.personas || []).includes(id)
-    && aMin(b.hora_inicio) < aMin(f.hora_fin) && aMin(f.hora_inicio) < aMin(b.hora_fin)))
+  const cruces = modo === 'manual' ? f.personas.filter((id) => bloques.some((b) => b.id !== f.id && b.fecha === f.fecha && (b.personas || []).includes(id)
+    && aMin(b.hora_inicio) < aMin(f.hora_fin) && aMin(f.hora_inicio) < aMin(b.hora_fin))) : []
   const [otroDia, setOtroDia] = useState(false)
+  const delGrupo = f.grupo ? bloques.filter((b) => b.grupo === f.grupo).length : 0
+
+  // Plan automático: reparte las horas en los días según la jornada y la capacidad
+  const plan = useMemo(() => {
+    if (modo !== 'auto' || !f.orden_id) return null
+    const hh = Math.max(0, Number(String(horasTxt).replace(',', '.')) || 0) * 60
+    const maq = info?.faltaM || {}
+    if (hh < 1 && !Object.keys(maq).length) return { bloques: [] }
+    return planificar({ hh, maq }, {
+      area: f.area, ...inicioPlan(f.fecha, f.hora_inicio), personas: f.personas,
+      operariosArea: personas.filter((p) => p.area === f.area).length, paralelo: enParalelo(f.area),
+    }, pend.futuros, horario)
+  }, [modo, f.orden_id, f.area, f.fecha, f.hora_inicio, f.personas, horasTxt, info, pend, personas, horario])
 
   const guardar = async (e, copiarA) => {
     e?.preventDefault()
     if (!f.orden_id) { setError('Elige la OP.'); return }
-    if (aMin(f.hora_fin) <= aMin(f.hora_inicio)) { setError('La hora de fin debe ser después de la de inicio.'); return }
     setEnviando(true); setError('')
-    const fila = { orden_id: f.orden_id, area: f.area, fecha: copiarA || f.fecha, hora_inicio: f.hora_inicio, hora_fin: f.hora_fin, personas: f.personas, nota: f.nota?.trim() || null }
     try {
-      if (f.id && !copiarA) await q(sb.from('programacion').update(fila).eq('id', f.id))
-      else await q(sb.from('programacion').insert(fila))
+      if (modo === 'auto') {
+        if (!plan?.bloques.length) { setError('No hay horas para programar.'); setEnviando(false); return }
+        const grupo = crypto.randomUUID()
+        await q(sb.from('programacion').insert(plan.bloques.map((b) => ({ ...b, orden_id: f.orden_id, nota: f.nota?.trim() || null, grupo }))))
+      } else {
+        if (aMin(f.hora_fin) <= aMin(f.hora_inicio)) { setError('La hora de fin debe ser después de la de inicio.'); setEnviando(false); return }
+        const fila = { orden_id: f.orden_id, area: f.area, fecha: copiarA || f.fecha, hora_inicio: f.hora_inicio, hora_fin: f.hora_fin, personas: f.personas, nota: f.nota?.trim() || null }
+        if (f.id && !copiarA) await q(sb.from('programacion').update(fila).eq('id', f.id))
+        else await q(sb.from('programacion').insert({ ...fila, min_hombre: copiarA ? f.min_hombre ?? null : null, maquinas: copiarA ? f.maquinas || {} : {} }))
+      }
       onGuardado()
     } catch (err) { setError(err.message); setEnviando(false) }
   }
-  const eliminar = async () => {
-    if (!window.confirm('¿Quitar este bloque de la programación?')) return
-    try { await q(sb.from('programacion').delete().eq('id', f.id)); onGuardado() } catch (err) { setError(err.message) }
+  const eliminar = async (todoGrupo) => {
+    if (!window.confirm(todoGrupo ? `¿Quitar los ${delGrupo} bloques de esta programación?` : '¿Quitar este bloque de la programación?')) return
+    try { await q(todoGrupo ? sb.from('programacion').delete().eq('grupo', f.grupo) : sb.from('programacion').delete().eq('id', f.id)); onGuardado() } catch (err) { setError(err.message) }
   }
   const siguienteHabil = () => { let x = sumarDias(f.fecha, 1); while (jornadaMin(x) === 0) x = sumarDias(x, 1); return x }
+  const ultimo = plan?.bloques.length ? plan.bloques[plan.bloques.length - 1].fecha : null
+  const op = ops.find((o) => o.id === f.orden_id)
 
   return (
-    <Modal titulo={f.id ? 'Editar bloque programado' : 'Programar trabajo'} onClose={onClose} ancho={620}>
+    <Modal titulo={f.id ? 'Editar bloque programado' : 'Programar trabajo'} onClose={onClose} ancho={680}>
       <form className="form" onSubmit={guardar}>
+        {!f.id && (
+          <div className="segmentado">{[['auto', 'Automático (reparte en los días)'], ['manual', 'Manual (horario fijo)']].map(([v, t]) =>
+            <button type="button" key={v} className={modo === v ? 'sel' : ''} onClick={() => setF({ ...f, modo: v })}>{t}</button>)}</div>
+        )}
         <label>Proyecto (OP)
           <select value={f.orden_id} onChange={set('orden_id')} required autoFocus={!f.orden_id}>
             <option value="">Selecciona…</option>
@@ -292,17 +450,24 @@ function FormBloque({ inicial, ops, pend, personas, bloques, onClose, onGuardado
         </label>
         <div className="fila3">
           <label>Área<select value={f.area} onChange={set('area')}>{AREAS_PLANTA.map((a) => <option key={a}>{a}</option>)}</select></label>
-          <label>Día<input type="date" value={f.fecha} onChange={set('fecha')} required /></label>
-          <span className="fila-horas">
-            <label>Desde<input type="time" value={f.hora_inicio} onChange={set('hora_inicio')} step={900} required /></label>
-            <label>Hasta<input type="time" value={f.hora_fin} onChange={set('hora_fin')} step={900} required /></label>
-          </span>
+          <label>{modo === 'auto' ? 'Desde el día' : 'Día'}<input type="date" value={f.fecha} onChange={set('fecha')} required /></label>
+          {modo === 'auto'
+            ? <label>Desde la hora<input type="time" value={f.hora_inicio} onChange={set('hora_inicio')} step={900} /></label>
+            : <span className="fila-horas">
+                <label>Desde<input type="time" value={f.hora_inicio} onChange={set('hora_inicio')} step={900} required /></label>
+                <label>Hasta<input type="time" value={f.hora_fin} onChange={set('hora_fin')} step={900} required /></label>
+              </span>}
         </div>
-        {info && <p className="nota">Pendiente de esta OP en {f.area.toLowerCase()}: <b>{fmtH(info.std)}</b> estándar · programado de hoy en adelante: <b>{fmtH(info.prog)}</b></p>}
+        {info && <p className="nota">Pendiente de esta OP en {f.area.toLowerCase()}: <b>{fmtH(info.std)}</b> hombre{info.maqTotal ? <> · máquina: <b>{textoMaq(maquinas, info.maq)}</b></> : ''} · ya programado: <b>{fmtH(info.prog)}</b></p>}
         {f.orden_id && !info && <p className="nota">Esta OP no tiene trabajo pendiente en {f.area.toLowerCase()}.</p>}
+        {modo === 'auto' && (
+          <label>Horas hombre a programar
+            <input className="input-cant" value={horasTxt} onChange={(e) => setHorasTxt(e.target.value)} inputMode="decimal" />
+          </label>
+        )}
 
         <div>
-          <div className="paso-tit pequeño">Operarios (opcional; sin operarios queda abierto a toda el área)</div>
+          <div className="etq-chips">Operarios (opcional; sin operarios queda abierto a toda el área{modo === 'auto' ? '. Con operarios, se usa la jornada libre de cada uno' : ''})</div>
           <div className="chips">
             {gente.map((p) => <button type="button" key={p.id} className={`chip-sel${f.personas.includes(p.id) ? ' sel' : ''}`} onClick={() => toggle(p.id)}>{p.nombre}</button>)}
             {!otroDia && otros.length > 0 && <button type="button" className="btn-link" onClick={() => setOtroDia(true)}>+ de otra área</button>}
@@ -311,12 +476,24 @@ function FormBloque({ inicial, ops, pend, personas, bloques, onClose, onGuardado
           {cruces.length > 0 && <Aviso tipo="warn">{cruces.map((id) => personas.find((p) => p.id === id)?.nombre).join(', ')} ya {cruces.length === 1 ? 'tiene' : 'tienen'} otro trabajo programado en ese horario. Si es un trabajo corto en simultáneo, puedes continuar.</Aviso>}
         </div>
         <label>Nota (opcional)<input value={f.nota || ''} onChange={set('nota')} placeholder="Ej. solo ítems 3 y 4 · cortar todo el material" /></label>
+
+        {modo === 'auto' && plan && (
+          <div className="previa-std">
+            {plan.bloques.length === 0 ? <div className="tenue">No hay horas para programar.</div> : <>
+              <div><b>Se programará en {plan.bloques.length} {plan.bloques.length === 1 ? 'bloque' : 'bloques'}</b>{ultimo && <> · termina el <b>{fmtFecha(ultimo)}</b></>}
+                {op?.fecha_compromiso && ultimo > op.fecha_compromiso && <span className="t-mal"> · después de la entrega ({fmtFecha(op.fecha_compromiso)})</span>}</div>
+              <ListaPlan bloques={plan.bloques} maquinas={maquinas} personas={personas} />
+            </>}
+          </div>
+        )}
+
         <Aviso>{error}</Aviso>
         <div className="acciones">
-          {f.id && <button type="button" className="btn-link peligro" onClick={eliminar}>Quitar bloque</button>}
+          {f.id && <button type="button" className="btn-link peligro" onClick={() => eliminar(false)}>Quitar bloque</button>}
+          {f.id && delGrupo > 1 && <button type="button" className="btn-link peligro" onClick={() => eliminar(true)}>Quitar los {delGrupo} bloques de esta programación</button>}
           {f.id && <button type="button" className="btn btn-sec" disabled={enviando} onClick={() => guardar(null, siguienteHabil())}>Copiar al {new Date(siguienteHabil() + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long' })}</button>}
           <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button>
-          <button className="btn" disabled={enviando}>{f.id ? 'Guardar' : 'Programar'}</button>
+          <button className="btn" disabled={enviando}>{f.id ? 'Guardar' : modo === 'auto' ? `Programar${plan?.bloques.length ? ` ${plan.bloques.length} bloques` : ''}` : 'Programar'}</button>
         </div>
       </form>
     </Modal>

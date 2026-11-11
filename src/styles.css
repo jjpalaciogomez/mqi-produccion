@@ -452,3 +452,11 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .ver-otros { margin: 16px 0 8px; }
 .tarjetas.otros { opacity: .92; }
 .ps-carga { flex-shrink: 0; } .bloque.compacto { height: auto; flex-shrink: 0; }
+.ps-carga.maq { height: 14px; font-size: 10.5px; }
+.ps-carga.maq.bien i { background: #c9dcf5; }
+.pd-area .ps-carga { margin-top: 4px; }
+.entrada-planta { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; }
+.entrada-planta input { padding: 5px 8px; }
+.plan-lista { margin: 8px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; font-size: 13px; }
+.fila-tarde td { background: #fdf1ef; }
+.etq-chips { font-size: 13.5px; font-weight: 600; color: var(--tinta-2); }

@@ -199,7 +199,7 @@ function CalendarioTablet({ areas }) {
       <BarraFechas vista={vista} setVista={setVista} dia={dia} setDia={setDia} />
       <Aviso>{error}</Aviso>
       {!d ? <div className="vacio">Cargando…</div> : (
-        <Calendario vista={vista} dia={dia} lunes={lunes} areas={areas || AREAS_PLANTA} bloques={d.bloques} personas={d.personas}
+        <Calendario vista={vista} dia={dia} lunes={lunes} areas={areas || AREAS_PLANTA} bloques={d.bloques} personas={d.personas} maquinas={d.maquinas}
           onDia={(f) => { setDia(f); setVista('dia') }} />
       )}
     </section>
