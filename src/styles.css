@@ -401,3 +401,53 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .ens-ctrl input.ens-det { padding: 3px 6px; font-size: 12px; width: 220px; }
 .tabla-usuarios input, .tabla-usuarios select { padding: 4px 6px; font-size: 13px; max-width: 190px; }
 .permisos-ayuda { display: grid; gap: 4px; font-size: 13px; margin-top: 10px; }
+
+/* ---------- Programación ---------- */
+.prog-barra { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+.prog-barra select { padding: 6px 10px; }
+.prog-titulo { margin: 0 8px; text-transform: capitalize; }
+.prog-semana { display: grid; background: var(--blanco); border: 1px solid var(--linea); border-radius: var(--radio); overflow: auto; }
+.ps-esq, .ps-dia, .ps-area, .ps-celda { border-bottom: 1px solid var(--linea); border-right: 1px solid var(--linea); }
+.ps-dia { background: #fafbfc; border-top: none; border-left: none; padding: 8px; font: inherit; font-size: 13px; color: var(--tinta-2); cursor: pointer; text-align: left; }
+.ps-dia b { font-size: 16px; color: var(--tinta); margin-left: 4px; }
+.ps-dia.hoy { background: #fff4cc; }
+.ps-area { padding: 10px; display: flex; flex-direction: column; gap: 2px; background: #fafbfc; font-size: 13px; }
+.ps-celda { padding: 6px; min-height: 92px; display: flex; flex-direction: column; gap: 4px; position: relative; cursor: default; }
+.ps-celda.hoy { background: #fffbea; }
+.ps-celda.pasado { background: #f8f9fa; }
+.ps-mas { align-self: flex-start; border: 1px dashed #c9ced6; background: none; border-radius: 6px; color: var(--tenue); width: 28px; height: 22px; cursor: pointer; opacity: 0; }
+.ps-celda:hover .ps-mas { opacity: 1; }
+.ps-carga { position: relative; height: 16px; background: #eef1f5; border-radius: 4px; overflow: hidden; font-size: 11px; }
+.ps-carga i { position: absolute; inset: 0 auto 0 0; }
+.ps-carga.bien i { background: #bfe3cd; } .ps-carga.alerta i { background: #f5dc9a; } .ps-carga.mal i { background: #f3b5ad; }
+.ps-carga span { position: relative; padding-left: 5px; font-weight: 600; color: var(--tinta-2); line-height: 16px; }
+.bloque { border-left: 4px solid var(--c); background: color-mix(in srgb, var(--c) 12%, white); border-radius: 5px; padding: 4px 6px; font-size: 12px; line-height: 1.3; overflow: hidden; height: 100%; box-sizing: border-box; }
+.bloque.clic { cursor: pointer; }
+.bloque.clic:hover { background: color-mix(in srgb, var(--c) 22%, white); }
+.bloque.vencida { box-shadow: inset 0 0 0 1px var(--bad); }
+.bl-hora { font-weight: 700; color: var(--c); }
+.bl-op { color: var(--tinta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bloque:not(.compacto) .bl-op { white-space: normal; }
+.bl-quien { color: var(--tinta-2); font-size: 11.5px; }
+.prog-dia { display: grid; background: var(--blanco); border: 1px solid var(--linea); border-radius: var(--radio); overflow: auto; }
+.pd-esq, .pd-area { border-bottom: 1px solid var(--linea); background: #fafbfc; }
+.pd-area { padding: 8px 10px; display: flex; flex-direction: column; font-size: 13px; border-left: 1px solid var(--linea); }
+.pd-horas { position: relative; }
+.pd-horas span { position: absolute; right: 6px; transform: translateY(-50%); font-size: 11px; color: var(--tenue); }
+.pd-horas span:first-child { transform: none; }
+.pd-col { position: relative; border-left: 1px solid var(--linea); cursor: default; }
+.pd-linea { position: absolute; left: 0; right: 0; border-top: 1px solid #f0f2f5; pointer-events: none; }
+.pd-ahora { position: absolute; left: 0; right: 0; border-top: 2px solid var(--bad); z-index: 2; pointer-events: none; }
+.pd-bloque { position: absolute; z-index: 1; }
+.prog-pend { margin-top: 16px; }
+.punto { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.t-mal { color: var(--bad); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.chip-sel { border: 1px solid #c9ced6; background: #fff; border-radius: 16px; padding: 5px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+.chip-sel.sel { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.chip-sel small { color: var(--tenue); }
+.fila-horas { display: flex; gap: 8px; }
+.fila-horas label { flex: 1; }
+.tarea-prog { margin-top: 6px; font-size: 14px; font-weight: 700; color: #1f5fa8; }
+.ver-otros { margin: 16px 0 8px; }
+.tarjetas.otros { opacity: .92; }

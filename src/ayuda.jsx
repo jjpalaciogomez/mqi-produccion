@@ -117,6 +117,18 @@ const AYUDA = {
     ],
     consejo: 'Revísalo al cierre de cada día: es más fácil corregir un registro el mismo día que una semana después. Las correcciones se hacen en el detalle de la OP, botón "Registros".',
   },
+  'programacion.gestor': {
+    titulo: 'Programación de planta',
+    proposito: 'Decidir qué proyecto trabaja cada área, cada día y a qué hora. Las tablets muestran primero lo programado para hoy.',
+    puntos: [
+      ['Semana', 'Filas = áreas, columnas = días. La barra de cada celda compara las horas-persona programadas con la capacidad del área (operarios × jornada): verde bien, amarillo casi lleno, rojo sobrecargado. Toca el día para verlo por horas.'],
+      ['Día', 'Agenda por horas con una columna por área. Los bloques que se cruzan van lado a lado: varios operarios o trabajos cortos en simultáneo.'],
+      ['Programar', 'Toca "+ Programar", una celda vacía o una hora libre. Eliges la OP, el área, el día, el horario y, si quieres, los operarios. Sin operarios, el bloque queda abierto a toda el área.'],
+      ['Trabajo por programar', 'Abajo: horas estándar pendientes de cada OP por área frente a lo ya programado. "Programar" abre el bloque con la OP y el área listas.'],
+      ['Tablet', 'Muestra lo programado hoy con su horario y operarios. Lo demás queda en "Ver otros proyectos", para urgencias o adelantos. Tiene su propia vista del calendario.'],
+    ],
+    consejo: 'Programa el día siguiente antes de terminar la jornada y usa "Copiar al…" en los bloques que se repiten.',
+  },
   'tablet.tablet': {
     titulo: 'Cómo registrar en la tablet',
     proposito: 'Anotar cuánto tiempo trabajaste en cada tarea y cuánto hiciste. Con eso la planta sabe cómo va cada pedido.',
@@ -127,6 +139,7 @@ const AYUDA = {
       'Escribe el tiempo que trabajaste (o toca un atajo: 30 min, 1 h, 2 h…) y cuántas unidades terminaste.',
       'Si la tarea quedó lista, toca "Guardar y terminé la tarea". Si la sigues después, "Guardar · sigo después".',
       'Los procesos de máquina (imprimir, cortes, DTF) no llevan tiempo: toca "Marcar", tu nombre y luego "Avanzado" cuando quedó montado o "Listo" cuando terminó. El sistema te abona el tiempo de montaje y cambio de material.',
+      'La pantalla inicial muestra los proyectos programados para hoy con su horario. Si necesitas otro, toca "Ver otros proyectos". El botón "Programación" muestra el calendario del área.',
       'Si estuviste parado (reunión, falta de material, apoyo a instalaciones), toca "Registrar paro", elige el motivo y el tiempo.',
     ],
     puntos: [

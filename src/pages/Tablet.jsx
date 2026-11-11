@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Modal, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
-import { DIF_NOMBRE, calcMaquina, textoMedidas, unidadProc } from '../estandar.js'
+import { AREAS_PLANTA, DIF_NOMBRE, calcMaquina, textoMedidas, unidadProc } from '../estandar.js'
+import { BarraFechas, Calendario, hoyCO, lunesDe, sumarDias, useProgramacion } from './Programacion.jsx'
 
 // Pantalla de la tablet de un área. Muestra las tareas de su área y de Pintura
 // (Pintura no tiene tablet propia). El operario toca su nombre y escribe cuánto trabajó.
@@ -20,6 +21,8 @@ export default function Tablet({ perfil }) {
   const [personas, setPersonas] = useState([])
   const [motivos, setMotivos] = useState([])
   const [maquinas, setMaquinas] = useState({})
+  const [hoyProg, setHoyProg] = useState([])
+  const [verOtros, setVerOtros] = useState(false)
   const [error, setError] = useState('')
   const [vista, setVista] = useState({ nivel: 'ops' }) // ops → op → item
   const [accion, setAccion] = useState(null) // {tipo: 'registrar'|'proyecto'|'paro'|'elegir', ...}
@@ -33,9 +36,11 @@ export default function Tablet({ perfil }) {
       if (areas) c = c.in('area', areas)
       let cp = sb.from('personas').select(PERSONA_COLS).eq('activo', true).eq('rol', 'operario').order('nombre')
       if (areas) cp = cp.in('area', areas)
-      const [t, p, m, mq] = await Promise.all([q(c), q(cp), q(sb.from('motivos_paro').select('*').order('codigo')),
-        q(sb.from('procesos').select('codigo, nombre, unidad, rendimiento, capacidad_ciclo, min_montaje').eq('es_maquina', true))])
-      setTareas(t); setPersonas(p); setMotivos(m); setMaquinas(Object.fromEntries(mq.map((x) => [x.codigo, x]))); setError('')
+      let cpr = sb.from('programacion').select('orden_id, area, hora_inicio, hora_fin, personas, nota').eq('fecha', hoyCO()).order('hora_inicio')
+      if (areas) cpr = cpr.in('area', areas)
+      const [t, p, m, mq, pr] = await Promise.all([q(c), q(cp), q(sb.from('motivos_paro').select('*').order('codigo')),
+        q(sb.from('procesos').select('codigo, nombre, unidad, rendimiento, capacidad_ciclo, min_montaje').eq('es_maquina', true)), q(cpr)])
+      setHoyProg(pr); setTareas(t); setPersonas(p); setMotivos(m); setMaquinas(Object.fromEntries(mq.map((x) => [x.codigo, x]))); setError('')
     } catch (e) { setError(`Sin conexión con el sistema: ${e.message}`) }
   }, [area]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -53,6 +58,14 @@ export default function Tablet({ perfil }) {
     return Object.values(g).filter((o) => o.tareas.some(activa))
       .sort((a, b) => (a.prioridad - b.prioridad) || String(a.fecha || '9').localeCompare(String(b.fecha || '9')))
   }, [tareas])
+  // Lo programado para hoy va primero (en orden de hora); lo demás queda detrás de "Ver otros proyectos"
+  const progDe = (id) => hoyProg.filter((b) => b.orden_id === id)
+  const programadas = ops.filter((o) => progDe(o.id).length).sort((a, b) => progDe(a.id)[0].hora_inicio.localeCompare(progDe(b.id)[0].hora_inicio))
+  const otras = ops.filter((o) => !progDe(o.id).length)
+  const textoProg = (id) => progDe(id).map((b) => {
+    const quien = (b.personas || []).map((x) => personas.find((p) => p.id === x)?.nombre.split(' ')[0]).filter(Boolean)
+    return `${b.hora_inicio.slice(0, 5)}–${b.hora_fin.slice(0, 5)}${areas && b.area !== area ? ` ${b.area.toLowerCase()}` : ''}${quien.length ? ` · ${quien.join(', ')}` : ''}`
+  }).join(' | ')
   const op = vista.opId ? ops.find((o) => o.id === vista.opId) : null
   const items = useMemo(() => {
     if (!op) return []
@@ -75,6 +88,7 @@ export default function Tablet({ perfil }) {
         <div className="tablet-marca"><img src="./logo-mqi.png" alt="MQI" className="logo" /><div><div className="tablet-area">{area ? `Tablet ${area}` : 'Tablet de planta'}</div>
           <div className="tenue-claro">{hora.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</div></div></div>
         <div className="tablet-botones">
+          <button className="btn btn-sec" onClick={() => setVista({ nivel: 'calendario' })}>Programación</button>
           <button className="btn btn-paro" onClick={() => setAccion({ tipo: 'paro' })}>Registrar paro</button>
           <button className="btn btn-sec" onClick={cargar}>Actualizar</button>
           <BotonAyuda clave="tablet" rol="tablet" etiqueta="¿Cómo registro?" claro />
@@ -88,14 +102,32 @@ export default function Tablet({ perfil }) {
         <button className={vista.nivel === 'ops' ? 'sel' : ''} onClick={() => setVista({ nivel: 'ops' })}>Proyectos en planta</button>
         {op && <><span>›</span><button className={vista.nivel === 'op' ? 'sel' : ''} onClick={() => setVista({ nivel: 'op', opId: op.id })}>OP {op.numero}</button></>}
         {item && <><span>›</span><button className="sel">Ítem {item.numero}</button></>}
+        {vista.nivel === 'calendario' && <><span>›</span><button className="sel">Programación</button></>}
       </nav>
+
+      {vista.nivel === 'calendario' && <CalendarioTablet areas={areas} />}
 
       {vista.nivel === 'ops' && (
         tareas === null ? <div className="vacio">Cargando…</div> : ops.length === 0 ? <div className="vacio">No hay proyectos con tareas para esta área.</div> : (
-          <div className="tarjetas">
-            {ops.map((o) => <TarjetaGrupo key={o.id} titulo={`OP ${o.numero}`} sup={o.cliente} sub={`${o.proyecto} · entrega ${fmtFecha(o.fecha)}`}
-              ts={o.tareas} onClick={() => setVista({ nivel: 'op', opId: o.id })} />)}
-          </div>
+          <>
+            <h2 className="tablet-h2">Programado para hoy</h2>
+            {programadas.length === 0
+              ? <div className="vacio">No hay proyectos programados hoy para esta área. Toca "Ver otros proyectos" si necesitas registrar algo.</div>
+              : <div className="tarjetas">
+                  {programadas.map((o) => <TarjetaGrupo key={o.id} titulo={`OP ${o.numero}`} sup={o.cliente} sub={`${o.proyecto} · entrega ${fmtFecha(o.fecha)}`}
+                    prog={textoProg(o.id)} ts={o.tareas} onClick={() => setVista({ nivel: 'op', opId: o.id })} />)}
+                </div>}
+            {otras.length > 0 && (
+              <button className="btn btn-sec btn-grande ver-otros" onClick={() => setVerOtros(!verOtros)}>
+                {verOtros ? 'Ocultar otros proyectos' : `Ver otros proyectos (${otras.length}) · no programados hoy`}</button>
+            )}
+            {verOtros && (
+              <div className="tarjetas otros">
+                {otras.map((o) => <TarjetaGrupo key={o.id} titulo={`OP ${o.numero}`} sup={o.cliente} sub={`${o.proyecto} · entrega ${fmtFecha(o.fecha)}`}
+                  ts={o.tareas} onClick={() => setVista({ nivel: 'op', opId: o.id })} />)}
+              </div>
+            )}
+          </>
         )
       )}
 
@@ -154,13 +186,34 @@ function contar(ts) {
   }
 }
 
-function TarjetaGrupo({ titulo, sup, sub, ts, onClick, grande }) {
+// Calendario de solo lectura para la tablet
+function CalendarioTablet({ areas }) {
+  const [vista, setVista] = useState('dia')
+  const [dia, setDia] = useState(hoyCO())
+  const lunes = lunesDe(dia)
+  const desde = vista === 'semana' ? lunes : dia
+  const hasta = vista === 'semana' ? sumarDias(lunes, 5) : dia
+  const { d, error } = useProgramacion(desde, hasta, areas)
+  return (
+    <section>
+      <BarraFechas vista={vista} setVista={setVista} dia={dia} setDia={setDia} />
+      <Aviso>{error}</Aviso>
+      {!d ? <div className="vacio">Cargando…</div> : (
+        <Calendario vista={vista} dia={dia} lunes={lunes} areas={areas || AREAS_PLANTA} bloques={d.bloques} personas={d.personas}
+          onDia={(f) => { setDia(f); setVista('dia') }} />
+      )}
+    </section>
+  )
+}
+
+function TarjetaGrupo({ titulo, sup, sub, prog, ts, onClick, grande }) {
   const c = contar(ts)
   return (
     <button className={`tarea tarea-grupo${grande ? ' grupo-item' : ''}`} onClick={onClick}>
       <div className="tarea-op">{sup}</div>
       <div className="tarea-proceso">{titulo}</div>
       {sub && <div className="tarea-det">{sub}</div>}
+      {prog && <div className="tarea-prog">🕒 {prog}</div>}
       <div className="grupo-cuentas">
         {c.proceso > 0 && <span className="badge badge-info">{c.proceso} en proceso</span>}
         {c.listas > 0 && <span className="badge badge-ok">{c.listas} listas</span>}

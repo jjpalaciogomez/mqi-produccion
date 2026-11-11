@@ -9,6 +9,7 @@ import Catalogos from './pages/Catalogos.jsx'
 import Tablet from './pages/Tablet.jsx'
 import Horas from './pages/Horas.jsx'
 import Indicadores from './pages/Indicadores.jsx'
+import Programacion from './pages/Programacion.jsx'
 
 function useRuta() {
   const [h, setH] = useState(window.location.hash || '#/')
@@ -107,6 +108,7 @@ function Shell({ perfil, prueba }) {
   else if (ruta === '/nueva' && gestor) pagina = <NuevaOP rol={perfil.rol} />
   else if (ruta === '/catalogos' && gestor) pagina = <Catalogos perfil={perfil} />
   else if (ruta === '/horas' && gestor) pagina = <Horas perfil={perfil} />
+  else if (ruta === '/programacion') pagina = <Programacion perfil={perfil} gestor={gestor} />
   else if (ruta === '/indicadores' && gestor) pagina = <Indicadores perfil={perfil} />
   else pagina = <Tablero gestor={gestor} rol={perfil.rol} />
 
@@ -119,6 +121,7 @@ function Shell({ perfil, prueba }) {
         <div className="marca"><img src="./logo-mqi.png" alt="MQI" className="logo" /><span>Producción</span></div>
         <nav>
           {link('/', 'Tablero de planta')}
+          {link('/programacion', 'Programación')}
           {gestor && link('/indicadores', 'Indicadores')}
           {gestor && link('/horas', 'Horas del personal')}
           {gestor && link('/catalogos', 'Configuraciones')}
