@@ -22,6 +22,7 @@ export default function Tablet({ perfil }) {
   const [motivos, setMotivos] = useState([])
   const [maquinas, setMaquinas] = useState({})
   const [hoyProg, setHoyProg] = useState([])
+  const [esperas, setEsperas] = useState({}) // OP → pasos de otras áreas que faltan antes
   const [verOtros, setVerOtros] = useState(false)
   const [error, setError] = useState('')
   const [vista, setVista] = useState({ nivel: 'ops' }) // ops → op → item
@@ -42,6 +43,17 @@ export default function Tablet({ perfil }) {
         q(sb.from('procesos').select('codigo, nombre, unidad, rendimiento, capacidad_ciclo, min_montaje').eq('es_maquina', true)), q(cpr)])
       // Las OPs ocultas no salen en la tablet
       const ocultas = new Set((await q(sb.from('ordenes').select('id').gt('oculta_hasta', hoyCO()))).map((o) => o.id))
+      // Qué pasos de otras áreas tienen esperando lo programado hoy (p. ej. el corte láser antes de acrílico)
+      const idsProg = [...new Set(pr.map((b) => b.orden_id))]
+      const esp = {}
+      if (idsProg.length && areas) {
+        const otrasTs = await q(sb.from('v_tareas').select('orden_id, item_id, componente_id, paso, area, proceso, proceso_nombre, estado').in('orden_id', idsProg).not('area', 'in', `(${areas.map((a) => `"${a}"`).join(',')})`).not('estado', 'in', '(terminada,omitida)'))
+        for (const x of t.filter((x) => x.estado === 'pendiente' && x.bloqueada && idsProg.includes(x.orden_id))) {
+          const antes = otrasTs.filter((y) => x.componente_id ? y.componente_id === x.componente_id && y.paso < x.paso : y.item_id === x.item_id && y.componente_id)
+          ;(esp[x.orden_id] ||= []).push(...antes)
+        }
+      }
+      setEsperas(esp)
       setHoyProg(pr); setTareas(t.filter((x) => !ocultas.has(x.orden_id))); setPersonas(p); setMotivos(m); setMaquinas(Object.fromEntries(mq.map((x) => [x.codigo, x]))); setError('')
     } catch (e) { setError(`Sin conexión con el sistema: ${e.message}`) }
   }, [area]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -57,13 +69,20 @@ export default function Tablet({ perfil }) {
       const o = (g[t.orden_id] ||= { id: t.orden_id, numero: t.op_numero, cliente: t.cliente, proyecto: t.proyecto, prioridad: t.prioridad, fecha: t.fecha_compromiso, tareas: [] })
       o.tareas.push(t)
     }
-    return Object.values(g).filter((o) => o.tareas.some(activa))
+    return Object.values(g).filter((o) => o.tareas.some((t) => t.estado !== 'terminada'))
+      .map((o) => ({ ...o, activa: o.tareas.some(activa) }))
       .sort((a, b) => (a.prioridad - b.prioridad) || String(a.fecha || '9').localeCompare(String(b.fecha || '9')))
   }, [tareas])
   // Lo programado para hoy va primero (en orden de hora); lo demás queda detrás de "Ver otros proyectos"
   const progDe = (id) => hoyProg.filter((b) => b.orden_id === id)
+  // Lo programado hoy sale aunque esté esperando un paso de otra área (se dice cuál); lo demás, solo si hay algo para hacer
   const programadas = ops.filter((o) => progDe(o.id).length).sort((a, b) => progDe(a.id)[0].hora_inicio.localeCompare(progDe(b.id)[0].hora_inicio))
-  const otras = ops.filter((o) => !progDe(o.id).length)
+  const otras = ops.filter((o) => !progDe(o.id).length && o.activa)
+  const textoEspera = (o) => {
+    if (o.activa) return ''
+    const ns = [...new Set((esperas[o.id] || []).map((t) => `${(t.proceso_nombre || t.proceso || '').toLowerCase()} (${t.area.toLowerCase()})`))]
+    return ns.length ? `Esperando: ${ns.join(', ')}` : 'Esperando pasos anteriores'
+  }
   const textoProg = (id) => progDe(id).map((b) => {
     const quien = (b.personas || []).map((x) => personas.find((p) => p.id === x)?.nombre.split(' ')[0]).filter(Boolean)
     return `${b.hora_inicio.slice(0, 5)}–${b.hora_fin.slice(0, 5)}${areas && b.area !== area ? ` ${b.area.toLowerCase()}` : ''}${quien.length ? ` · ${quien.join(', ')}` : ''}`
@@ -117,7 +136,7 @@ export default function Tablet({ perfil }) {
               ? <div className="vacio">No hay proyectos programados hoy para esta área. Toca "Ver otros proyectos" si necesitas registrar algo.</div>
               : <div className="tarjetas">
                   {programadas.map((o) => <TarjetaGrupo key={o.id} titulo={`OP ${o.numero}`} sup={o.cliente} sub={`${o.proyecto} · entrega ${fmtFecha(o.fecha)}`}
-                    prog={textoProg(o.id)} ts={o.tareas} onClick={() => setVista({ nivel: 'op', opId: o.id })} />)}
+                    prog={textoProg(o.id)} espera={textoEspera(o)} ts={o.tareas} onClick={() => setVista({ nivel: 'op', opId: o.id })} />)}
                 </div>}
             {otras.length > 0 && (
               <button className="btn btn-sec btn-grande ver-otros" onClick={() => setVerOtros(!verOtros)}>
@@ -250,7 +269,7 @@ function CalendarioTablet({ areas, tareas, personas }) {
   )
 }
 
-function TarjetaGrupo({ titulo, sup, sub, prog, ts, onClick, grande }) {
+function TarjetaGrupo({ titulo, sup, sub, prog, espera, ts, onClick, grande }) {
   const c = contar(ts)
   return (
     <button className={`tarea tarea-grupo${grande ? ' grupo-item' : ''}`} onClick={onClick}>
@@ -258,6 +277,7 @@ function TarjetaGrupo({ titulo, sup, sub, prog, ts, onClick, grande }) {
       <div className="tarea-proceso">{titulo}</div>
       {sub && <div className="tarea-det">{sub}</div>}
       {prog && <div className="tarea-prog">🕒 {prog}</div>}
+      {espera && <div className="tarea-espera">⏳ {espera}</div>}
       <div className="grupo-cuentas">
         {c.proceso > 0 && <span className="badge badge-info">{c.proceso} en proceso</span>}
         {c.listas > 0 && <span className="badge badge-ok">{c.listas} listas</span>}

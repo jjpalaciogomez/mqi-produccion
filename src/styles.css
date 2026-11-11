@@ -496,3 +496,6 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .chip-proc.maq { background: #e6f0fb; color: #1f5fa8; }
 .chip-proc small { font-weight: 400; color: var(--tenue); }
 .agenda-extra { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 14px; color: var(--tinta-2); }
+
+/* Tablet: OP programada que espera un paso de otra área */
+.tarea-espera { margin-top: 6px; font-size: 14px; font-weight: 600; color: #8a5a00; background: #fff4dc; border-radius: 8px; padding: 4px 8px; }
