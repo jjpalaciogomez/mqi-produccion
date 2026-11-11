@@ -405,15 +405,15 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 /* ---------- Programación ---------- */
 .prog-barra { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
 .prog-barra select { padding: 6px 10px; }
-.prog-titulo { margin: 0 8px; text-transform: capitalize; }
+.prog-titulo { margin: 0 8px; }
 .prog-semana { display: grid; background: var(--blanco); border: 1px solid var(--linea); border-radius: var(--radio); overflow: auto; }
 .ps-esq, .ps-dia, .ps-area, .ps-celda { border-bottom: 1px solid var(--linea); border-right: 1px solid var(--linea); }
 .ps-dia { background: #fafbfc; border-top: none; border-left: none; padding: 8px; font: inherit; font-size: 13px; color: var(--tinta-2); cursor: pointer; text-align: left; }
 .ps-dia b { font-size: 16px; color: var(--tinta); margin-left: 4px; }
-.ps-dia.hoy { background: #fff4cc; }
+.ps-dia.es-hoy { background: #fff4cc; }
 .ps-area { padding: 10px; display: flex; flex-direction: column; gap: 2px; background: #fafbfc; font-size: 13px; }
 .ps-celda { padding: 6px; min-height: 92px; display: flex; flex-direction: column; gap: 4px; position: relative; cursor: default; }
-.ps-celda.hoy { background: #fffbea; }
+.ps-celda.es-hoy { background: #fffbea; }
 .ps-celda.pasado { background: #f8f9fa; }
 .ps-mas { align-self: flex-start; border: 1px dashed #c9ced6; background: none; border-radius: 6px; color: var(--tenue); width: 28px; height: 22px; cursor: pointer; opacity: 0; }
 .ps-celda:hover .ps-mas { opacity: 1; }
@@ -451,3 +451,4 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .tarea-prog { margin-top: 6px; font-size: 14px; font-weight: 700; color: #1f5fa8; }
 .ver-otros { margin: 16px 0 8px; }
 .tarjetas.otros { opacity: .92; }
+.ps-carga { flex-shrink: 0; } .bloque.compacto { height: auto; flex-shrink: 0; }

@@ -109,7 +109,7 @@ export function BarraFechas({ vista, setVista, dia, setDia, children }) {
       <button className="btn btn-sec btn-sm" onClick={() => setDia(sumarDias(dia, -paso))}>‹</button>
       <button className="btn btn-sec btn-sm" onClick={() => setDia(hoyCO())}>Hoy</button>
       <button className="btn btn-sec btn-sm" onClick={() => setDia(sumarDias(dia, paso))}>›</button>
-      <b className="prog-titulo">{titulo}</b>
+      <b className="prog-titulo">{titulo.charAt(0).toUpperCase() + titulo.slice(1)}</b>
       {children}
     </div>
   )
@@ -127,7 +127,7 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, onDia,
       <div className="prog-semana" style={{ gridTemplateColumns: `130px repeat(${dias.length}, minmax(150px, 1fr))` }}>
         <div className="ps-esq" />
         {dias.map((f, i) => (
-          <button key={f} className={`ps-dia${f === hoy ? ' hoy' : ''}`} onClick={() => onDia?.(f)} title="Ver el día por horas">
+          <button key={f} className={`ps-dia${f === hoy ? ' es-hoy' : ''}`} onClick={() => onDia?.(f)} title="Ver el día por horas">
             {DIAS[i]} <b>{new Date(f + 'T12:00:00').getDate()}</b>
           </button>
         ))}
@@ -139,7 +139,7 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, onDia,
             const cap = gente(a) * jornadaMin(f)
             const pct = cap ? prog / cap : 0
             return (
-              <div key={a + f} className={`ps-celda${f === hoy ? ' hoy' : ''}${f < hoy ? ' pasado' : ''}`}
+              <div key={a + f} className={`ps-celda${f === hoy ? ' es-hoy' : ''}${f < hoy ? ' pasado' : ''}`}
                 onClick={(e) => { if (e.target === e.currentTarget && onNuevo) onNuevo(a, f) }}>
                 {(prog > 0 || cap > 0) && (
                   <div className={`ps-carga ${pct > 1 ? 'mal' : pct > 0.85 ? 'alerta' : 'bien'}`} title="Horas-persona programadas frente a la capacidad del área">
@@ -172,7 +172,7 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, onDia,
         const cap = gente(a) * jornadaMin(dia)
         return <div key={a} className="pd-area"><b>{a}</b><span className="tenue pequeño">{fmtH(prog)}{cap ? ` de ${fmtH(cap)}` : ''}</span></div>
       })}
-      <div className="pd-horas" style={{ height: (h1 - h0) * PX }}>
+      <div className="pd-horas" style={{ height: (h1 - h0) * PX + 12 }}>
         {horas.map((m) => <span key={m} style={{ top: (m - h0) * PX }}>{String(m / 60).padStart(2, '0')}:00</span>)}
       </div>
       {areas.map((a) => {
