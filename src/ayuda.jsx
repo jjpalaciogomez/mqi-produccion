@@ -129,6 +129,7 @@ const AYUDA = {
       ['Programar (automático)', 'Toca "+ Programar", una celda o "Programar" en la tabla de abajo. Eliges la OP, el área, desde qué día y hora, y las horas hombre (vienen llenas con lo pendiente). El sistema reparte en los días hábiles: lo que no cabe en la jornada pasa al día siguiente, sin pasarse de las horas hombre del área (o de los operarios elegidos) ni de las horas de cada máquina. Ves el plan antes de confirmar.'],
       ['OP completa', 'Programa todas las áreas de una OP de una vez, en el orden de sus pasos: cada proceso empieza cuando terminan los anteriores de su producto, el ensamble cuando terminan todos los productos del ítem y los terceros ocupan sus días hábiles. Si un día no tiene espacio, pasa al siguiente. Puede reemplazar lo que ya estaba programado de esa OP.'],
       ['Pintura', 'Mientras Pintura no tenga operarios activos, la hacen los de Metal: el sistema programa la pintura dentro de la capacidad de Metal y la muestra en la tablet de Metal.'],
+      ['Instalación', 'Solo hace ensambles multiárea: cuando los instaladores no tienen trabajo de calle ayudan con los ensambles. Se elige "INSTALACION" como área del ensamble en el detalle de la OP, sus ensambles salen en todas las tablets y los instaladores (personas del área Instalación) aparecen en todas para registrar.'],
       ['Gran Formato', 'Programa varios proyectos a la misma hora: el límite son las horas hombre del área y las de cada máquina (impresora, láser, plotter, DTF). Cada celda muestra la carga en horas hombre y el uso de cada máquina.'],
       ['Reorganizar programación', 'Rehace toda la programación automática desde ahora probando varios órdenes entre OPs, para que se cumpla la mayor cantidad de entregas. Muestra antes y después y cuáles no alcanzan con la capacidad actual. Los bloques hechos a mano no se tocan.'],
       ['Programar todo lo pendiente', 'Programa todas las OPs que faltan, en orden de prioridad y fecha de entrega, y marca en rojo las que terminarían después de su entrega.'],
@@ -149,7 +150,7 @@ const AYUDA = {
       'Si la tarea quedó lista, toca "Guardar y terminé la tarea". Si la sigues después, "Guardar · sigo después".',
       'Los procesos de máquina (imprimir, cortes, DTF) no llevan tiempo: toca "Marcar", tu nombre y luego "Avanzado" cuando quedó montado o "Listo" cuando terminó. El sistema te abona el tiempo de montaje y cambio de material.',
       'La pantalla inicial muestra los proyectos programados para hoy con su horario. Si necesitas otro, toca "Ver otros proyectos". El botón "Programación" muestra el calendario del área.',
-      'Si estuviste parado (reunión, falta de material, apoyo a instalaciones), toca "Registrar paro", elige el motivo y el tiempo.',
+      'Si estuviste parado (servicio a otra área, permiso, EPS, ordenar y asear…), toca "Registrar paro", elige el motivo y el tiempo.',
     ],
     puntos: [
       ['Qué aparece', 'Los proyectos con trabajo para tu área, en orden de prioridad. Dentro de cada ítem ves los procesos: los listos, los que esperan un paso anterior y los terminados.'],

@@ -4,7 +4,7 @@ import { Aviso, Cargando, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 
 // Indicadores de gerencia. Todo se calcula con los datos vivos y se actualiza cada minuto.
-const AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
+const AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA', 'INSTALACION']
 const JORNADA_H = 8.5
 const C = { serie1: '#2a78d6', serie2: '#eb6834', bien: '#1d8a4e', alerta: '#c98500', mal: '#c0392b', gris: '#9aa3ae' }
 const hoyCO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })

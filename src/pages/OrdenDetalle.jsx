@@ -248,7 +248,7 @@ function Componente({ c, it, prod, tareas, productos, rutas, difs, gestor, perfi
 }
 
 // Horas hombre registradas / estándar por área (y máquina aparte), con lo programado de hoy en adelante
-const ORDEN_AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
+const ORDEN_AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA', 'INSTALACION']
 function HorasPorArea({ tareas, prog }) {
   const g = {}
   for (const t of tareas) {

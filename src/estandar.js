@@ -1,6 +1,6 @@
 // Cálculo del tiempo estándar (igual que la función std_ruta de la base de datos)
 export const DIF_NOMBRE = { BAJO: 'Baja', MEDIO: 'Media', ALTO: 'Alta' }
-export const AREAS_PLANTA = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
+export const AREAS_PLANTA = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA', 'INSTALACION']
 
 const n = (v) => (v === '' || v === null || v === undefined ? null : Number(String(v).replace(',', '.')))
 

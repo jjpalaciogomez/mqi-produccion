@@ -4,7 +4,7 @@ import { Aviso, Badge, Cargando, Modal, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { ETIQUETA_MEDIDA, pasosPrincipales, textoMedidas } from '../estandar.js'
 
-const AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA']
+const AREAS = ['METAL', 'MADERA', 'ACRILICO', 'GRAN FORMATO', 'PINTURA', 'INSTALACION']
 const ROLES = { operario: 'Operario', direccion: 'Dirección', consulta: 'Consulta', admin: 'Administrador' }
 
 export default function Catalogos({ perfil }) {
@@ -483,7 +483,7 @@ function Procesos() {
         ))}</tbody>
       </table>
       <form className="tarjeta form fila-form" onSubmit={agregar}>
-        <label>Área<select value={nuevo.area} onChange={(e) => setNuevo({ ...nuevo, area: e.target.value })}>{[...AREAS, 'TERCEROS'].map((a) => <option key={a}>{a}</option>)}</select></label>
+        <label>Área<select value={nuevo.area} onChange={(e) => setNuevo({ ...nuevo, area: e.target.value })}>{[...AREAS.filter((a) => a !== 'INSTALACION'), 'TERCEROS'].map((a) => <option key={a}>{a}</option>)}</select></label>
         <label>Nombre del proceso<input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} required placeholder={nuevo.area === 'TERCEROS' ? 'Ej. Tapizado' : 'Ej. Plantillas'} /></label>
         <label>Código<input value={nuevo.codigo} onChange={(e) => setNuevo({ ...nuevo, codigo: e.target.value })} placeholder={sugerir(nuevo.area)} /></label>
         <button className="btn">Agregar proceso</button>

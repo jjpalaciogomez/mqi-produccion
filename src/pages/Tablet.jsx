@@ -16,7 +16,7 @@ const jornadaHoy = () => {
 
 export default function Tablet({ perfil }) {
   const area = perfil.area
-  const areas = area ? [area, 'PINTURA'] : null
+  const areas = area ? [...new Set([area, 'PINTURA', 'INSTALACION'])] : null
   const [tareas, setTareas] = useState(null)
   const [personas, setPersonas] = useState([])
   const [motivos, setMotivos] = useState([])
@@ -38,7 +38,7 @@ export default function Tablet({ perfil }) {
       if (areas) cp = cp.in('area', areas)
       let cpr = sb.from('programacion').select('orden_id, area, hora_inicio, hora_fin, personas, nota').eq('fecha', hoyCO()).order('hora_inicio')
       if (areas) cpr = cpr.in('area', areas)
-      const [t, p, m, mq, pr] = await Promise.all([q(c), q(cp), q(sb.from('motivos_paro').select('*').order('codigo')),
+      const [t, p, m, mq, pr] = await Promise.all([q(c), q(cp), q(sb.from('motivos_paro').select('*').eq('activo', true).order('codigo')),
         q(sb.from('procesos').select('codigo, nombre, unidad, rendimiento, capacidad_ciclo, min_montaje').eq('es_maquina', true)), q(cpr)])
       // Las OPs ocultas no salen en la tablet
       const ocultas = new Set((await q(sb.from('ordenes').select('id').gt('oculta_hasta', hoyCO()))).map((o) => o.id))
@@ -295,7 +295,7 @@ function ListaProcesos({ ts, onRegistrar, onMaquina }) {
                 </div>
               ) : (
               <div>
-                <div className="tarea-proceso">{hecha ? '✓ ' : ''}{t.proceso_nombre}{t.area === 'PINTURA' ? ' · Pintura' : ''}</div>
+                <div className="tarea-proceso">{hecha ? '✓ ' : ''}{t.proceso_nombre}{t.area === 'PINTURA' ? ' · Pintura' : t.area === 'INSTALACION' ? ' · Instalación' : ''}</div>
                 <div className="tarea-det">
                   {fmtNum(t.cantidad, 2)} und
                   {Number(t.min_reales) > 0 && <> · registrado <b>{fmtMin(t.min_reales)}</b>{Number(t.cantidad_registrada) > 0 && ` · hecho ${fmtNum(t.cantidad_registrada, 2)} de ${fmtNum(t.cantidad, 2)}`}</>}
