@@ -94,3 +94,73 @@ export function planificar(demanda, op, bloques, horario) {
   }
   return { bloques: out, faltaH: restoH, faltaM: restoM }
 }
+
+// ---------- OP completa ----------
+// Suma días hábiles (lunes a viernes) a una fecha
+export function sumarHabiles(f, n) {
+  let x = f
+  for (let k = 0; k < n;) { x = sumarDias(x, 1); if (jornadaMin(x) > 0) k++ }
+  return x
+}
+const clave = (p) => `${p.fecha} ${hm(p.min)}`
+const mayor = (a, b) => (!a ? b : !b ? a : clave(a) >= clave(b) ? a : b)
+
+/**
+ * Programa todas las áreas de una OP respetando el orden de los pasos:
+ * cada paso empieza cuando terminan los anteriores de su producto, el ensamble cuando terminan todos los productos del ítem,
+ * y los pasos de terceros ocupan sus días hábiles sin bloques de planta.
+ * @param tareas pasos de la OP (v_tareas) · @param ctx bloques ya programados de otras OPs
+ * @param op {desde, desdeHora, operarios: {area: n}}
+ */
+export function planificarOP(tareas, ctx0, op, horario) {
+  const entrada = aMin(horario?.entrada || '07:00')
+  const ctx = [...ctx0]
+  const crudos = []
+  const terceros = []
+  const fin = {}
+  const ts = tareas.filter((t) => t.estado !== 'omitida')
+    .sort((a, b) => (a.componente_id ? 0 : 1) - (b.componente_id ? 0 : 1) || a.paso - b.paso || a.item_numero - b.item_numero)
+  const inicio = { fecha: op.desde, min: op.desdeHora ? aMin(op.desdeHora) : entrada }
+  let finOP = null
+  for (const t of ts) {
+    const preds = t.componente_id
+      ? ts.filter((x) => x.componente_id === t.componente_id && x.paso < t.paso)
+      : ts.filter((x) => x.item_id === t.item_id && x.componente_id)
+    let start = inicio
+    for (const p of preds) start = mayor(start, fin[p.id])
+    if (t.estado === 'terminada') { fin[t.id] = null; continue }
+    if (t.area === 'TERCEROS') {
+      const dias = Math.max(Math.ceil(Number(t.tiempo_std_unit || 0) - Number(t.min_reales || 0) / 1440), 0)
+      const hasta = dias ? sumarHabiles(start.fecha, dias) : start.fecha
+      terceros.push({ tarea: t, desde: start.fecha, hasta, dias })
+      fin[t.id] = { fecha: hasta, min: dias ? entrada : start.min }
+      finOP = mayor(finOP, fin[t.id])
+      continue
+    }
+    const hh = Math.max(Number(t.min_std || 0) - Number(t.min_reales || 0), 0)
+    const maq = t.es_maquina ? { [t.proceso]: Math.max(Number(t.min_maquina || 0) - Number(t.min_maquina_real || 0), 0) } : {}
+    if (hh < 1 && !Object.values(maq).some((v) => v >= 1)) { fin[t.id] = start; continue }
+    const r = planificar({ hh, maq }, {
+      area: t.area, desde: start.fecha, desdeHora: hm(start.min), personas: [],
+      operariosArea: op.operarios?.[t.area] || 0, paralelo: t.area === 'GRAN FORMATO',
+    }, ctx, horario)
+    ctx.push(...r.bloques)
+    crudos.push(...r.bloques)
+    const u = r.bloques[r.bloques.length - 1]
+    fin[t.id] = u ? { fecha: u.fecha, min: aMin(u.hora_fin) } : start
+    finOP = mayor(finOP, fin[t.id])
+  }
+  // Un bloque por área y día
+  const g = {}
+  for (const b of crudos) {
+    const k = `${b.area}|${b.fecha}`
+    const x = g[k]
+    if (!x) { g[k] = { ...b, maquinas: { ...b.maquinas } }; continue }
+    if (b.hora_inicio < x.hora_inicio) x.hora_inicio = b.hora_inicio
+    if (b.hora_fin > x.hora_fin) x.hora_fin = b.hora_fin
+    x.min_hombre += b.min_hombre
+    for (const [p, v] of Object.entries(b.maquinas)) x.maquinas[p] = (x.maquinas[p] || 0) + v
+  }
+  const bloques = Object.values(g).sort((a, b) => (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio))
+  return { bloques, terceros, fin: finOP }
+}

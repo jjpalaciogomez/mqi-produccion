@@ -464,3 +464,6 @@ td.neg { color: #b42318; font-weight: 600; } td.pos { color: #1f55a8; font-weigh
 .pend-filtros { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 10px 0 4px; }
 .pend-filtros .chk { flex-direction: row; align-items: center; gap: 6px; font-weight: 500; }
 .segmentado .cuenta { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: #d9dee5; font-size: 11.5px; }
+.modo-prog { margin-bottom: 14px; }
+.plan-area { margin-top: 10px; }
+.plan-area .plan-lista { max-height: 150px; }

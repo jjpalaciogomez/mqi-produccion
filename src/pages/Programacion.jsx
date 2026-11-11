@@ -3,7 +3,7 @@ import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { AREAS_PLANTA } from '../estandar.js'
-import { aMin, hhBloque, jornadaMin, maqBloque, planificar } from '../planificador.js'
+import { aMin, hhBloque, jornadaMin, maqBloque, planificar, planificarOP } from '../planificador.js'
 
 // Programación de la planta: bloques de trabajo (OP + área + día + horario + operarios opcionales)
 
@@ -98,7 +98,7 @@ export default function Programacion({ perfil, gestor }) {
         <div><h1>Programación de planta</h1><div className="tenue pequeño">Qué proyecto trabaja cada área, cada día y a qué hora. Lo que no cabe en la jornada pasa solo a los días siguientes.</div></div>
         <div className="titulo-acciones">
           {gestor && <button className="btn btn-sec" onClick={() => setTodo(areas)} disabled={!pend || !d}>Programar todo lo pendiente</button>}
-          {gestor && <button className="btn" onClick={() => nuevoAuto()}>+ Programar</button>}
+          {gestor && <button className="btn" onClick={() => nuevoAuto({ alcance: 'op' })}>+ Programar</button>}
           <BotonAyuda clave="programacion" rol={perfil?.rol} />
         </div>
       </div>
@@ -115,7 +115,7 @@ export default function Programacion({ perfil, gestor }) {
       )}
 
       {pend && <PorProgramar pend={pend} areas={areas} opsPorId={opsPorId} maquinas={d?.maquinas || []}
-        onProgramar={gestor ? (f) => nuevoAuto({ orden_id: f.orden_id, area: f.area }) : null}
+        onProgramar={gestor ? (f) => nuevoAuto({ orden_id: f.orden_id, area: f.area, alcance: f.alcance }) : null}
         onProgramarTodo={gestor ? (as) => setTodo(as) : null} />}
 
       {form && d && pend && <FormBloque inicial={form} ops={pend.ops} pend={pend} personas={d.personas} bloques={d.bloques} horario={d.horario} maquinas={d.maquinas}
@@ -308,7 +308,10 @@ export function PorProgramar({ pend, areas, opsPorId, maquinas, onProgramar, onP
               <td>{fmtH(f.std)}</td><td>{f.prog ? fmtH(f.prog) : '—'}</td>
               <td>{f.faltaH >= 1 ? <b>{fmtH(f.faltaH)}</b> : <span className="tenue">{cubierto ? 'cubierto' : '—'}</span>}</td>
               <td className="pequeño">{textoMaq(maquinas, f.faltaM) || <span className="tenue">—</span>}</td>
-              <td>{onProgramar && !cubierto && <button className="btn-link" onClick={() => onProgramar(f)}>Programar</button>}</td>
+              <td className="acciones-fila">{onProgramar && !cubierto && <>
+                <button className="btn-link" onClick={() => onProgramar(f)}>Programar</button>
+                <button className="btn-link" onClick={() => onProgramar({ ...f, alcance: 'op' })} title="Todas las áreas de la OP, en el orden de sus pasos">OP completa</button>
+              </>}</td>
             </tr>
           )
         })}</tbody>
@@ -346,22 +349,49 @@ function ListaPlan({ bloques, maquinas, personas }) {
 export function ProgramarTodo({ pend, opsPorId, areas, personas, horario, onClose, onGuardado }) {
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState('')
+  const [tareas, setTareas] = useState(null)
+  const completa = areas.length >= AREAS_PLANTA.length
+  useEffect(() => {
+    q(sb.from('v_tareas').select('id, orden_id, item_id, item_numero, componente_id, paso, area, proceso, proceso_nombre, estado, min_std, min_reales, es_maquina, min_maquina, min_maquina_real, tiempo_std_unit')
+      .in('op_estado', ['borrador', 'en_planta'])).then(setTareas).catch((e) => setError(e.message))
+  }, [])
   const plan = useMemo(() => {
+    if (!tareas) return null
     const ini = inicioPlan(hoyCO(), null)
+    const operarios = {}
+    for (const p of personas) operarios[p.area] = (operarios[p.area] || 0) + 1
     const filas = pend.filas.filter((f) => areas.includes(f.area) && opsPorId[f.orden_id] && (f.faltaH >= 1 || Object.keys(f.faltaM).length))
       .map((f) => ({ ...f, op: opsPorId[f.orden_id] }))
       .sort((a, b) => (a.op.prioridad - b.op.prioridad) || String(a.op.fecha_compromiso || '9').localeCompare(String(b.op.fecha_compromiso || '9')))
     const ctx = [...pend.futuros]
-    return filas.map((f) => {
+    const hechas = new Set()
+    const out = []
+    for (const f of filas) {
+      // OP sin nada programado y todas las áreas: se programa completa, en el orden de sus pasos
+      if (completa && !pend.futuros.some((b) => b.orden_id === f.orden_id)) {
+        if (hechas.has(f.orden_id)) continue
+        hechas.add(f.orden_id)
+        const r = planificarOP(tareas.filter((t) => t.orden_id === f.orden_id), ctx, { ...ini, operarios }, horario)
+        const bs = r.bloques.map((b) => ({ ...b, orden_id: f.orden_id }))
+        ctx.push(...bs)
+        const delOP = filas.filter((x) => x.orden_id === f.orden_id)
+        const faltaM = {}
+        for (const x of delOP) for (const [k, v] of Object.entries(x.faltaM)) faltaM[k] = (faltaM[k] || 0) + v
+        const fin = r.fin?.fecha || null
+        out.push({ ...f, area: 'OP completa', faltaH: delOP.reduce((s, x) => s + x.faltaH, 0), faltaM, bs, fin, tarde: fin && f.op.fecha_compromiso && fin > f.op.fecha_compromiso })
+        continue
+      }
       const r = planificar({ hh: f.faltaH, maq: f.faltaM }, {
-        area: f.area, ...ini, personas: [], operariosArea: personas.filter((p) => p.area === f.area).length, paralelo: enParalelo(f.area),
+        area: f.area, ...ini, personas: [], operariosArea: operarios[f.area] || 0, paralelo: enParalelo(f.area),
       }, ctx, horario)
       const bs = r.bloques.map((b) => ({ ...b, orden_id: f.orden_id }))
       ctx.push(...bs)
       const fin = bs.length ? bs[bs.length - 1].fecha : null
-      return { ...f, bs, fin, tarde: fin && f.op.fecha_compromiso && fin > f.op.fecha_compromiso }
-    })
-  }, [pend, opsPorId, areas, personas, horario])
+      out.push({ ...f, bs, fin, tarde: fin && f.op.fecha_compromiso && fin > f.op.fecha_compromiso })
+    }
+    return out
+  }, [tareas, pend, opsPorId, areas, personas, horario, completa])
+  if (!plan) return <Modal titulo="Programar todo lo pendiente" onClose={onClose} ancho={820}><Aviso>{error}</Aviso>{!error && <Cargando />}</Modal>
   const total = plan.reduce((s, f) => s + f.bs.length, 0)
   const guardar = async () => {
     setEnviando(true); setError('')
@@ -374,7 +404,8 @@ export function ProgramarTodo({ pend, opsPorId, areas, personas, horario, onClos
   return (
     <Modal titulo="Programar todo lo pendiente" onClose={onClose} ancho={820}>
       <p className="tenue">Se programa cada OP en orden de prioridad y fecha de entrega, desde ahora. Lo que no cabe en la jornada de un día pasa al siguiente día hábil.
-        Gran Formato programa varios proyectos a la vez, limitado por las horas hombre del área y por las horas de cada máquina. No se mueve nada de lo ya programado.</p>
+        Gran Formato programa varios proyectos a la vez, limitado por las horas hombre del área y por las horas de cada máquina. No se mueve nada de lo ya programado.
+        {completa && ' Las OPs que aún no tienen nada programado se programan completas, respetando el orden de sus pasos y los días de terceros.'}</p>
       {plan.length === 0 ? <p>No hay trabajo pendiente sin programar.</p> : (
         <table className="tabla">
           <thead><tr><th>OP</th><th>Área</th><th>Horas</th><th>Bloques</th><th>Termina</th><th>Entrega</th></tr></thead>
@@ -397,6 +428,84 @@ export function ProgramarTodo({ pend, opsPorId, areas, personas, horario, onClos
         <button className="btn" disabled={enviando || !total} onClick={guardar}>Programar {total} bloques</button>
       </div>
     </Modal>
+  )
+}
+
+// Programa la OP completa: todas las áreas en el orden de sus pasos, terceros incluidos
+function ProgramarOP({ f, setF, ops, pend, personas, horario, maquinas, onClose, onGuardado }) {
+  const [tareas, setTareas] = useState(null)
+  const [reemplazar, setReemplazar] = useState(true)
+  const [error, setError] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  useEffect(() => {
+    setTareas(null)
+    if (!f.orden_id) return
+    q(sb.from('v_tareas').select('id, item_id, item_numero, item_descripcion, componente_id, producto_nombre, paso, area, proceso, proceso_nombre, estado, min_std, min_reales, es_maquina, min_maquina, min_maquina_real, tiempo_std_unit')
+      .eq('orden_id', f.orden_id)).then(setTareas).catch((e) => setError(e.message))
+  }, [f.orden_id])
+  const hoy = hoyCO()
+  const previos = pend.futuros.filter((b) => b.orden_id === f.orden_id)
+  const plan = useMemo(() => {
+    if (!tareas) return null
+    const ctx = reemplazar ? pend.futuros.filter((b) => b.orden_id !== f.orden_id) : pend.futuros
+    const operarios = {}
+    for (const p of personas) operarios[p.area] = (operarios[p.area] || 0) + 1
+    return planificarOP(tareas, ctx, { ...inicioPlan(f.fecha, f.hora_inicio), operarios }, horario)
+  }, [tareas, reemplazar, pend, f.orden_id, f.fecha, f.hora_inicio, personas, horario])
+  const op = ops.find((o) => o.id === f.orden_id)
+  const porArea = {}
+  for (const b of plan?.bloques || []) (porArea[b.area] ||= []).push(b)
+  const guardar = async (e) => {
+    e.preventDefault()
+    if (!plan?.bloques.length) { setError('No hay horas de planta para programar en esta OP.'); return }
+    setEnviando(true); setError('')
+    try {
+      if (reemplazar && previos.length) await q(sb.from('programacion').delete().eq('orden_id', f.orden_id).gte('fecha', hoy))
+      const grupo = crypto.randomUUID()
+      await q(sb.from('programacion').insert(plan.bloques.map((b) => ({ ...b, orden_id: f.orden_id, nota: f.nota?.trim() || null, grupo }))))
+      onGuardado()
+    } catch (err) { setError(err.message); setEnviando(false) }
+  }
+  return (
+    <form className="form" onSubmit={guardar}>
+      <label>Proyecto (OP)
+        <select value={f.orden_id} onChange={(e) => setF({ ...f, orden_id: e.target.value })} required>
+          <option value="">Selecciona…</option>
+          {ops.map((o) => <option key={o.id} value={o.id}>OP {o.numero} · {o.proyecto} · {o.cliente}</option>)}
+        </select>
+      </label>
+      <div className="fila2">
+        <label>Desde el día<input type="date" value={f.fecha} onChange={(e) => setF({ ...f, fecha: e.target.value })} required /></label>
+        <label>Desde la hora<input type="time" value={f.hora_inicio} onChange={(e) => setF({ ...f, hora_inicio: e.target.value })} step={900} /></label>
+      </div>
+      <p className="nota">Se programan todas las áreas de la OP en el orden de sus pasos: cada proceso empieza cuando terminan los anteriores de su producto,
+        el ensamble cuando terminan todos los productos del ítem, y los terceros cuentan sus días hábiles. Si un día no tiene espacio, pasa al siguiente.</p>
+      {previos.length > 0 && <label className="chk"><input type="checkbox" checked={reemplazar} onChange={(e) => setReemplazar(e.target.checked)} />
+        Reemplazar lo que ya está programado de esta OP desde hoy ({previos.length} {previos.length === 1 ? 'bloque' : 'bloques'})</label>}
+      <label>Nota (opcional)<input value={f.nota || ''} onChange={(e) => setF({ ...f, nota: e.target.value })} /></label>
+      {f.orden_id && !plan && !error && <Cargando />}
+      {plan && (
+        <div className="previa-std">
+          {!plan.bloques.length && !plan.terceros.length ? <div className="tenue">Esta OP no tiene trabajo pendiente.</div> : <>
+            <div><b>{plan.bloques.length} {plan.bloques.length === 1 ? 'bloque' : 'bloques'}</b>
+              {plan.fin && <> · la OP termina el <b>{fmtFecha(plan.fin.fecha)}</b></>}
+              {op?.fecha_compromiso && plan.fin && plan.fin.fecha > op.fecha_compromiso && <span className="t-mal"> · después de la entrega ({fmtFecha(op.fecha_compromiso)})</span>}</div>
+            {Object.entries(porArea).map(([a, bs]) => (
+              <div key={a} className="plan-area"><b>{a}</b> <span className="tenue">· {fmtH(bs.reduce((s, b) => s + b.min_hombre, 0))} h-h · {fmtFecha(bs[0].fecha)} a {fmtFecha(bs[bs.length - 1].fecha)}</span>
+                <ListaPlan bloques={bs} maquinas={maquinas} personas={personas} /></div>
+            ))}
+            {plan.terceros.map((x) => (
+              <div key={x.tarea.id} className="plan-area"><b>TERCEROS</b> <span className="tenue">· {x.tarea.proceso_nombre?.toLowerCase()} (ítem {x.tarea.item_numero}) · {x.dias} {x.dias === 1 ? 'día hábil' : 'días hábiles'}: {fmtFecha(x.desde)} a {fmtFecha(x.hasta)}</span></div>
+            ))}
+          </>}
+        </div>
+      )}
+      <Aviso>{error}</Aviso>
+      <div className="acciones">
+        <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button>
+        <button className="btn" disabled={enviando || !plan?.bloques.length}>Programar OP ({plan?.bloques.length || 0} bloques)</button>
+      </div>
+    </form>
   )
 }
 
@@ -457,12 +566,14 @@ export function FormBloque({ inicial, ops, pend, personas, bloques, horario, maq
   const op = ops.find((o) => o.id === f.orden_id)
 
   return (
-    <Modal titulo={f.id ? 'Editar bloque programado' : 'Programar trabajo'} onClose={onClose} ancho={680}>
+    <Modal titulo={f.id ? 'Editar bloque programado' : 'Programar trabajo'} onClose={onClose} ancho={720}>
+      {!f.id && (
+        <div className="segmentado modo-prog">{[['op', 'OP completa'], ['auto', 'Un área (automático)'], ['manual', 'Manual (horario fijo)']].map(([v, t]) =>
+          <button type="button" key={v} className={(v === 'op' ? f.alcance === 'op' : f.alcance !== 'op' && modo === v) ? 'sel' : ''}
+            onClick={() => setF({ ...f, alcance: v === 'op' ? 'op' : 'area', modo: v === 'op' ? 'auto' : v })}>{t}</button>)}</div>
+      )}
+      {f.alcance === 'op' && !f.id ? <ProgramarOP f={f} setF={setF} ops={ops} pend={pend} personas={personas} horario={horario} maquinas={maquinas} onClose={onClose} onGuardado={onGuardado} /> : (
       <form className="form" onSubmit={guardar}>
-        {!f.id && (
-          <div className="segmentado">{[['auto', 'Automático (reparte en los días)'], ['manual', 'Manual (horario fijo)']].map(([v, t]) =>
-            <button type="button" key={v} className={modo === v ? 'sel' : ''} onClick={() => setF({ ...f, modo: v })}>{t}</button>)}</div>
-        )}
         <label>Proyecto (OP)
           <select value={f.orden_id} onChange={set('orden_id')} required autoFocus={!f.orden_id}>
             <option value="">Selecciona…</option>
@@ -518,6 +629,7 @@ export function FormBloque({ inicial, ops, pend, personas, bloques, horario, maq
           <button className="btn" disabled={enviando}>{f.id ? 'Guardar' : modo === 'auto' ? `Programar${plan?.bloques.length ? ` ${plan.bloques.length} bloques` : ''}` : 'Programar'}</button>
         </div>
       </form>
+      )}
     </Modal>
   )
 }
