@@ -1,3 +1,4 @@
+import { useOPExistente } from '../numeroOP.js'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, EstadoTarea, Modal, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
@@ -565,8 +566,10 @@ function EditarOP({ orden, onClose, onSaved }) {
   })
   const [error, setError] = useState('')
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
+  const repetida = useOPExistente(f.numero, orden.id)
   const guardar = async (e) => {
     e.preventDefault()
+    if (repetida) return
     const { error } = await sb.from('ordenes').update({
       ...f, numero: String(f.numero).trim(), prioridad: Number(f.prioridad), fecha_compromiso: f.fecha_compromiso || null, fecha_entrega_real: f.fecha_entrega_real || null,
     }).eq('id', orden.id)
@@ -576,6 +579,7 @@ function EditarOP({ orden, onClose, onSaved }) {
     <Modal titulo={`Editar OP ${orden.numero}`} onClose={onClose}>
       <form className="form" onSubmit={guardar}>
         <label>Número de OP<input value={f.numero} onChange={set('numero')} required /></label>
+        {repetida && <Aviso>Ya existe la OP {repetida.numero} ({repetida.proyecto} · {repetida.cliente}). No se puede repetir el número.</Aviso>}
         <label>Cliente<input value={f.cliente} onChange={set('cliente')} required /></label>
         <label>Proyecto<input value={f.proyecto} onChange={set('proyecto')} required /></label>
         <div className="fila2">
@@ -589,7 +593,7 @@ function EditarOP({ orden, onClose, onSaved }) {
         <label>Fecha de entrega real<input type="date" value={f.fecha_entrega_real} onChange={set('fecha_entrega_real')} /></label>
         <label>Notas<textarea rows={3} value={f.notas} onChange={set('notas')} /></label>
         <Aviso>{error}</Aviso>
-        <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn">Guardar</button></div>
+        <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn" disabled={!!repetida}>Guardar</button></div>
       </form>
     </Modal>
   )
