@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../supabase.js'
-import { Aviso, Cargando, Modal, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
+import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  ESTADOS_VUELTA, FRANJAS, TIPOS_LUGAR, TIPOS_VUELTA, VEHICULOS, esLinkCorto, estimar, hm, leerUbicacion, linkMaps, llegadas,
-  linksRecorrido, ordenarParadas, proponerAsignacion, tieneUbic,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_VUELTA, VEHICULOS, aMin, cfgDe, cuandoTxt, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
 const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
 const diaTxt = (f) => new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
-const AJ_DEF = { lat: null, lng: null, min_parada: 20, jornada_camion: 510, salida: '07:00' }
+const AJ_DEF = { lat: null, lng: null }
 const horaTxt = (h) => (h ? String(h).slice(0, 5) : '')
 
 function useAjustesLog() {
@@ -87,7 +87,7 @@ function Vueltas({ perfil, gestor, lugares, onLugares }) {
                 <td><span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span>{v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}</td>
                 <td><b>{v.destino}</b><div className="tenue pequeño">{[v.direccion, v.municipio].filter(Boolean).join(', ')}</div></td>
                 <td>{v.descripcion}{v.op && <span className="tenue"> · OP {v.op}</span>}{v.necesita_camion && <span className="etq">camión</span>}</td>
-                <td>{v.hora ? <b className="hora-exacta">⏰ {horaTxt(v.hora)}</b> : FRANJAS[v.franja]}</td>
+                <td>{v.hora ? <b className="hora-exacta">⏰ {cuandoTxt(v)}</b> : cuandoTxt(v) || 'Cualquier hora'}{recepcionTxt(v.recepcion) && <div className="tenue pequeño">recibe {recepcionTxt(v.recepcion)}</div>}</td>
                 <td className="tenue pequeño">{v.solicitante_nombre || '—'}</td>
                 <td><EstadoVuelta v={v} /></td>
               </tr>
@@ -110,12 +110,13 @@ function EstadoVuelta({ v }) {
 }
 
 const VACIA = { tipo: 'entrega', lugar_id: '', destino: '', direccion: '', municipio: 'Medellín', contacto: '', telefono: '', horario: '', ubic: '',
-  franja: 'todo', hora: '', descripcion: '', op: '', necesita_camion: false, prioridad: 2, guardarLugar: false, tipoLugar: 'cliente' }
+  franja: 'todo', hora: '', hora_hasta: '', cuando: 'todo', recepcion: [], min_parada: '', descripcion: '', op: '', necesita_camion: false, prioridad: 2, guardarLugar: false, tipoLugar: 'cliente' }
 
 function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, onGuardado }) {
   const hoy = hoyCO()
   const [f, setF] = useState(() => ({ ...VACIA, fecha: hoy, ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)),
-    ubic: tieneUbic(inicial) ? `${inicial.lat}, ${inicial.lng}` : '', lugar_id: inicial.lugar_id || '', hora: horaTxt(inicial.hora) }))
+    ubic: tieneUbic(inicial) ? `${inicial.lat}, ${inicial.lng}` : '', lugar_id: inicial.lugar_id || '', hora: horaTxt(inicial.hora), hora_hasta: horaTxt(inicial.hora_hasta),
+    cuando: inicial.hora && inicial.hora_hasta ? 'rango' : inicial.hora ? 'exacta' : inicial.franja || 'todo', recepcion: inicial.recepcion || [], min_parada: inicial.min_parada ?? '' }))
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
@@ -123,23 +124,27 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
     const l = lugares.find((x) => x.id === id)
     if (!l) { setF({ ...f, lugar_id: '' }); return }
     setF({ ...f, lugar_id: id, destino: l.nombre, direccion: l.direccion || '', municipio: l.municipio || '', contacto: l.contacto || '', telefono: l.telefono || '',
-      horario: l.horario || '', ubic: tieneUbic(l) ? `${l.lat}, ${l.lng}` : '', tipo: f.id ? f.tipo : l.tipo === 'proveedor' ? 'recogida' : 'entrega' })
+      horario: l.horario || '', recepcion: l.recepcion || [], min_parada: l.min_parada ?? '', ubic: tieneUbic(l) ? `${l.lat}, ${l.lng}` : '', tipo: f.id ? f.tipo : l.tipo === 'proveedor' ? 'recogida' : 'entrega' })
   }
   const ubic = leerUbicacion(f.ubic)
   const guardar = async (e) => {
     e.preventDefault(); setError('')
     if (f.ubic && !ubic) { setError(esLinkCorto(f.ubic) ? 'Ese es un link corto de Google Maps: ábrelo, copia el link completo de la barra del navegador o las coordenadas (mantén presionado el punto en el mapa).' : 'No reconozco esa ubicación. Pega el link completo de Google Maps o las coordenadas, p. ej. 6.2442, -75.5812.'); return }
+    if (['exacta', 'rango'].includes(f.cuando) && !f.hora) { setError('Pon la hora.'); return }
+    if (f.cuando === 'rango' && (!f.hora_hasta || f.hora_hasta <= f.hora)) { setError('La hora "hasta" debe ser después de la hora "desde".'); return }
     setEnviando(true)
     try {
       let lugarId = f.lugar_id || null
       if (!lugarId && f.guardarLugar) {
         const [l] = await q(sb.from('lugares').insert({ tipo: f.tipoLugar, nombre: f.destino.trim(), direccion: f.direccion.trim() || null, municipio: f.municipio.trim() || null,
-          contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, horario: f.horario.trim() || null, lat: ubic?.lat ?? null, lng: ubic?.lng ?? null }).select())
+          contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, horario: f.horario.trim() || null, recepcion: f.recepcion, min_parada: Number(f.min_parada) || null, lat: ubic?.lat ?? null, lng: ubic?.lng ?? null }).select())
         lugarId = l.id
       }
       const fila = { tipo: f.tipo, lugar_id: lugarId, destino: f.destino.trim(), direccion: f.direccion.trim() || null, municipio: f.municipio.trim() || null,
         contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, horario: f.horario.trim() || null, lat: ubic?.lat ?? null, lng: ubic?.lng ?? null,
-        fecha: f.fecha, hora: f.hora || null, franja: f.hora ? (f.hora < '12:00' ? 'manana' : 'tarde') : f.franja, descripcion: f.descripcion.trim(), op: String(f.op || '').trim() || null, necesita_camion: !!f.necesita_camion, prioridad: Number(f.prioridad) }
+        recepcion: f.recepcion, min_parada: Number(f.min_parada) || null,
+        fecha: f.fecha, hora: ['exacta', 'rango'].includes(f.cuando) ? f.hora : null, hora_hasta: f.cuando === 'rango' ? f.hora_hasta : null,
+        franja: ['exacta', 'rango'].includes(f.cuando) ? (f.hora < '12:00' ? 'manana' : 'tarde') : f.cuando, descripcion: f.descripcion.trim(), op: String(f.op || '').trim() || null, necesita_camion: !!f.necesita_camion, prioridad: Number(f.prioridad) }
       if (f.id) await q(sb.from('vueltas').update(fila).eq('id', f.id))
       else await q(sb.from('vueltas').insert({ ...fila, solicitante_nombre: perfil?.nombre || null }))
       onGuardado()
@@ -177,8 +182,8 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
           <div className="fila-form">
             <label>Contacto<input value={f.contacto} onChange={set('contacto')} /></label>
             <label>Teléfono<input value={f.telefono} onChange={set('telefono')} inputMode="tel" /></label>
-            <label className="crece">Horario de atención<input value={f.horario} onChange={set('horario')} placeholder="p. ej. L-V 8:00-12:00" /></label>
           </div>
+          <EditorRecepcion valor={f.recepcion} onChange={(r) => setF({ ...f, recepcion: r })} desdeLugar={!!f.lugar_id} />
           <label>Ubicación (link de Google Maps o coordenadas)<input value={f.ubic} onChange={set('ubic')} placeholder="https://www.google.com/maps/… o 6.2442, -75.5812" />
             <span className="tenue pequeño">{ubic ? `✓ ${ubic.lat}, ${ubic.lng}` : 'Opcional, pero con ubicación el sistema puede ordenar la ruta por cercanía.'}</span></label>
           {!f.lugar_id && !f.id && (
@@ -189,12 +194,13 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
           )}
           <div className="fila-form">
             <label>Día<input type="date" value={f.fecha} min={f.id ? undefined : hoy} onChange={set('fecha')} required /></label>
-            <label>Hora exacta (opcional)<input type="time" step={300} value={f.hora} onChange={set('hora')} title="Para vueltas que hay que coordinar, p. ej. con Instalaciones" /></label>
-            {f.hora
-              ? <label>Franja<input value={f.hora < '12:00' ? 'Mañana' : 'Tarde'} disabled /></label>
-              : <label>Franja<select value={f.franja} onChange={set('franja')}>{Object.entries(FRANJAS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>}
+            <label>Cuándo<select value={f.cuando} onChange={set('cuando')}>{Object.entries(CUANDO).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
+            {['exacta', 'rango'].includes(f.cuando) && <label>{f.cuando === 'rango' ? 'Desde' : 'Hora'}<input type="time" step={300} value={f.hora} onChange={set('hora')} required /></label>}
+            {f.cuando === 'rango' && <label>Hasta<input type="time" step={300} value={f.hora_hasta} onChange={set('hora_hasta')} required /></label>}
+            <label title="Cuánto se demora en el sitio (descargar, recibir, firmar…). Vacío = el promedio">Tiempo en el sitio<span className="con-unidad"><input type="number" min={5} step={5} value={f.min_parada} onChange={set('min_parada')} placeholder="prom." style={{ width: 70 }} /> min</span></label>
             <label>OP (opcional)<input value={f.op || ''} onChange={set('op')} style={{ width: 100 }} /></label>
           </div>
+          <AvisoHorario v={{ ...f, hora: ['exacta', 'rango'].includes(f.cuando) ? f.hora : null, hora_hasta: f.cuando === 'rango' ? f.hora_hasta : null, franja: f.cuando }} />
           <label>Qué se lleva o se recoge<textarea rows={2} value={f.descripcion} onChange={set('descripcion')} required placeholder="p. ej. 3 avisos en acrílico, 2 cajas" /></label>
           <div className="fila-form">
             <label className="check"><input type="checkbox" checked={!!f.necesita_camion} onChange={set('necesita_camion')} /> Necesita camión (grande o pesado)</label>
@@ -242,6 +248,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
   useEffect(() => { cargar() }, [cargar])
 
   const planta = aj && tieneUbic(aj) ? aj : null
+  const cfg = cfgDe(aj)
   const rec = (veh) => d?.recs.find((r) => r.vehiculo === veh)
   const deVeh = (veh) => { const r = rec(veh); return r ? d.vs.filter((v) => v.recorrido_id === r.id).sort((a, b) => (a.orden ?? 99) - (b.orden ?? 99)) : [] }
   const sinAsignar = d ? d.vs.filter((v) => !d.recs.some((r) => r.id === v.recorrido_id) && v.estado !== 'hecha') : []
@@ -273,14 +280,13 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
     ;[l[i], l[j]] = [l[j], l[i]]
     await guardarOrden(veh, l)
   })
-  const opOrden = { minParada: aj?.min_parada || 20, salida: aj?.salida || '07:00' }
-  const ordenar = (veh) => accion(() => guardarOrden(veh, ordenarParadas(deVeh(veh), planta, opOrden)), 'Paradas ordenadas: las de hora exacta a su hora y las demás por cercanía y franja.')
+  const ordenar = (veh) => accion(() => guardarOrden(veh, ordenarParadas(deVeh(veh), planta, cfg, fecha)), 'Paradas ordenadas según la hora pedida, el horario de recepción de cada sitio, el almuerzo y la cercanía.')
   const proponer = () => accion(async () => {
     const libres = [...sinAsignar, ...(bloqueado('camion') ? [] : deVeh('camion')), ...(bloqueado('mensajero') ? [] : deVeh('mensajero'))]
-    const p = proponerAsignacion(libres, planta, aj.min_parada, aj.jornada_camion, aj.salida || '07:00')
+    const p = proponerAsignacion(libres, planta, cfg, fecha)
     if (!bloqueado('camion')) await guardarOrden('camion', p.camion)
     if (!bloqueado('mensajero') && p.mensajero.length) await guardarOrden('mensajero', p.mensajero)
-  }, 'Asignación propuesta: el camión se llena primero hasta su jornada; lo demás va con mensajero. Revísala y confirma.')
+  }, 'Asignación propuesta: el camión se llena primero mientras llegue a tiempo a cada sitio y regrese antes de su hora de fin; lo demás va con mensajero. Revísala y confirma.')
   const confirmar = (veh, si) => accion(async () => {
     const r = await asegurarRec(veh)
     await q(sb.from('recorridos').update(si ? { estado: 'confirmada', confirmada_por: perfil?.user_id, confirmada_en: new Date().toISOString() } : { estado: 'borrador' }).eq('id', r.id))
@@ -301,9 +307,9 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
           <b className="fecha-larga">{diaTxt(fecha)}</b>
         </div>
         <button className="btn btn-sec" onClick={() => setForm({ fecha })}>+ Vuelta</button>
-        <button className="btn" disabled={ocupado || !aj || !d} onClick={proponer} title="Llena primero el camión hasta su jornada; lo demás va con mensajero">Proponer asignación</button>
+        <button className="btn" disabled={ocupado || !aj || !d} onClick={proponer} title="Llena primero el camión mientras cumpla los horarios; lo demás va con mensajero">Proponer asignación</button>
         {!cols.includes('externo') && <button className="btn btn-sec btn-sm" onClick={() => setVerExterno(true)}>+ Otro transporte</button>}
-        <button className="btn-link" onClick={() => setVerAjustes(true)}>Punto de salida y tiempos</button>
+        <button className="btn-link" onClick={() => setVerAjustes(true)}>Punto de salida y horarios</button>
       </div>
       {aj && !planta && <Aviso tipo="warn">Falta la ubicación de la planta (punto de salida). Sin ella no se puede calcular el orden ni el tiempo de viaje. <button className="btn-link" onClick={() => setVerAjustes(true)}>Configurarla</button></Aviso>}
       <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
@@ -312,17 +318,15 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
           <div className="log-col">
             <div className="log-col-cab"><b>Sin asignar</b><span className="tenue pequeño">{sinAsignar.length} {sinAsignar.length === 1 ? 'vuelta' : 'vueltas'}</span></div>
             {sinAsignar.length === 0 ? <div className="vacio pequeño">Nada pendiente.</div> : sinAsignar.map((v) => (
-              <Parada key={v.id} v={v} fecha={fecha} onAbrir={() => setForm(v)}
+              <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => setForm(v)}
                 acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Asignar a…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}</select>} />
             ))}
           </div>
           {cols.map((veh) => {
             const ps = deVeh(veh), r = rec(veh), conf = r?.estado === 'confirmada'
-            const est = estimar(ps, planta, aj.min_parada)
-            const pasa = veh === 'camion' && est.total > aj.jornada_camion
+            const est = estimar(ps, planta, cfg, fecha)
+            const pasa = est.regreso > aMin(cfg.fin)
             const links = linksRecorrido(ps, planta)
-            const ll = llegadas(ps, planta, aj.min_parada, aj.salida || '07:00')
-            const tardes = ll.filter((x) => x.tarde > 10).length
             return (
               <div key={veh} className={`log-col${conf ? ' confirmada' : ''}`}>
                 <div className="log-col-cab">
@@ -330,15 +334,16 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                   <span className={`badge ${conf ? 'badge-info' : 'badge-muted'}`}>{conf ? 'Confirmada' : 'Borrador'}</span>
                 </div>
                 <div className="log-est">
-                  {ps.length} {ps.length === 1 ? 'parada' : 'paradas'} · ≈ <b className={pasa ? 't-mal' : ''}>{fmtMin(est.total)}</b>{planta && est.km ? ` · ${fmtNum(est.km, 0)} km` : ''}
-                  {pasa && <div className="t-mal pequeño">Pasa la jornada del camión ({fmtMin(aj.jornada_camion)}): mueve algo al mensajero.</div>}
+                  {ps.length} {ps.length === 1 ? 'parada' : 'paradas'}{ps.length > 0 && <> · sale {cfg.salida} · regresa ≈ <b className={pasa ? 't-mal' : ''}>{hm(est.regreso)}</b></>}{planta && est.km ? ` · ${fmtNum(est.km, 0)} km` : ''}
+                  {ps.length > 0 && est.sim.almuerzo !== null && <div className="tenue pequeño">🍽 almuerzo ≈ {hm(est.sim.almuerzo)}</div>}
+                  {pasa && <div className="t-mal pequeño">Regresa después de su hora de fin ({cfg.fin}): mueve algo a otro vehículo o a otro día.</div>}
                   {est.sinUbic > 0 && ps.length > 0 && <div className="tenue pequeño">{est.sinUbic} sin ubicación: el tiempo es aproximado.</div>}
-                  {tardes > 0 && <div className="t-mal pequeño">{tardes === 1 ? 'Una vuelta con hora exacta no alcanza' : `${tardes} vueltas con hora exacta no alcanzan`} a su hora con este orden: usa "Ordenar" o pásala a otro vehículo.</div>}
+                  {est.problemas > 0 && <div className="t-mal pequeño">{est.problemas === 1 ? 'Una parada queda' : `${est.problemas} paradas quedan`} fuera de su horario: usa "Ordenar", pásala a otro vehículo o a otro día.</div>}
                 </div>
                 <input className="log-conductor" placeholder={veh === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || ''} key={r?.id || veh} disabled={conf}
                   onBlur={(e) => e.target.value !== (r?.conductor || '') && guardarConductor(veh, e.target.value)} />
                 {ps.map((v, i) => (
-                  <Parada key={v.id} v={v} n={i + 1} fecha={fecha} llega={ll[i]} onAbrir={() => setForm(v)}
+                  <Parada key={v.id} v={v} n={i + 1} fecha={fecha} paso={est.sim.pasos[i]} onAbrir={() => setForm(v)}
                     acciones={conf ? null : <>
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
                       <button className="btn-icono" disabled={ocupado || i === ps.length - 1} onClick={() => subir(veh, i, 1)} title="Bajar">↓</button>
@@ -366,8 +371,11 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
   )
 }
 
-function Parada({ v, n, fecha, llega, acciones, onAbrir }) {
+function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
+  const vp = !paso && cfg ? ventanasParada(v, fecha, cfg) : null
   return (
+    <>
+    {paso?.almuerzoAntes && <div className="log-almuerzo">🍽 Almuerzo</div>}
     <div className={`log-parada ${v.tipo}${v.estado === 'hecha' ? ' hecha' : ''}${v.estado === 'no_hecha' ? ' no-hecha' : ''}`}>
       <div className="log-parada-cab" onClick={onAbrir}>
         {n && <span className="log-n">{n}</span>}
@@ -376,53 +384,122 @@ function Parada({ v, n, fecha, llega, acciones, onAbrir }) {
           <div className="tenue pequeño">{[v.direccion, v.municipio].filter(Boolean).join(', ') || 'Sin dirección'}{!tieneUbic(v) && ' · sin ubicación'}</div>
           <div className="pequeño">{v.descripcion}{v.op ? ` · OP ${v.op}` : ''}</div>
           <div className="log-tags">
-            {v.hora ? <b className="hora-exacta">⏰ {horaTxt(v.hora)}</b> : v.franja !== 'todo' && <span className="etq">{FRANJAS[v.franja].toLowerCase()}</span>}
-            {llega && <span className={`pequeño ${llega.tarde > 10 ? 't-mal' : 'tenue'}`}>llega ≈ {hm(llega.llega)}{llega.tarde > 10 ? ` (${Math.round(llega.tarde)} min tarde)` : ''}</span>}
+            {v.hora ? <b className="hora-exacta">⏰ {cuandoTxt(v)}</b> : cuandoTxt(v) && <span className="etq">{cuandoTxt(v)}</span>}
             {v.necesita_camion && <span className="etq">camión</span>}
             {v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}
             {v.fecha < fecha && <span className="badge badge-warn">de {fmtFecha(v.fecha).slice(0, 5)}</span>}
             {v.estado === 'no_hecha' && <span className="badge badge-bad" title={v.resultado || ''}>no se pudo{v.resultado ? `: ${v.resultado}` : ''}</span>}
             {v.estado === 'hecha' && <span className="badge badge-ok">hecha</span>}
-            {v.horario && <span className="tenue pequeño">🕒 {v.horario}</span>}
           </div>
+          {recepcionTxt(v.recepcion) && <div className="tenue pequeño">🕒 Recibe {recepcionTxt(v.recepcion)}</div>}
+          {v.horario && <div className="tenue pequeño">{v.horario}</div>}
+          {paso && <div className={`log-llega ${paso.cerrado || paso.choque || paso.tarde > 0 ? 't-mal' : ''}`}>
+            {paso.cerrado ? 'Ese día el sitio no recibe' : paso.choque ? 'Lo pedido no cae en su horario de recepción'
+              : <>Llega ≈ {hm(paso.llega)}{paso.espera >= 5 ? ` · espera hasta ${hm(paso.inicio)}` : ''}{paso.tarde > 0 ? ` · ${Math.round(paso.tarde)} min tarde` : ''} · sale {hm(paso.sale)}</>}
+          </div>}
+          {vp && (vp.cerrado || vp.choque) && <div className="log-llega t-mal">{vp.cerrado ? 'Ese día el sitio no recibe' : 'Lo pedido no cae en su horario de recepción'}</div>}
         </div>
       </div>
       {acciones && <div className="log-parada-acc">{acciones}</div>}
     </div>
+    </>
   )
 }
 
 function AjustesLogistica({ aj, onClose, onGuardado }) {
+  const c0 = cfgDe(aj)
   const [ubic, setUbic] = useState(tieneUbic(aj) ? `${aj.lat}, ${aj.lng}` : '')
-  const [minParada, setMinParada] = useState(aj.min_parada)
-  const [jornada, setJornada] = useState(aj.jornada_camion / 60)
-  const [salida, setSalida] = useState(aj.salida || '07:00')
+  const [c, setC] = useState({ salida: c0.salida, fin: c0.fin, almuerzo_desde: c0.almuerzo_desde, almuerzo_min: c0.almuerzo_min, min_parada: c0.min_parada, tolerancia: c0.tolerancia })
   const [error, setError] = useState('')
+  const set = (k) => (e) => setC({ ...c, [k]: e.target.value })
   const u = leerUbicacion(ubic)
   const guardar = async (e) => {
-    e.preventDefault()
+    e.preventDefault(); setError('')
     if (!u) { setError(esLinkCorto(ubic) ? 'Ese es un link corto: ábrelo y copia el link completo o las coordenadas.' : 'Pega el link completo de Google Maps de la planta o sus coordenadas.'); return }
+    if (c.fin <= c.salida) { setError('La hora de fin debe ser después de la salida.'); return }
+    const { jornada_camion, ...resto } = aj // eslint-disable-line no-unused-vars
     try {
-      await q(sb.from('ajustes').upsert({ clave: 'logistica', valor: { ...aj, lat: u.lat, lng: u.lng, min_parada: Number(minParada) || 20, salida: salida || '07:00', jornada_camion: Math.round((Number(String(jornada).replace(',', '.')) || 8.5) * 60) } }))
+      await q(sb.from('ajustes').upsert({ clave: 'logistica', valor: { ...resto, lat: u.lat, lng: u.lng, salida: c.salida, fin: c.fin, almuerzo_desde: c.almuerzo_desde,
+        almuerzo_min: Number(c.almuerzo_min) || 0, min_parada: Number(c.min_parada) || 20, tolerancia: Number(c.tolerancia) || 0 } }))
       onGuardado()
     } catch (err) { setError(err.message) }
   }
   return (
-    <Modal titulo="Punto de salida y tiempos" onClose={onClose} ancho={560}>
+    <Modal titulo="Punto de salida y horarios" onClose={onClose} ancho={620}>
       <form className="form" onSubmit={guardar}>
         <label>Ubicación de la planta (link de Google Maps o coordenadas)<input value={ubic} onChange={(e) => setUbic(e.target.value)} placeholder="6.2442, -75.5812" />
           <span className="tenue pequeño">{u ? `✓ ${u.lat}, ${u.lng}` : 'En Google Maps, mantén presionado el punto de la planta y copia las coordenadas que aparecen.'}</span></label>
+        <h4 className="subt">Horario del recorrido</h4>
         <div className="fila-form">
-          <label>Minutos promedio por parada<input type="number" min={5} value={minParada} onChange={(e) => setMinParada(e.target.value)} /></label>
-          <label>Jornada del camión (horas)<input value={jornada} onChange={(e) => setJornada(e.target.value)} inputMode="decimal" /></label>
-          <label>Hora de salida<input type="time" step={900} value={salida} onChange={(e) => setSalida(e.target.value)} /></label>
+          <label>Sale de la planta<input type="time" step={300} value={c.salida} onChange={set('salida')} /></label>
+          <label>Debe regresar antes de<input type="time" step={300} value={c.fin} onChange={set('fin')} /></label>
+          <label>Almuerzo desde<input type="time" step={300} value={c.almuerzo_desde} onChange={set('almuerzo_desde')} /></label>
+          <label>Duración del almuerzo<span className="con-unidad"><input type="number" min={0} step={5} value={c.almuerzo_min} onChange={set('almuerzo_min')} style={{ width: 70 }} /> min</span></label>
         </div>
-        <p className="tenue pequeño">El tiempo de viaje se estima por la distancia en línea recta × 1,4 a 22 km/h (tráfico de ciudad). Cuando conectemos el GPS del camión se podrá ajustar con datos reales.</p>
+        <div className="fila-form">
+          <label>Tiempo promedio en cada sitio<span className="con-unidad"><input type="number" min={5} step={5} value={c.min_parada} onChange={set('min_parada')} style={{ width: 70 }} /> min</span></label>
+          <label>Margen para hora exacta<span className="con-unidad"><input type="number" min={0} step={5} value={c.tolerancia} onChange={set('tolerancia')} style={{ width: 70 }} /> min</span></label>
+        </div>
+        <p className="tenue pequeño">Así se arma la ruta: sale a la hora de salida; si llega a un sitio antes de que reciba (o antes de la hora pedida) espera; el almuerzo se toma cuando llega su hora
+          (o durante una espera larga); cada parada dura su tiempo en el sitio (o el promedio) y al final regresa a la planta. Una hora exacta se cumple si llega hasta {c.tolerancia || 0} min después.
+          El viaje se estima por la distancia en línea recta × 1,4 a 22 km/h; cuando conectemos el GPS del camión se ajustará con datos reales.</p>
         <Aviso>{error}</Aviso>
         <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn">Guardar</button></div>
       </form>
     </Modal>
   )
+}
+
+// ---------------- Horario de recepción ----------------
+const CUANDO = { todo: 'Cualquier hora', manana: 'En la mañana', tarde: 'En la tarde', exacta: 'A una hora exacta', rango: 'Entre dos horas' }
+const L_V = [1, 2, 3, 4, 5]
+const PLANTILLAS = [
+  ['L-V 8–12 y 2–5', [{ d: L_V, a: '08:00', b: '12:00' }, { d: L_V, a: '14:00', b: '17:00' }]],
+  ['L-V 8–5', [{ d: L_V, a: '08:00', b: '17:00' }]],
+  ['L-V 8–5 y S 8–12', [{ d: L_V, a: '08:00', b: '17:00' }, { d: [6], a: '08:00', b: '12:00' }]],
+  ['L-S 7–4', [{ d: [...L_V, 6], a: '07:00', b: '16:00' }]],
+]
+function EditorRecepcion({ valor, onChange, desdeLugar }) {
+  const lista = Array.isArray(valor) ? valor : []
+  const [abierto, setAbierto] = useState(false)
+  const cambiar = (i, k, v) => onChange(lista.map((r, j) => (j === i ? { ...r, [k]: v } : r)))
+  const dia = (i, n) => { const d = lista[i].d || []; cambiar(i, 'd', d.includes(n) ? d.filter((x) => x !== n) : [...d, n]) }
+  const resumen = recepcionTxt(lista)
+  return (
+    <div className="recepcion">
+      <div className="recepcion-cab">
+        <span><b>Horario de recepción:</b> {resumen || <span className="tenue">recibe a cualquier hora</span>}{desdeLugar && resumen ? <span className="tenue pequeño"> (del cliente/proveedor guardado)</span> : null}</span>
+        <button type="button" className="btn-link" onClick={() => setAbierto(!abierto)}>{abierto ? 'Listo' : 'Cambiar'}</button>
+      </div>
+      {abierto && <>
+        {lista.map((r, i) => (
+          <div key={i} className="recepcion-fila">
+            <div className="dias">{DIAS_SEM.map(([n, l]) => <button type="button" key={n} className={(r.d || []).includes(n) ? 'sel' : ''} onClick={() => dia(i, n)}>{l}</button>)}</div>
+            <input type="time" step={300} value={r.a || ''} onChange={(e) => cambiar(i, 'a', e.target.value)} /> a
+            <input type="time" step={300} value={r.b || ''} onChange={(e) => cambiar(i, 'b', e.target.value)} />
+            <button type="button" className="btn-link peligro" onClick={() => onChange(lista.filter((_, j) => j !== i))}>Quitar</button>
+          </div>
+        ))}
+        <div className="recepcion-acc">
+          <button type="button" className="btn btn-sec btn-sm" onClick={() => onChange([...lista, { d: L_V, a: '08:00', b: '12:00' }])}>+ Franja</button>
+          <span className="tenue pequeño">Rápido:</span>
+          {PLANTILLAS.map(([t, v]) => <button type="button" key={t} className="btn btn-sec btn-sm" onClick={() => onChange(v.map((x) => ({ ...x, d: [...x.d] })))}>{t}</button>)}
+          {lista.length > 0 && <button type="button" className="btn-link" onClick={() => onChange([])}>Recibe a cualquier hora</button>}
+        </div>
+      </>}
+    </div>
+  )
+}
+
+// Avisa si el día o la hora pedida no cuadran con el horario de recepción
+function AvisoHorario({ v }) {
+  if (!v.fecha || !(Array.isArray(v.recepcion) && v.recepcion.length)) return null
+  if (['exacta', 'rango'].includes(v.franja) && !v.hora) return null
+  const x = ventanasParada({ ...v, franja: ['exacta', 'rango'].includes(v.franja) ? 'todo' : v.franja }, v.fecha, cfgDe(null))
+  const dia = new Date(v.fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long' })
+  if (x.cerrado) return <Aviso tipo="warn">El {dia} este sitio no recibe ({recepcionTxt(v.recepcion)}). Cambia el día o el horario de recepción.</Aviso>
+  if (x.choque) return <Aviso tipo="warn">La hora pedida no cae en el horario de recepción ({recepcionTxt(v.recepcion)}).</Aviso>
+  return null
 }
 
 // ---------------- Clientes y proveedores recurrentes ----------------
@@ -445,13 +522,13 @@ function Lugares({ lugares, onCambio }) {
       </div>
       {lista.length === 0 ? <div className="vacio">No hay {tipo ? `${TIPOS_LUGAR[tipo].toLowerCase()}es` : 'clientes ni proveedores'} guardados. Agrégalos aquí o marca "Guardar este sitio como recurrente" al pedir una vuelta.</div> : (
         <table className="tabla tabla-click">
-          <thead><tr><th>Nombre</th><th>Tipo</th><th>Dirección</th><th>Contacto</th><th>Horario</th><th>Ubicación</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Tipo</th><th>Dirección</th><th>Contacto</th><th>Recibe</th><th>Ubicación</th></tr></thead>
           <tbody>{lista.map((l) => (
             <tr key={l.id} onClick={() => setForm(l)} className={l.activo ? '' : 'omitida'}>
               <td><b>{l.nombre}</b></td><td>{TIPOS_LUGAR[l.tipo]}</td>
               <td>{[l.direccion, l.municipio].filter(Boolean).join(', ')}</td>
               <td>{l.contacto}{l.telefono && <div className="tenue pequeño">{l.telefono}</div>}</td>
-              <td className="pequeño">{l.horario}</td>
+              <td className="pequeño">{recepcionTxt(l.recepcion) || <span className="tenue">cualquier hora</span>}{l.min_parada ? <div className="tenue">{l.min_parada} min en el sitio</div> : null}</td>
               <td>{tieneUbic(l) ? <a href={linkMaps(l)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Ver mapa</a> : <span className="tenue">—</span>}</td>
             </tr>
           ))}</tbody>
@@ -463,7 +540,7 @@ function Lugares({ lugares, onCambio }) {
 }
 
 function FormLugar({ inicial, onClose, onGuardado }) {
-  const [f, setF] = useState(() => ({ nombre: '', direccion: '', municipio: '', contacto: '', telefono: '', horario: '', notas: '', ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)),
+  const [f, setF] = useState(() => ({ nombre: '', direccion: '', municipio: '', contacto: '', telefono: '', horario: '', notas: '', recepcion: [], min_parada: '', ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)),
     ubic: tieneUbic(inicial) ? `${inicial.lat}, ${inicial.lng}` : '' }))
   const [error, setError] = useState('')
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
@@ -472,7 +549,8 @@ function FormLugar({ inicial, onClose, onGuardado }) {
     e.preventDefault(); setError('')
     if (f.ubic && !u) { setError(esLinkCorto(f.ubic) ? 'Ese es un link corto de Google Maps: ábrelo y copia el link completo o las coordenadas.' : 'No reconozco esa ubicación. Pega el link completo de Google Maps o las coordenadas.'); return }
     const fila = { tipo: f.tipo, nombre: f.nombre.trim(), direccion: f.direccion.trim() || null, municipio: f.municipio.trim() || null, contacto: f.contacto.trim() || null,
-      telefono: f.telefono.trim() || null, horario: f.horario.trim() || null, notas: f.notas.trim() || null, lat: u?.lat ?? null, lng: u?.lng ?? null }
+      telefono: f.telefono.trim() || null, horario: String(f.horario || '').trim() || null, notas: f.notas.trim() || null, lat: u?.lat ?? null, lng: u?.lng ?? null,
+      recepcion: f.recepcion || [], min_parada: Number(f.min_parada) || null }
     try {
       if (f.id) await q(sb.from('lugares').update(fila).eq('id', f.id))
       else await q(sb.from('lugares').insert(fila))
@@ -494,8 +572,10 @@ function FormLugar({ inicial, onClose, onGuardado }) {
         <div className="fila-form">
           <label>Contacto<input value={f.contacto} onChange={set('contacto')} /></label>
           <label>Teléfono<input value={f.telefono} onChange={set('telefono')} inputMode="tel" /></label>
-          <label className="crece">Horario de atención<input value={f.horario} onChange={set('horario')} placeholder="L-V 8:00-12:00 y 2:00-5:00" /></label>
+          <label title="Cuánto se demora normalmente en este sitio (descargar, recibir, firmar…). Vacío = el promedio">Tiempo en el sitio<span className="con-unidad"><input type="number" min={5} step={5} value={f.min_parada} onChange={set('min_parada')} placeholder="prom." style={{ width: 70 }} /> min</span></label>
         </div>
+        <EditorRecepcion valor={f.recepcion} onChange={(r) => setF({ ...f, recepcion: r })} />
+        {f.horario && <label>Indicaciones de horario (texto anterior)<input value={f.horario} onChange={set('horario')} /></label>}
         <label>Ubicación (link de Google Maps o coordenadas)<input value={f.ubic} onChange={set('ubic')} placeholder="https://www.google.com/maps/… o 6.2442, -75.5812" />
           <span className="tenue pequeño">{u ? `✓ ${u.lat}, ${u.lng}` : 'En Google Maps, mantén presionado el sitio y copia las coordenadas, o copia el link completo de la barra.'}</span></label>
         <label>Notas (portería, parqueo, a quién preguntar…)<textarea rows={2} value={f.notas} onChange={set('notas')} /></label>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal } from '../ui.jsx'
 import { hoyCO } from '../cumplimiento.js'
-import { FRANJAS, TIPOS_VUELTA, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
+import { TIPOS_VUELTA, cuandoTxt, recepcionTxt, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
 
 // Celular del conductor: la ruta confirmada de hoy, en orden, para marcar cada parada
 export default function Conductor({ perfil }) {
@@ -74,13 +74,13 @@ export default function Conductor({ perfil }) {
                     <div className="crece">
                       <span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span>
                       {v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}
-                      {v.hora ? <b className="hora-exacta grande">⏰ A las {String(v.hora).slice(0, 5)}</b> : v.franja !== 'todo' && <span className="etq">{FRANJAS[v.franja].toLowerCase()}</span>}
+                      {v.hora ? <b className="hora-exacta grande">⏰ {cuandoTxt(v).replace(/^./, (c) => c.toUpperCase())}</b> : cuandoTxt(v) && <span className="etq">{cuandoTxt(v)}</span>}
                       <div className="cond-destino">{v.destino}</div>
                       <div className="cond-dir">{[v.direccion, v.municipio].filter(Boolean).join(', ')}</div>
                     </div>
                   </div>
                   <div className="cond-que">{v.descripcion}{v.op ? ` · OP ${v.op}` : ''}</div>
-                  {(v.contacto || v.horario) && <div className="cond-extra">{v.contacto && <span>👤 {v.contacto}</span>}{v.horario && <span>🕒 {v.horario}</span>}</div>}
+                  {(v.contacto || v.horario || recepcionTxt(v.recepcion)) && <div className="cond-extra">{v.contacto && <span>👤 {v.contacto}</span>}{recepcionTxt(v.recepcion) && <span>🕒 Recibe {recepcionTxt(v.recepcion)}</span>}{v.horario && <span>{v.horario}</span>}</div>}
                   {hecha && <div className="cond-estado ok">✓ Hecha</div>}
                   {no && <div className="cond-estado mal">No se pudo: {v.resultado}</div>}
                   <div className="cond-acc">

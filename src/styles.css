@@ -566,3 +566,17 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 /* Logística: hora exacta */
 .hora-exacta { color: #8a4b00; background: #ffefd6; border-radius: 6px; padding: 1px 7px; font-size: 13px; white-space: nowrap; }
 .hora-exacta.grande { font-size: 16px; padding: 3px 9px; display: inline-block; margin: 2px 0; }
+
+/* Logística: horarios */
+.recepcion { border: 1px solid var(--linea); border-radius: 8px; padding: 8px 10px; margin: 6px 0; background: #fafbfc; }
+.recepcion-cab { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+.recepcion-fila { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 14px; }
+.recepcion-fila input[type=time] { width: 135px; }
+.recepcion-fila .dias { display: inline-flex; gap: 3px; }
+.recepcion-fila .dias button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--linea); background: #fff; cursor: pointer; font-weight: 600; font-size: 12px; }
+.recepcion-fila .dias button.sel { background: var(--azul); border-color: var(--azul); color: #fff; }
+.recepcion-acc { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.con-unidad { display: inline-flex; align-items: center; gap: 4px; }
+.log-llega { font-size: 12.5px; margin-top: 3px; color: var(--tinta-2); }
+.log-llega.t-mal { color: #c0392b; font-weight: 600; }
+.log-almuerzo { font-size: 12px; color: var(--tenue); text-align: center; border-top: 1px dashed var(--linea); border-bottom: 1px dashed var(--linea); padding: 3px; margin: 2px 0; }
