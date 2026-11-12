@@ -404,6 +404,10 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   const costoDia = (d?.recs || []).filter((r) => r.vehiculo === 'externo').reduce((s, r) => s + Number(r.valor || 0), 0)
     + (d?.vs || []).filter((v) => v.recorridos?.vehiculo === 'mensajero' && v.fecha === fecha).reduce((s, v) => s + Number(v.valor || 0), 0)
   // Hora de salida de cada ruta: la que se puso; si no, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior del mismo vehículo
+  // Hoy, una ruta que todavía no ha arrancado no puede salir en una hora que ya pasó: sale desde ahora
+  const [reloj, setReloj] = useState(() => new Date())
+  useEffect(() => { const t = setInterval(() => setReloj(new Date()), 60000); return () => clearInterval(t) }, [])
+  const ahoraMin = fecha === hoyCO() ? Math.ceil((reloj.getHours() * 60 + reloj.getMinutes()) / 5) * 5 : null
   const cfgRuta = {}, estRuta = {}
   for (const k of cols) {
     const r = rec(k), prev = cols.filter((c) => vehDe(c) === vehDe(k) && numDe(c) < numDe(k)).pop()
@@ -414,6 +418,8 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
       // Ruta con un transportador contratado: sin almuerzo ni hora de fin del camión
       ? { ...cfg, salida: r?.salida ? String(r.salida).slice(0, 5) : cfg.salida, almuerzo_min: 0, fin: '23:59' }
       : { ...cfg, salida, ...(yaAlmorzo || r?.ya_almorzo ? { almuerzo_min: 0 } : {}) }
+    const arrancada = rec(k)?.estado === 'confirmada' || deVeh(k).some((v) => v.estado !== 'pendiente')
+    if (ahoraMin !== null && !arrancada && aMin(cfgRuta[k].salida) < ahoraMin) cfgRuta[k] = { ...cfgRuta[k], salida: hm(ahoraMin), desdeAhora: true }
     estRuta[k] = d ? estimar(deVeh(k), planta, cfgRuta[k], fecha) : null
     // Si se indicó la hora real en que el camión quedó en la planta, esa manda
     if (estRuta[k] && r?.en_planta) estRuta[k] = { ...estRuta[k], regreso: aMin(String(r.en_planta).slice(0, 5)), real: true }
@@ -474,7 +480,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                   {contratada ? <span className="badge badge-info">Servicio contratado</span> : <span className={`badge ${conf ? 'badge-info' : 'badge-muted'}`}>{conf ? 'Confirmada' : 'Borrador'}</span>}
                 </div>
                 <div className="log-est">
-                  {ps.length} {ps.length === 1 ? 'parada' : 'paradas'}{ps.length > 0 && <> · sale {h12(cr.salida)}{contratada ? ` · termina ≈ ${h12(hm(est.sim.pasos.length ? est.sim.pasos[est.sim.pasos.length - 1].sale : aMin(cr.salida)))}` : <> · {est.real ? 'en la planta' : 'regresa ≈'} <b className={pasa ? 't-mal' : ''}>{hm(est.regreso)}</b></>}</>}{planta && est.km ? ` · ${fmtNum(est.km, 0)} km` : ''}
+                  {ps.length} {ps.length === 1 ? 'parada' : 'paradas'}{ps.length > 0 && <> · sale {h12(cr.salida)}{cr.desdeAhora ? ' (desde ahora)' : ''}{contratada ? ` · termina ≈ ${h12(hm(est.sim.pasos.length ? est.sim.pasos[est.sim.pasos.length - 1].sale : aMin(cr.salida)))}` : <> · {est.real ? 'en la planta' : 'regresa ≈'} <b className={pasa ? 't-mal' : ''}>{hm(est.regreso)}</b></>}</>}{planta && est.km ? ` · ${fmtNum(est.km, 0)} km` : ''}
                   {zonas.length > 0 && <div className="log-zonas">{zonas.map(([z, n]) => <span key={z} className={`zona z-${z.toLowerCase().replace(' ', '-')}`}>{z} {n}</span>)}</div>}
                   {!contratada && ps.length > 0 && est.sim.almuerzo !== null && <div className="tenue pequeño">🍽 almuerzo ≈ {hm(est.sim.almuerzo)}</div>}
                   {pasa && <div className="t-mal pequeño">Regresa después de su hora de fin ({cfg.fin}): mueve algo a otro vehículo o a otro día.</div>}
