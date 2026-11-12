@@ -310,7 +310,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   const asegurarRec = async (k) => {
     const r = rec(k)
     if (r) return r
-    const [n] = await q(sb.from('recorridos').upsert({ fecha, vehiculo: vehDe(k), numero: numDe(k) }, { onConflict: 'fecha,vehiculo,numero' }).select())
+    const [n] = await q(sb.from('recorridos').upsert({ fecha, vehiculo: vehDe(k), numero: numDe(k), ...(vehDe(k) === 'camion' && cfg.conductor ? { conductor: cfg.conductor } : {}) }, { onConflict: 'fecha,vehiculo,numero' }).select())
     return n
   }
   const guardarOrden = async (veh, lista) => {
@@ -373,6 +373,19 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
     await q(sb.from('recorridos').update(si ? { estado: 'confirmada', confirmada_por: perfil?.user_id, confirmada_en: new Date().toISOString() } : { estado: 'borrador' }).eq('id', r.id))
   }, si ? `${nombreRuta(veh)} confirmada: ya la ve el conductor en su celular.` : 'La ruta volvió a borrador.')
   const guardarSalida = (k, h) => accion(async () => { const r = await asegurarRec(k); await q(sb.from('recorridos').update({ salida: h || null }).eq('id', r.id)) })
+  // Quitar una ruta vacía; las rutas siguientes del mismo vehículo se renumeran
+  const eliminarRuta = (k) => {
+    if (deVeh(k).length) return
+    const r = rec(k)
+    setExtraCols(extraCols.filter((c) => c !== k))
+    if (!r) return
+    accion(async () => {
+      await q(sb.from('recorridos').delete().eq('id', r.id))
+      const despues = (d?.recs || []).filter((x) => x.vehiculo === vehDe(k) && (x.numero || 1) > numDe(k)).sort((a, b) => a.numero - b.numero)
+      for (const x of despues) await q(sb.from('recorridos').update({ numero: x.numero - 1 }).eq('id', x.id))
+      setExtraCols([])
+    }, `${nombreRuta(k)} eliminada.`)
+  }
   const guardarRec = (k, cambios) => accion(async () => { const r = await asegurarRec(k); await q(sb.from('recorridos').update(cambios).eq('id', r.id)) })
   const marcarHecha = (v, si) => accion(() => q(sb.from('vueltas').update(si ? { estado: 'hecha', hecha_en: new Date().toISOString() } : { estado: 'pendiente', hecha_en: null }).eq('id', v.id)), si ? `${v.destino}: hecha.` : '')
   const conductores = transps.filter((t) => t.tipo === 'conductor' && t.activo !== false)
@@ -471,10 +484,10 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                 <div className="log-ruta-datos">
                   {contratada ? <DatosContratada r={r} transps={transps} ocupado={ocupado} onGuardar={(cambios) => guardarRec(veh, cambios)} /> : <>
                   {/* El conductor se puede cambiar aunque la ruta esté confirmada (p. ej. si el conductor se incapacita) */}
-                  <input className="log-conductor" list="lista-conductores" placeholder={vehDe(veh) === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || ''} key={`${r?.id || veh}-${r?.conductor || ''}`}
+                  <input className="log-conductor" list="lista-conductores" placeholder={vehDe(veh) === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || cfg.conductor || ''} key={`${r?.id || veh}-${r?.conductor || ''}-${cfg.conductor || ''}`}
                     title="Escribe o elige un conductor guardado en Transportadores"
-                    onBlur={(e) => e.target.value !== (r?.conductor || '') && guardarConductor(veh, e.target.value)} />
-                  {(() => { const t = conductores.find((x) => x.nombre === r?.conductor); return t?.telefono ? <a className="btn btn-sec btn-sm" href={telLink(t.telefono)}>Llamar</a> : null })()}
+                    onBlur={(e) => e.target.value !== (r?.conductor || cfg.conductor || '') && guardarConductor(veh, e.target.value)} />
+                  {(() => { const nom = r?.conductor || cfg.conductor; const tel = conductores.find((x) => x.nombre === nom)?.telefono || (nom && nom === cfg.conductor ? cfg.conductor_tel : null); return tel ? <a className="btn btn-sec btn-sm" href={telLink(tel)}>Llamar</a> : null })()}
                   </>}
                   <label className="pequeño" title="Si no se pone, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior">Sale<SelectorHora value={r?.salida ? String(r.salida).slice(0, 5) : ''} vacio={contratada ? `(${h12(cr.salida)})` : `Auto (${h12(cr.salida)})`} onChange={(h) => !conf && guardarSalida(veh, h)} /></label>
                 </div>
@@ -497,6 +510,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                 </Fragment>))}
                 {!contratada && ps.length > 0 && <PuntoPlanta tipo="regresa" hora={est.regreso} real={est.real} tarde={pasa} fin={cfg.fin} sinPlanta={!planta} />}
                 <div className="log-col-pie">
+                  {ps.length === 0 && (numDe(veh) > 1 || contratada || rec(veh)) && !(veh === 'camion:1' && !rec(veh)) && <button className="btn-link peligro" disabled={ocupado} onClick={() => eliminarRuta(veh)} title="Quita esta ruta vacía">Eliminar ruta</button>}
                   {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar</button>}
                   {!conf && ps.some((x) => x.estado === 'pendiente') && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => sacarTodas(veh)} title="Pasa a Sin asignar todas las vueltas pendientes de esta ruta, para reorganizar">Sacar todas</button>}
                   {conf && <span className="tenue pequeño">Para sacar o mover vueltas, vuelve la ruta a borrador.</span>}
@@ -756,7 +770,7 @@ function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
 function AjustesLogistica({ aj, onClose, onGuardado }) {
   const c0 = cfgDe(aj)
   const [ubic, setUbic] = useState(tieneUbic(aj) ? `${aj.lat}, ${aj.lng}` : '')
-  const [c, setC] = useState({ salida: c0.salida, fin: c0.fin, almuerzo_desde: c0.almuerzo_desde, almuerzo_min: c0.almuerzo_min, min_parada: c0.min_parada, tolerancia: c0.tolerancia, min_descargue: c0.min_descargue })
+  const [c, setC] = useState({ salida: c0.salida, fin: c0.fin, almuerzo_desde: c0.almuerzo_desde, almuerzo_min: c0.almuerzo_min, min_parada: c0.min_parada, tolerancia: c0.tolerancia, min_descargue: c0.min_descargue, conductor: aj.conductor || '', conductor_tel: aj.conductor_tel || '' })
   const [error, setError] = useState('')
   const set = (k) => (e) => setC({ ...c, [k]: e.target.value })
   const u = leerUbicacion(ubic)
@@ -767,7 +781,7 @@ function AjustesLogistica({ aj, onClose, onGuardado }) {
     const { jornada_camion, ...resto } = aj // eslint-disable-line no-unused-vars
     try {
       await q(sb.from('ajustes').upsert({ clave: 'logistica', valor: { ...resto, lat: u.lat, lng: u.lng, salida: c.salida, fin: c.fin, almuerzo_desde: c.almuerzo_desde,
-        almuerzo_min: Number(c.almuerzo_min) || 0, min_parada: Number(c.min_parada) || 20, tolerancia: Number(c.tolerancia) || 0, min_descargue: Number(c.min_descargue) || 15 } }))
+        almuerzo_min: Number(c.almuerzo_min) || 0, min_parada: Number(c.min_parada) || 20, tolerancia: Number(c.tolerancia) || 0, min_descargue: Number(c.min_descargue) || 15, conductor: c.conductor.trim() || null, conductor_tel: c.conductor_tel.trim() || null } }))
       onGuardado()
     } catch (err) { setError(err.message) }
   }
@@ -776,6 +790,12 @@ function AjustesLogistica({ aj, onClose, onGuardado }) {
       <form className="form" onSubmit={guardar}>
         <label>Ubicación de la planta (link de Google Maps o coordenadas)<input value={ubic} onChange={(e) => setUbic(e.target.value)} placeholder="6.2442, -75.5812" />
           <span className="tenue pequeño">{u ? `✓ ${u.lat}, ${u.lng}` : 'En Google Maps, mantén presionado el punto de la planta y copia las coordenadas que aparecen.'}</span></label>
+        <h4 className="subt">Conductor del camión de la empresa</h4>
+        <div className="fila-form">
+          <label className="crece">Conductor predeterminado<input list="lista-conductores" value={c.conductor} onChange={set('conductor')} placeholder="Nombre del conductor de planta" /></label>
+          <label>Teléfono<input value={c.conductor_tel} onChange={set('conductor_tel')} inputMode="tel" /></label>
+        </div>
+        <p className="tenue pequeño">Se pone solo en cada ruta del camión. Si un día maneja otra persona, se cambia en la ruta (por ejemplo, un conductor de reemplazo guardado en Transportadores).</p>
         <h4 className="subt">Horario del recorrido</h4>
         <div className="fila-form">
           <label>Sale de la planta<SelectorHora value={c.salida} onChange={(v) => setC({ ...c, salida: v })} /></label>
