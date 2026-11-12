@@ -523,7 +523,7 @@ function ColContratados({ titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onA
           <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => onAbrir(v)}
             acciones={<div className="contratado-acc">
               <select value={v.transportador_id || ''} disabled={ocupado} onChange={(e) => asignar(v, e.target.value)}>
-                <option value="">Transportador…</option>{activos.map((x) => <option key={x.id} value={x.id}>{x.nombre}{x.tipo ? ` (${TIPOS_TRANSPORTE[x.tipo] || x.tipo})` : ''}</option>)}
+                <option value="">Transportador…</option>{activos.map((x) => <option key={x.id} value={x.id}>{x.nombre}{x.tipo ? ` (${TIPOS_TRANSPORTE[x.tipo] || x.tipo}${x.tamano ? ` ${x.tamano}` : ''})` : ''}</option>)}
               </select>
               {t?.telefono && <a className="btn btn-sec btn-sm" href={telLink(t.telefono)}>Llamar</a>}
               {v.estado === 'pendiente'
@@ -554,10 +554,10 @@ function Transportadores({ lista, onCambio }) {
       </div>
       {ls.length === 0 ? <div className="vacio">No hay transportadores guardados.</div> : (
         <table className="tabla tabla-click">
-          <thead><tr><th>Nombre</th><th>Tipo</th><th>Contacto</th><th>Teléfono</th><th>Notas</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Tipo</th><th>Tamaño</th><th>Contacto</th><th>Teléfono</th><th>Notas</th></tr></thead>
           <tbody>{ls.map((t) => (
             <tr key={t.id} onClick={() => setForm(t)} className={t.activo === false ? 'omitida' : ''}>
-              <td><b>{t.nombre}</b></td><td>{TIPOS_TRANSPORTE[t.tipo] || t.tipo || '—'}</td><td>{t.contacto}</td>
+              <td><b>{t.nombre}</b></td><td>{TIPOS_TRANSPORTE[t.tipo] || t.tipo || '—'}</td><td>{t.tamano}</td><td>{t.contacto}</td>
               <td>{t.telefono && <a href={telLink(t.telefono)} onClick={(e) => e.stopPropagation()}>{t.telefono}</a>}</td><td className="tenue pequeño">{t.notas}</td>
             </tr>
           ))}</tbody>
@@ -568,12 +568,12 @@ function Transportadores({ lista, onCambio }) {
   )
 }
 function FormTransportador({ inicial, onClose, onGuardado }) {
-  const [f, setF] = useState({ nombre: '', tipo: 'moto', contacto: '', telefono: '', notas: '', ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)) })
+  const [f, setF] = useState({ nombre: '', tipo: 'moto', tamano: '', contacto: '', telefono: '', notas: '', ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)) })
   const [error, setError] = useState('')
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   const guardar = async (e) => {
     e.preventDefault()
-    const fila = { nombre: f.nombre.trim(), tipo: f.tipo, contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, notas: f.notas.trim() || null }
+    const fila = { nombre: f.nombre.trim(), tipo: f.tipo, tamano: f.tipo === 'conductor' ? null : (f.tamano || '').trim() || null, contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, notas: f.notas.trim() || null }
     try { if (f.id) await q(sb.from('transportadores').update(fila).eq('id', f.id)); else await q(sb.from('transportadores').insert(fila)); onGuardado() } catch (err) { setError(err.message) }
   }
   const activar = async (si) => { try { await q(sb.from('transportadores').update({ activo: si }).eq('id', f.id)); onGuardado() } catch (err) { setError(err.message) } }
@@ -584,6 +584,7 @@ function FormTransportador({ inicial, onClose, onGuardado }) {
           <label className="crece">Nombre (persona o empresa)<input value={f.nombre} onChange={set('nombre')} required /></label>
           <label>Tipo<select value={f.tipo} onChange={set('tipo')}>{Object.entries(TIPOS_TRANSPORTE).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
         </div>
+        {f.tipo !== 'conductor' && <label>Tamaño o capacidad del vehículo<input value={f.tamano || ''} onChange={set('tamano')} placeholder="Ej.: camión de 6 m, furgón 2 t, carro pequeño" /></label>}
         <div className="fila-form">
           <label>Contacto<input value={f.contacto} onChange={set('contacto')} /></label>
           <label>Teléfono<input value={f.telefono} onChange={set('telefono')} inputMode="tel" /></label>
