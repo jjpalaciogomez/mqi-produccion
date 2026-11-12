@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useEnVivo } from '../vivo.js'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
@@ -17,6 +18,7 @@ function useAjustesLog() {
   const [aj, setAj] = useState(null)
   const cargar = useCallback(() => q(sb.from('ajustes').select('valor').eq('clave', 'logistica')).then((r) => setAj({ ...AJ_DEF, ...(r[0]?.valor || {}) })).catch(() => setAj(AJ_DEF)), [])
   useEffect(() => { cargar() }, [cargar])
+  useEnVivo(cargar, ['ajustes'])
   return [aj, cargar]
 }
 
@@ -27,7 +29,9 @@ export default function Logistica({ perfil, gestor }) {
   const [transps, setTransps] = useState(null)
   const cargarTransps = useCallback(() => q(sb.from('transportadores').select('*').order('nombre')).then(setTransps).catch(() => setTransps([])), [])
   useEffect(() => { cargarTransps() }, [cargarTransps])
+  useEnVivo(cargarTransps, ['transportadores'], 120000)
   useEffect(() => { cargarLugares() }, [cargarLugares])
+  useEnVivo(cargarLugares, ['lugares'], 120000)
   return (
     <div>
       <div className="titulo-pagina">
@@ -65,6 +69,7 @@ function Vueltas({ perfil, gestor, lugares, onLugares }) {
     } catch (e) { setError(e.message) }
   }, [filtro, hoy, yo])
   useEffect(() => { cargar() }, [cargar])
+  useEnVivo(cargar, ['vueltas', 'recorridos', 'transportadores'])
   const puedeEditar = (v) => gestor || (v.solicitante === yo && v.estado === 'pendiente' && (!v.recorridos || v.recorridos.estado === 'borrador'))
   const porFecha = useMemo(() => {
     const g = {}
@@ -287,6 +292,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
     } catch (e) { setError(e.message) }
   }, [fecha])
   useEffect(() => { cargar() }, [cargar])
+  useEnVivo(cargar, ['vueltas', 'recorridos', 'transportadores'], 20000)
 
   const planta = aj && tieneUbic(aj) ? aj : null
   const cfg = cfgDe(aj)

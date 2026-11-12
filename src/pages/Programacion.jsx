@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEnVivo } from '../vivo.js'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
@@ -39,6 +40,7 @@ export function useProgramacion(desde, hasta, areas) {
     } catch (e) { setError(e.message) }
   }, [desde, hasta, clave]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { cargar() }, [cargar])
+  useEnVivo(cargar, ['programacion', 'horas_extra', 'ajustes'])
   return { d, error, cargar }
 }
 
@@ -86,6 +88,7 @@ export default function Programacion({ perfil, gestor }) {
     setPend({ filas: Object.values(g), ops, futuros })
   }, [])
   useEffect(() => { cargarPend().catch(() => {}) }, [cargarPend])
+  useEnVivo(cargarPend, ['tareas', 'registros', 'programacion', 'ordenes'])
   const recargar = () => { cargar(); cargarPend().catch(() => {}) }
 
   const opsPorId = useMemo(() => Object.fromEntries((pend?.ops || []).map((o) => [o.id, o])), [pend])

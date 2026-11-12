@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEnVivo } from '../vivo.js'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Modal, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
@@ -56,7 +57,8 @@ export default function Tablet({ perfil }) {
     } catch (e) { setError(`Sin conexión con el sistema: ${e.message}`) }
   }, [area]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { cargar(); const t = setInterval(cargar, 20000); return () => clearInterval(t) }, [cargar])
+  useEffect(() => { cargar() }, [cargar])
+  useEnVivo(cargar, ['tareas', 'registros', 'programacion', 'ordenes', 'paros'], 20000)
   useEffect(() => { const t = setInterval(() => setHora(new Date()), 30000); return () => clearInterval(t) }, [])
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(''), 5000); return () => clearTimeout(t) }, [msg])
 

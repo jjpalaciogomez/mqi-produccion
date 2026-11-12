@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEnVivo } from '../vivo.js'
 import { jornadaMin } from '../planificador.js'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Badge, Cargando, fmtMin } from '../ui.jsx'
@@ -41,6 +42,7 @@ export default function Horas({ perfil }) {
     } catch (e) { setError(e.message) }
   }, [desde, hasta])
   useEffect(() => { setDatos(null); setAbierta(null); cargar() }, [cargar])
+  useEnVivo(cargar, ['registros', 'paros'])
 
   const mover = (n) => setFecha(sumarDias(fecha, vista === 'dia' ? n : n * 7))
 

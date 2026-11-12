@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEnVivo } from '../vivo.js'
 import { jornadaMin } from '../planificador.js'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
@@ -40,7 +41,8 @@ export default function Indicadores({ perfil }) {
       setError(''); setHora(new Date())
     } catch (e) { setError(e.message) }
   }, [desde, hoy])
-  useEffect(() => { setD(null); cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t) }, [cargar])
+  useEffect(() => { setD(null); cargar() }, [cargar])
+  useEnVivo(cargar, ['registros', 'paros', 'tareas', 'ordenes'], 60000)
 
   const k = useMemo(() => d && calcular(d, desde, hoy), [d, desde, hoy])
 

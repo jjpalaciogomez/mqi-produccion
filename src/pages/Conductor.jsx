@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
+import { useEnVivo } from '../vivo.js'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal } from '../ui.jsx'
 import { hoyCO } from '../cumplimiento.js'
@@ -25,7 +26,8 @@ export default function Conductor({ perfil }) {
       setD({ recs, planta: aj[0]?.valor || null }); setError('')
     } catch (e) { setError(e.message) }
   }, [hoy])
-  useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t) }, [cargar])
+  useEffect(() => { cargar() }, [cargar])
+  useEnVivo(cargar, ['recorridos', 'vueltas', 'ajustes'])
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(''), 4000); return () => clearTimeout(t) }, [msg])
 
   const marcar = async (v, hecha, nota) => {

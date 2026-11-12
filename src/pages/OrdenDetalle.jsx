@@ -1,6 +1,7 @@
 import { useOPExistente } from '../numeroOP.js'
 import { SIN_FECHA, estaOculta, evaluarOP, hoyCO } from '../cumplimiento.js'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useEnVivo } from '../vivo.js'
 import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, EstadoTarea, Modal, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import Mapa from './Mapa.jsx'
@@ -35,7 +36,8 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
     } catch (e) { setError(e.message) }
   }, [id])
 
-  useEffect(() => { cargar(); const t = setInterval(cargar, 30000); return () => clearInterval(t) }, [cargar])
+  useEffect(() => { cargar() }, [cargar])
+  useEnVivo(cargar, ['ordenes', 'tareas', 'registros', 'programacion'])
 
   if (error && !d) return <Aviso>{error}</Aviso>
   if (!d) return <Cargando />

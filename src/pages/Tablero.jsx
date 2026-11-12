@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEnVivo } from '../vivo.js'
 import { sb, q } from '../supabase.js'
 import { Aviso, Barra, Cargando, ESTADO_OP, fmtFecha, fmtMin } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
@@ -33,7 +34,8 @@ export default function Tablero({ gestor, rol }) {
     } catch (e) { setError(e.message) }
   }, [filtro])
 
-  useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t) }, [cargar])
+  useEffect(() => { cargar() }, [cargar])
+  useEnVivo(cargar, ['ordenes', 'tareas', 'registros', 'programacion'])
 
   const lista = useMemo(() => {
     if (!ordenes) return []

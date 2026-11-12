@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { iniciarEnVivo, detenerEnVivo } from './vivo.js'
 import { sb } from './supabase.js'
 import { Cargando } from './ui.jsx'
 import Login from './pages/Login.jsx'
@@ -78,6 +79,9 @@ export default function App() {
       else setPerfil(data)
     })
   }, [session])
+
+  // Cambios en tiempo real entre dispositivos mientras hay sesión
+  useEffect(() => { if (perfil) iniciarEnVivo(); else detenerEnVivo() }, [perfil])
 
   if (session === undefined) return <Cargando />
   if (!session) return <Login />
