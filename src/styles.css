@@ -617,3 +617,7 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .contratado-acc select { max-width: 200px; }
 .campo-valor { display: inline-flex; flex-direction: row !important; align-items: center; gap: 4px; font-size: .85rem; margin: 0; }
 .campo-valor input { width: 95px; }
+.wa-fila { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--borde, #e5e7eb); }
+.wa-fila.enviado { opacity: .75; }
+.wa-fila .badge { margin-left: 6px; }
+.wa-texto { white-space: pre-wrap; font-family: inherit; font-size: .85rem; background: #f0fdf4; border-radius: 8px; padding: 8px; margin: 6px 0 0; }

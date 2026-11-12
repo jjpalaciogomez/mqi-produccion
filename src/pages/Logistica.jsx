@@ -5,7 +5,7 @@ import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, telLink, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
   linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
@@ -353,6 +353,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   }, 'Asignación propuesta: el camión se llena primero mientras llegue a tiempo a cada sitio y regrese antes de su hora de fin; lo demás queda para pedir como servicio contratado. Revísala y confirma la ruta del camión.')
   // El camión está en la planta a cierta hora: lo hecho queda en su ruta y lo pendiente se vuelve a programar desde la hora en que puede volver a salir
   const [verEnPlanta, setVerEnPlanta] = useState(false)
+  const [wa, setWa] = useState(null) // ruta (o vuelta) para mandar por WhatsApp
   const replanificar = ({ enPlanta, sale, almorzo }) => accion(async () => {
     const rutas = cols.filter((c) => vehDe(c) === 'camion' && rec(c))
     const ult = Math.max(0, ...rutas.filter((k) => fijasDe(k).length).map(numDe))
@@ -520,6 +521,14 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                   {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar</button>}
                   {!conf && ps.some((x) => x.estado === 'pendiente') && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => sacarTodas(veh)} title="Pasa a Sin asignar todas las vueltas pendientes de esta ruta, para reorganizar">Sacar todas</button>}
                   {conf && <span className="tenue pequeño">Para sacar o mover vueltas, vuelve la ruta a borrador.</span>}
+                  {ps.length > 0 && <button className="btn btn-sec btn-sm" onClick={() => {
+                    const tel = contratada ? transps.find((x) => x.id === r?.transportador_id)?.telefono
+                      : (() => { const nom = r?.conductor || cfg.conductor; return conductores.find((x) => x.nombre === nom)?.telefono || (nom === cfg.conductor ? cfg.conductor_tel : '') })()
+                    const nombre = contratada ? transps.find((x) => x.id === r?.transportador_id)?.nombre : (r?.conductor || cfg.conductor)
+                    const pend = ps.filter((x) => x.estado === 'pendiente')
+                    setWa({ titulo: nombreRuta(veh), tel: tel || '', nombre: nombre || '', resumen: mensajeResumen(pend, { titulo: nombreRuta(veh), salida: cr.salida, planta }),
+                      mensajes: pend.map((x, j) => ({ id: x.id, destino: x.destino, texto: mensajeVuelta(x, { n: j + 1, total: pend.length, titulo: nombreRuta(veh), paso: est.sim.pasos[ps.indexOf(x)] }) })) })
+                  }} title="Manda la ruta por WhatsApp: un mensaje por cada vuelta con dirección y ubicación en Maps">📲 WhatsApp</button>}
                   {links.map((l, i) => <a key={l} className="btn btn-sec btn-sm" href={l} target="_blank" rel="noreferrer">Ver en Google Maps{links.length > 1 ? ` (${i + 1})` : ''}</a>)}
                   {!contratada && ps.length > 0 && (conf
                     ? <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => confirmar(veh, false)}>Volver a borrador</button>
@@ -533,6 +542,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
       )}
       {form && <FormVuelta inicial={form} lugares={lugares} perfil={perfil} gestor
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); cargar(); onLugares() }} />}
+      {wa && <EnviarWhatsApp {...wa} onClose={() => setWa(null)} />}
       {verEnPlanta && <CamionEnPlanta cfg={cfg} fecha={fecha} hechas={cols.filter((c) => vehDe(c) === 'camion').reduce((n, k) => n + fijasDe(k).length, 0)}
         pendientes={cols.filter((c) => vehDe(c) === 'camion').reduce((n, k) => n + pendDe(k).length, 0) + sinAsignar.length} ocupado={ocupado}
         onClose={() => setVerEnPlanta(false)} onAceptar={replanificar} />}
@@ -561,6 +571,7 @@ function ColContratados({ titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onA
                 <option value="">Transportador…</option>{activos.map((x) => <option key={x.id} value={x.id}>{x.nombre}{x.tipo ? ` (${TIPOS_TRANSPORTE[x.tipo] || x.tipo}${x.tamano ? ` ${x.tamano}` : ''})` : ''}</option>)}
               </select>
               {t?.telefono && <a className="btn btn-sec btn-sm" href={telLink(t.telefono)}>Llamar</a>}
+              {v.estado === 'pendiente' && <a className="btn btn-sec btn-sm" href={linkWhatsApp(t?.telefono, mensajeVuelta(v, { titulo: 'Servicio contratado' }))} target="_blank" rel="noreferrer" title="Manda esta vuelta por WhatsApp al transportador">📲 WhatsApp</a>}
               <CampoValor valor={v.valor} disabled={ocupado} onGuardar={(n) => onAccion(() => q(sb.from('vueltas').update({ valor: n }).eq('id', v.id)))} />
               {v.estado === 'pendiente'
                 ? <button className="btn btn-ok btn-sm" disabled={ocupado} onClick={() => hecha(v, true)}>Hecha</button>
@@ -572,6 +583,36 @@ function ColContratados({ titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onA
         )
       })}
     </div>
+  )
+}
+
+// Mandar una ruta por WhatsApp: un resumen opcional y un mensaje independiente por cada vuelta
+function EnviarWhatsApp({ titulo, tel: tel0, nombre, resumen, mensajes, onClose }) {
+  const [tel, setTel] = useState(tel0)
+  const [enviados, setEnviados] = useState({})
+  const [ver, setVer] = useState(null)
+  const marca = (k) => setEnviados((e) => ({ ...e, [k]: true }))
+  const fila = (k, etiqueta, texto) => (
+    <div key={k} className={`wa-fila${enviados[k] ? ' enviado' : ''}`}>
+      <div className="crece"><b>{etiqueta}</b>{enviados[k] && <span className="badge badge-ok">Enviado</span>}
+        <div><button type="button" className="btn-link pequeño" onClick={() => setVer(ver === k ? null : k)}>{ver === k ? 'Ocultar mensaje' : 'Ver mensaje'}</button></div>
+        {ver === k && <pre className="wa-texto">{texto}</pre>}
+      </div>
+      <a className={`btn btn-sm ${enviados[k] ? 'btn-sec' : ''}`} href={linkWhatsApp(tel, texto)} target="_blank" rel="noreferrer" onClick={() => marca(k)}>{enviados[k] ? 'Reenviar' : 'Enviar'}</a>
+    </div>
+  )
+  return (
+    <Modal titulo={`WhatsApp · ${titulo}`} onClose={onClose} ancho={620}>
+      <div className="form">
+        <label>Celular de {nombre || 'quien hace la ruta'}<input value={tel} onChange={(e) => setTel(e.target.value)} inputMode="tel" placeholder="3001234567 (si se deja vacío, WhatsApp pide elegir el contacto)" /></label>
+        <p className="tenue pequeño">Cada botón abre WhatsApp con el mensaje listo: lo envías allá y vuelves aquí para el siguiente. Cada vuelta va en un mensaje aparte, con la dirección y el link de Google Maps.</p>
+        {mensajes.length === 0 ? <div className="vacio">No hay vueltas pendientes en esta ruta.</div> : <>
+          {fila('resumen', 'Resumen de la ruta (opcional)', resumen)}
+          {mensajes.map((m, i) => fila(m.id, `${i + 1}. ${m.destino}`, m.texto))}
+        </>}
+        <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cerrar</button></div>
+      </div>
+    </Modal>
   )
 }
 

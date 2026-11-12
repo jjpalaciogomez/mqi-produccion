@@ -374,3 +374,41 @@ export function linksRecorrido(paradas, planta) {
   return tramos
 }
 export const telLink = (t) => `tel:${String(t || '').replace(/[^\d+]/g, '')}`
+
+// ----- WhatsApp: mandar la ruta a un conductor o transportador, una vuelta por mensaje -----
+// Número para wa.me: solo dígitos; un celular colombiano de 10 dígitos se completa con 57
+export function waNumero(tel) {
+  const d = String(tel || '').replace(/\D/g, '')
+  if (d.length === 10 && d.startsWith('3')) return `57${d}`
+  return d
+}
+export const linkWhatsApp = (tel, texto) => `https://wa.me/${waNumero(tel)}?text=${encodeURIComponent(texto)}`
+const TIPO_TXT = { entrega: 'ENTREGA', recogida: 'RECOGIDA', diligencia: 'DILIGENCIA', regreso: 'REGRESO A LA PLANTA' }
+export function mensajeVuelta(v, { n, total, titulo, paso } = {}) {
+  const l = []
+  l.push(`*MQI · ${titulo || 'Vuelta'}${n ? ` · Vuelta ${n}${total ? ` de ${total}` : ''}` : ''}*`)
+  if (v.recoger_planta) l.push('➡️ Antes: recoger la mercancía en la Planta MQI')
+  l.push(`*${TIPO_TXT[v.tipo] || 'VUELTA'}* · ${v.destino}`)
+  const dir = [v.direccion, v.municipio].filter(Boolean).join(', ')
+  if (dir) l.push(`📍 ${dir}`)
+  if (tieneUbic(v) || dir) l.push(`🗺️ ${linkMaps(v)}`)
+  if (v.descripcion || v.op) l.push(`📦 ${[v.descripcion, v.op ? `OP ${v.op}` : ''].filter(Boolean).join(' · ')}`)
+  if (v.contacto || v.telefono) l.push(`👤 ${[v.contacto, v.telefono].filter(Boolean).join(' · ')}`)
+  const cu = cuandoTxt(v)
+  if (cu) l.push(`⏰ ${cu.charAt(0).toUpperCase()}${cu.slice(1)}`)
+  const rc = recepcionTxt(v.recepcion)
+  if (rc) l.push(`🕒 Recibe ${rc}`)
+  if (paso?.llega != null) l.push(`🚚 Llegada estimada: ${h12(hm(paso.llega))}`)
+  if (v.volver_planta) l.push(`↩️ Después: volver a la Planta MQI${v.volver_antes ? ` antes de las ${h12(v.volver_antes)}` : ''}`)
+  if (v.nota) l.push(`📝 ${v.nota}`)
+  return l.join('\n')
+}
+export function mensajeResumen(paradas, { titulo, salida, planta }) {
+  const l = [`*MQI · ${titulo}*`, `${paradas.length} ${paradas.length === 1 ? 'vuelta' : 'vueltas'}${salida ? ` · sale de la planta a las ${h12(salida)}` : ''}`]
+  if (tieneUbic(planta)) l.push(`🏭 Planta MQI: https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}`)
+  paradas.forEach((v, i) => l.push(`${i + 1}. ${v.destino}${v.municipio ? ` (${v.municipio})` : ''}`))
+  const links = linksRecorrido(paradas, planta)
+  if (links.length) l.push(`🗺️ Recorrido completo: ${links.join(' ')}`)
+  l.push('Le envío cada vuelta en un mensaje aparte.')
+  return l.join('\n')
+}
