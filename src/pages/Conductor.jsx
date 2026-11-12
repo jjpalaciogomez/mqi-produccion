@@ -18,6 +18,8 @@ export default function Conductor({ perfil }) {
         q(sb.from('recorridos').select('*, vueltas(*)').eq('fecha', hoy).eq('estado', 'confirmada')),
         q(sb.from('ajustes').select('valor').eq('clave', 'logistica')),
       ])
+      // El celular del conductor es para las rutas del camión (los servicios contratados no usan la app)
+      recs.splice(0, recs.length, ...recs.filter((r) => r.vehiculo === 'camion'))
       for (const r of recs) r.vueltas = (r.vueltas || []).filter((v) => v.estado !== 'cancelada').sort((a, b) => (a.orden ?? 99) - (b.orden ?? 99))
       recs.sort((a, b) => Object.keys(VEHICULOS).indexOf(a.vehiculo) - Object.keys(VEHICULOS).indexOf(b.vehiculo) || (a.numero || 1) - (b.numero || 1))
       setD({ recs, planta: aj[0]?.valor || null }); setError('')

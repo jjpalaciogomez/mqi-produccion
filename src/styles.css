@@ -611,3 +611,7 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .log-planta-punto .ico { font-size: 20px; } .log-planta-punto .pequeño { color: #cfd6df; }
 .log-planta-punto.tarde { background: #7a1f16; } .log-planta-punto .t-mal { color: #ffb4a8; }
 .log-planta-punto .btn { margin-left: auto; }
+
+.log-col.contratado { background: #f6f3fb; }
+.contratado-acc { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.contratado-acc select { max-width: 200px; }

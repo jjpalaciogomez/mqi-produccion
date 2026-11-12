@@ -4,7 +4,7 @@ import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_VUELTA, VEHICULOS, aMin, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, telLink, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
   linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
@@ -24,6 +24,9 @@ export default function Logistica({ perfil, gestor }) {
   const [tab, setTab] = useState(gestor ? 'ruta' : 'vueltas')
   const [lugares, setLugares] = useState(null)
   const cargarLugares = useCallback(() => q(sb.from('lugares').select('*').order('nombre')).then(setLugares).catch(() => setLugares([])), [])
+  const [transps, setTransps] = useState(null)
+  const cargarTransps = useCallback(() => q(sb.from('transportadores').select('*').order('nombre')).then(setTransps).catch(() => setTransps([])), [])
+  useEffect(() => { cargarTransps() }, [cargarTransps])
   useEffect(() => { cargarLugares() }, [cargarLugares])
   return (
     <div>
@@ -32,13 +35,14 @@ export default function Logistica({ perfil, gestor }) {
         <BotonAyuda clave="logistica" rol={perfil?.rol} />
       </div>
       <div className="segmentado pestañas">
-        {[...(gestor ? [['ruta', 'Ruta del día']] : []), ['vueltas', 'Vueltas'], ['lugares', 'Clientes y proveedores']].map(([k, t]) => (
+        {[...(gestor ? [['ruta', 'Ruta del día']] : []), ['vueltas', 'Vueltas'], ['lugares', 'Clientes y proveedores'], ['transportadores', 'Transportadores']].map(([k, t]) => (
           <button key={k} className={tab === k ? 'sel' : ''} onClick={() => setTab(k)}>{t}</button>
         ))}
       </div>
-      {tab === 'ruta' && gestor && <RutaDelDia lugares={lugares || []} perfil={perfil} onLugares={cargarLugares} />}
+      {tab === 'ruta' && gestor && <RutaDelDia lugares={lugares || []} transps={transps || []} perfil={perfil} onLugares={cargarLugares} />}
       {tab === 'vueltas' && <Vueltas perfil={perfil} gestor={gestor} lugares={lugares || []} onLugares={cargarLugares} />}
       {tab === 'lugares' && <Lugares lugares={lugares} onCambio={cargarLugares} />}
+      {tab === 'transportadores' && <Transportadores lista={transps} onCambio={cargarTransps} />}
     </div>
   )
 }
@@ -53,7 +57,7 @@ function Vueltas({ perfil, gestor, lugares, onLugares }) {
   const yo = perfil?.user_id
   const cargar = useCallback(async () => {
     try {
-      let c = sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado, numero)').order('fecha').order('hora', { nullsFirst: false }).order('creado')
+      let c = sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado, numero), transportadores(nombre, telefono)').order('fecha').order('hora', { nullsFirst: false }).order('creado')
       if (filtro === 'pendientes') c = c.in('estado', ['pendiente', 'no_hecha'])
       else c = c.gte('fecha', sumarDias(hoy, -30))
       if (filtro === 'mias') c = c.eq('solicitante', yo)
@@ -106,6 +110,7 @@ function EstadoVuelta({ v }) {
   if (v.estado === 'no_hecha') return <span className="badge badge-bad" title={v.resultado || ''}>No se pudo</span>
   if (v.estado === 'cancelada') return <span className="badge badge-muted">Cancelada</span>
   if (v.pospuesta) return <span className="badge badge-muted">No programar por ahora</span>
+  if (v.recorridos && esContratado(v.recorridos.vehiculo)) return <span className="badge badge-info">Servicio contratado{v.transportadores ? ` · ${v.transportadores.nombre}` : ''}</span>
   if (v.recorridos) return <span className={`badge ${v.recorridos.estado === 'confirmada' ? 'badge-info' : 'badge-muted'}`}>{VEHICULOS[v.recorridos.vehiculo]?.split(' ')[0]}{v.recorridos.numero > 1 ? ` (ruta ${v.recorridos.numero})` : ''}{v.recorridos.estado === 'confirmada' ? ' · confirmada' : ' · en borrador'}</span>
   return <span className="badge badge-warn">Sin asignar</span>
 }
@@ -258,7 +263,7 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
 }
 
 // ---------------- Ruta del día (administrador) ----------------
-function RutaDelDia({ lugares, perfil, onLugares }) {
+function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   const hoy = hoyCO()
   const [fecha, setFecha] = useState(() => { const h = new Date().toLocaleString('en-US', { timeZone: 'America/Bogota', hour: 'numeric', hour12: false }); return Number(h) >= 14 ? sumarDias(hoy, new Date(hoy + 'T12:00:00').getDay() === 5 ? 3 : 1) : hoy })
   const [aj, cargarAj] = useAjustesLog()
@@ -272,9 +277,9 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
     try {
       const [recs, delDia, previas] = await Promise.all([
         q(sb.from('recorridos').select('*').eq('fecha', fecha)),
-        q(sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado, numero)').eq('fecha', fecha).neq('estado', 'cancelada')),
+        q(sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado, numero), transportadores(nombre, telefono)').eq('fecha', fecha).neq('estado', 'cancelada')),
         // Lo que quedó pendiente o no se pudo hacer en días anteriores
-        q(sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado, numero)').lt('fecha', fecha).in('estado', ['pendiente', 'no_hecha']).gte('fecha', sumarDias(fecha, -60))),
+        q(sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado, numero), transportadores(nombre, telefono)').lt('fecha', fecha).in('estado', ['pendiente', 'no_hecha']).gte('fecha', sumarDias(fecha, -60))),
       ])
       const ids = new Set(recs.map((r) => r.id))
       const vs = [...delDia, ...previas.filter((v) => !v.recorrido_id || !ids.has(v.recorrido_id))]
@@ -331,13 +336,13 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
   // La propuesta usa la última ruta abierta (sin confirmar) del camión y del mensajero
   const abierta = (veh) => { const ks = cols.filter((c) => vehDe(c) === veh && !bloqueado(c)); return ks[ks.length - 1] || null }
   const proponer = () => accion(async () => {
-    const kc = abierta('camion'), km = abierta('mensajero')
+    const kc = abierta('camion'), km = 'mensajero:1' // lo que no cabe en el camión se pide como servicio contratado
     const libres = [...sinAsignar, ...(kc ? deVeh(kc) : []), ...(km ? deVeh(km) : [])]
     const p = proponerAsignacion(libres, planta, (kc && cfgRuta[kc]) || cfg, fecha)
     if (kc) await guardarOrden(kc, p.camion)
     else p.mensajero.unshift(...p.camion)
     if (km && p.mensajero.length) await guardarOrden(km, p.mensajero)
-  }, 'Asignación propuesta: el camión se llena primero mientras llegue a tiempo a cada sitio y regrese antes de su hora de fin; lo demás va con mensajero. Revísala y confirma.')
+  }, 'Asignación propuesta: el camión se llena primero mientras llegue a tiempo a cada sitio y regrese antes de su hora de fin; lo demás queda para pedir como servicio contratado. Revísala y confirma la ruta del camión.')
   const confirmar = (veh, si) => accion(async () => {
     const r = await asegurarRec(veh)
     await q(sb.from('recorridos').update(si ? { estado: 'confirmada', confirmada_por: perfil?.user_id, confirmada_en: new Date().toISOString() } : { estado: 'borrador' }).eq('id', r.id))
@@ -375,8 +380,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
           <b className="fecha-larga">{diaTxt(fecha)}</b>
         </div>
         <button className="btn btn-sec" onClick={() => setForm({ fecha })}>+ Vuelta</button>
-        <button className="btn" disabled={ocupado || !aj || !d} onClick={proponer} title="Llena primero el camión mientras cumpla los horarios; lo demás va con mensajero">Proponer asignación</button>
-        {!rutasDe('externo').length && <button className="btn btn-sec btn-sm" onClick={() => otraRuta('externo')}>+ Otro transporte</button>}
+        <button className="btn" disabled={ocupado || !aj || !d} onClick={proponer} title="Llena primero el camión mientras cumpla los horarios; lo demás queda como servicio contratado">Proponer asignación</button>
         <button className="btn-link" onClick={() => setVerAjustes(true)}>Punto de salida y horarios</button>
       </div>
       {aj && !planta && <Aviso tipo="warn">Falta la ubicación de la planta (punto de salida). Sin ella no se puede calcular el orden ni el tiempo de viaje. <button className="btn-link" onClick={() => setVerAjustes(true)}>Configurarla</button></Aviso>}
@@ -400,6 +404,10 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
             )}
           </div>
           {cols.map((veh) => {
+            if (esContratado(vehDe(veh))) return (
+              <ColContratados key={veh} titulo={nombreRuta(veh)} ps={deVeh(veh)} fecha={fecha} cfg={cfg} transps={transps} ocupado={ocupado}
+                onAbrir={setForm} onAccion={accion} onSacar={(v, destino) => mover(v, destino)} destinos={cols.filter((c) => c !== veh && !bloqueado(c)).map((c) => [c, nombreRuta(c)])} />
+            )
             const ps = deVeh(veh), r = rec(veh), conf = r?.estado === 'confirmada'
             const est = estRuta[veh], cr = cfgRuta[veh]
             const pasa = est.regreso > aMin(cfg.fin)
@@ -459,6 +467,99 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); cargar(); onLugares() }} />}
       {verAjustes && aj && <AjustesLogistica aj={aj} onClose={() => setVerAjustes(false)} onGuardado={() => { setVerAjustes(false); cargarAj() }} />}
     </div>
+  )
+}
+
+// Servicios contratados: cada vuelta se pide por aparte al transportador, cuando se necesite (sin ruta ni horario del camión)
+function ColContratados({ titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onAccion, onSacar, destinos }) {
+  const activos = transps.filter((t) => t.activo !== false)
+  const asignar = (v, id) => onAccion(() => q(sb.from('vueltas').update({ transportador_id: id || null }).eq('id', v.id)))
+  const hecha = (v, si) => onAccion(() => q(sb.from('vueltas').update(si ? { estado: 'hecha', hecha_en: new Date().toISOString() } : { estado: 'pendiente', hecha_en: null }).eq('id', v.id)), si ? `${v.destino}: hecha.` : '')
+  const pend = ps.filter((v) => v.estado === 'pendiente').length
+  return (
+    <div className="log-col contratado">
+      <div className="log-col-cab"><b>{titulo}</b><span className="tenue pequeño">{pend} por hacer · {ps.length - pend} hechas</span></div>
+      <div className="tenue pequeño log-est">Se piden cuando se necesiten a un transportador (mensajero, carro, camión externo). No siguen la ruta ni el horario del camión.</div>
+      {ps.length === 0 && <div className="vacio pequeño">Asigna aquí desde "Sin asignar" las vueltas que se van a pedir a un servicio.</div>}
+      {ps.map((v) => {
+        const t = transps.find((x) => x.id === v.transportador_id)
+        return (
+          <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => onAbrir(v)}
+            acciones={<div className="contratado-acc">
+              <select value={v.transportador_id || ''} disabled={ocupado} onChange={(e) => asignar(v, e.target.value)}>
+                <option value="">Transportador…</option>{activos.map((x) => <option key={x.id} value={x.id}>{x.nombre}{x.tipo ? ` (${TIPOS_TRANSPORTE[x.tipo] || x.tipo})` : ''}</option>)}
+              </select>
+              {t?.telefono && <a className="btn btn-sec btn-sm" href={telLink(t.telefono)}>Llamar</a>}
+              {v.estado === 'pendiente'
+                ? <button className="btn btn-ok btn-sm" disabled={ocupado} onClick={() => hecha(v, true)}>Hecha</button>
+                : v.estado === 'hecha' && <button className="btn-link" disabled={ocupado} onClick={() => hecha(v, false)}>Deshacer</button>}
+              <select value="" disabled={ocupado} onChange={(e) => onSacar(v, e.target.value)}>
+                <option value="">Mover…</option>{destinos.map(([k, n]) => <option key={k} value={k}>{n}</option>)}<option value="retomar">Sacar (a Sin asignar)</option><option value="pospuesta">No programar por ahora</option>
+              </select>
+            </div>} />
+        )
+      })}
+    </div>
+  )
+}
+
+// Transportadores recurrentes (mensajeros y servicios de transporte que se contratan)
+function Transportadores({ lista, onCambio }) {
+  const [form, setForm] = useState(null)
+  const [verInactivos, setVerInactivos] = useState(false)
+  if (!lista) return <Cargando />
+  const ls = lista.filter((t) => verInactivos || t.activo !== false)
+  return (
+    <div>
+      <div className="filtros">
+        <span className="tenue">Mensajeros y servicios de transporte que se contratan seguido. Al asignar una vuelta a "Servicio contratado" se elige uno de ellos.</span>
+        <label className="check pequeño"><input type="checkbox" checked={verInactivos} onChange={(e) => setVerInactivos(e.target.checked)} /> Ver inactivos</label>
+        <button className="btn" onClick={() => setForm({ tipo: 'moto' })}>+ Agregar</button>
+      </div>
+      {ls.length === 0 ? <div className="vacio">No hay transportadores guardados.</div> : (
+        <table className="tabla tabla-click">
+          <thead><tr><th>Nombre</th><th>Tipo</th><th>Contacto</th><th>Teléfono</th><th>Notas</th></tr></thead>
+          <tbody>{ls.map((t) => (
+            <tr key={t.id} onClick={() => setForm(t)} className={t.activo === false ? 'omitida' : ''}>
+              <td><b>{t.nombre}</b></td><td>{TIPOS_TRANSPORTE[t.tipo] || t.tipo || '—'}</td><td>{t.contacto}</td>
+              <td>{t.telefono && <a href={telLink(t.telefono)} onClick={(e) => e.stopPropagation()}>{t.telefono}</a>}</td><td className="tenue pequeño">{t.notas}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      {form && <FormTransportador inicial={form} onClose={() => setForm(null)} onGuardado={() => { setForm(null); onCambio() }} />}
+    </div>
+  )
+}
+function FormTransportador({ inicial, onClose, onGuardado }) {
+  const [f, setF] = useState({ nombre: '', tipo: 'moto', contacto: '', telefono: '', notas: '', ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)) })
+  const [error, setError] = useState('')
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
+  const guardar = async (e) => {
+    e.preventDefault()
+    const fila = { nombre: f.nombre.trim(), tipo: f.tipo, contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, notas: f.notas.trim() || null }
+    try { if (f.id) await q(sb.from('transportadores').update(fila).eq('id', f.id)); else await q(sb.from('transportadores').insert(fila)); onGuardado() } catch (err) { setError(err.message) }
+  }
+  const activar = async (si) => { try { await q(sb.from('transportadores').update({ activo: si }).eq('id', f.id)); onGuardado() } catch (err) { setError(err.message) } }
+  return (
+    <Modal titulo={f.id ? f.nombre : 'Nuevo transportador'} onClose={onClose} ancho={560}>
+      <form className="form" onSubmit={guardar}>
+        <div className="fila-form">
+          <label className="crece">Nombre (persona o empresa)<input value={f.nombre} onChange={set('nombre')} required /></label>
+          <label>Tipo<select value={f.tipo} onChange={set('tipo')}>{Object.entries(TIPOS_TRANSPORTE).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
+        </div>
+        <div className="fila-form">
+          <label>Contacto<input value={f.contacto} onChange={set('contacto')} /></label>
+          <label>Teléfono<input value={f.telefono} onChange={set('telefono')} inputMode="tel" /></label>
+        </div>
+        <label>Notas (tarifas, cómo se pide, horario en que atiende…)<textarea rows={2} value={f.notas} onChange={set('notas')} /></label>
+        <Aviso>{error}</Aviso>
+        <div className="acciones">
+          {f.id && <button type="button" className="btn-link" onClick={() => activar(f.activo === false)}>{f.activo === false ? 'Activar' : 'Desactivar'}</button>}
+          <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn">Guardar</button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
