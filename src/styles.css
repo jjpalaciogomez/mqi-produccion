@@ -605,3 +605,9 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .log-zonas { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; } .log-zonas .zona { margin-left: 0; }
 .log-ruta-datos { display: flex; gap: 8px; align-items: center; } .log-ruta-datos .log-conductor { flex: 1; min-width: 0; }
 .log-ruta-datos label { display: flex; align-items: center; gap: 4px; white-space: nowrap; } .log-ruta-datos .sel-hora { min-width: 0; width: 120px; }
+
+/* Inicio y fin del recorrido en la planta */
+.log-planta-punto { display: flex; gap: 10px; align-items: center; background: #1f2a37; color: #fff; border-radius: 10px; padding: 8px 12px; margin: 6px 0; font-size: 14px; }
+.log-planta-punto .ico { font-size: 20px; } .log-planta-punto .pequeño { color: #cfd6df; }
+.log-planta-punto.tarde { background: #7a1f16; } .log-planta-punto .t-mal { color: #ffb4a8; }
+.log-planta-punto .btn { margin-left: auto; }

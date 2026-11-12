@@ -354,7 +354,9 @@ export function puntosRuta(paradas, planta) {
   return out
 }
 export function linksRecorrido(paradas, planta) {
+  // El recorrido siempre sale de la planta y termina en la planta
   const pts = puntosRuta(paradas, planta).filter((v) => tieneUbic(v) || v.direccion)
+  if (pts.length && tieneUbic(planta) && !pts[pts.length - 1].esPlanta) pts.push({ ...planta, destino: PLANTA_NOMBRE, esPlanta: true })
   if (!pts.length) return []
   const tramos = []
   let origen = tieneUbic(planta) ? `${planta.lat},${planta.lng}` : null

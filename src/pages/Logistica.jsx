@@ -416,7 +416,6 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                   {ps.length} {ps.length === 1 ? 'parada' : 'paradas'}{ps.length > 0 && <> · sale {h12(cr.salida)} · regresa ≈ <b className={pasa ? 't-mal' : ''}>{hm(est.regreso)}</b></>}{planta && est.km ? ` · ${fmtNum(est.km, 0)} km` : ''}
                   {zonas.length > 0 && <div className="log-zonas">{zonas.map(([z, n]) => <span key={z} className={`zona z-${z.toLowerCase().replace(' ', '-')}`}>{z} {n}</span>)}</div>}
                   {ps.length > 0 && est.sim.almuerzo !== null && <div className="tenue pequeño">🍽 almuerzo ≈ {hm(est.sim.almuerzo)}</div>}
-                  {est.sim.alSalir.length > 0 && <div className="tenue pequeño">⤓ Sale de la planta con la mercancía de: {nombresDe(est.sim.alSalir)}</div>}
                   {pasa && <div className="t-mal pequeño">Regresa después de su hora de fin ({cfg.fin}): mueve algo a otro vehículo o a otro día.</div>}
                   {est.sinUbic > 0 && ps.length > 0 && <div className="tenue pequeño">{est.sinUbic} sin ubicación: el tiempo es aproximado.</div>}
                   {est.problemas > 0 && <div className="t-mal pequeño">{est.problemas === 1 ? 'Una parada queda' : `${est.problemas} paradas quedan`} fuera de su horario: usa "Ordenar", pásala a otro vehículo o a otro día.</div>}
@@ -426,6 +425,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                     onBlur={(e) => e.target.value !== (r?.conductor || '') && guardarConductor(veh, e.target.value)} />
                   <label className="pequeño" title="Si no se pone, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior">Sale<SelectorHora value={r?.salida ? String(r.salida).slice(0, 5) : ''} vacio={`Auto (${h12(cr.salida)})`} onChange={(h) => !conf && guardarSalida(veh, h)} /></label>
                 </div>
+                {ps.length > 0 && <PuntoPlanta tipo="sale" hora={aMin(cr.salida)} lleva={nombresDe(est.sim.alSalir)} sinPlanta={!planta} />}
                 {ps.map((v, i) => (<Fragment key={v.id}>
                   {v.recoger_planta && (!planta || est.sim.pasos[i]?.carga) && <ParadaPlanta motivo="recoger" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.carga?.lleva || [v.id])} />}
                   <Parada v={v} n={i + 1} fecha={fecha} paso={est.sim.pasos[i]} onAbrir={() => setForm(v)}
@@ -439,6 +439,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                     </>} />
                   {v.volver_planta && <ParadaPlanta motivo="dejar" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.vuelve?.lleva || [])} />}
                 </Fragment>))}
+                {ps.length > 0 && <PuntoPlanta tipo="regresa" hora={est.regreso} tarde={pasa} fin={cfg.fin} sinPlanta={!planta} />}
                 <div className="log-col-pie">
                   {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar</button>}
                   {!conf && ps.some((x) => x.estado === 'pendiente') && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => sacarTodas(veh)} title="Pasa a Sin asignar todas las vueltas pendientes de esta ruta, para reorganizar">Sacar todas</button>}
@@ -457,6 +458,21 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
       {form && <FormVuelta inicial={form} lugares={lugares} perfil={perfil} gestor
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); cargar(); onLugares() }} />}
       {verAjustes && aj && <AjustesLogistica aj={aj} onClose={() => setVerAjustes(false)} onGuardado={() => { setVerAjustes(false); cargarAj() }} />}
+    </div>
+  )
+}
+
+// Inicio y fin del recorrido: siempre en la planta
+function PuntoPlanta({ tipo, hora, lleva, tarde, fin, sinPlanta }) {
+  return (
+    <div className={`log-planta-punto ${tipo}${tarde ? ' tarde' : ''}`}>
+      <span className="ico">🏭</span>
+      <div className="crece">
+        <b>{tipo === 'sale' ? 'Sale de la planta' : 'Regresa a la planta'}</b> <span className={tarde ? 't-mal' : ''}>{tipo === 'sale' ? h12(hm(hora)) : `≈ ${h12(hm(hora))}`}</span>
+        {tipo === 'sale' && lleva && <div className="pequeño">Lleva la mercancía de: {lleva}</div>}
+        {tarde && <div className="t-mal pequeño">Después de su hora de regreso ({h12(fin)})</div>}
+        {sinPlanta && <div className="tenue pequeño">Falta la ubicación de la planta</div>}
+      </div>
     </div>
   )
 }

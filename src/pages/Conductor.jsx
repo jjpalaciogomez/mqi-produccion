@@ -64,11 +64,11 @@ export default function Conductor({ perfil }) {
             <span><b>{nombreRec(rec)}</b>{rec.salida ? ` · sale ${h12(rec.salida)}` : ''}{rec.conductor ? ` · ${rec.conductor}` : ''}</span>
             <span>{vs.length - faltan.length} de {vs.length} hechas</span>
           </div>
-          {sim?.alSalir?.length > 0 && <div className="cond-volver">⤓ Al salir de la planta lleva la mercancía de: {nombresDe(sim.alSalir)}</div>}
           {faltan.length > 0 && linksRecorrido(faltan, planta).map((l, i, a) => (
             <a key={l} className="btn btn-sec cond-todo" href={l} target="_blank" rel="noreferrer">🗺 Abrir {a.length > 1 ? `tramo ${i + 1}` : 'el recorrido'} en Google Maps</a>
           ))}
           <div className="cond-lista">
+            <div className="log-planta-punto sale"><span className="ico">🏭</span><div className="crece"><b>Sale de la planta</b>{sim?.alSalir?.length ? <div className="pequeño">Lleva la mercancía de: {nombresDe(sim.alSalir)}</div> : null}</div></div>
             {vs.map((v, i) => {
               const hecha = v.estado === 'hecha', no = v.estado === 'no_hecha'
               const siguiente = v.id === faltan[0]?.id
@@ -114,6 +114,8 @@ export default function Conductor({ perfil }) {
                 {v.volver_planta && pasoPlanta(`Volver a dejar lo que trae de ${v.destino}${v.volver_antes ? ` · antes de las ${h12(v.volver_antes)}` : ' · lo antes posible'}${sim?.pasos[i]?.vuelve?.lleva?.length ? ` · y recoger la mercancía para ${nombresDe(sim.pasos[i].vuelve.lleva)}` : ''}`)}
               </Fragment>)
             })}
+            <div className="log-planta-punto regresa"><span className="ico">🏭</span><div className="crece"><b>Regresa a la planta</b>{sim ? <span> ≈ {h12(String(Math.floor(sim.regreso / 60)).padStart(2, '0') + ':' + String(Math.round(sim.regreso % 60) % 60).padStart(2, '0'))}</span> : null}</div>
+              {planta && <a className="btn btn-sec" href={linkMaps(planta)} target="_blank" rel="noreferrer">Maps</a>}</div>
           </div>
         </>
       )}
