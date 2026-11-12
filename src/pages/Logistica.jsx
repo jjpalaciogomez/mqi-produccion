@@ -373,6 +373,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
     await q(sb.from('recorridos').update(si ? { estado: 'confirmada', confirmada_por: perfil?.user_id, confirmada_en: new Date().toISOString() } : { estado: 'borrador' }).eq('id', r.id))
   }, si ? `${nombreRuta(veh)} confirmada: ya la ve el conductor en su celular.` : 'La ruta volvió a borrador.')
   const guardarSalida = (k, h) => accion(async () => { const r = await asegurarRec(k); await q(sb.from('recorridos').update({ salida: h || null }).eq('id', r.id)) })
+  const conductores = transps.filter((t) => t.tipo === 'conductor' && t.activo !== false)
   const guardarConductor = (veh, nombre) => accion(async () => { const r = await asegurarRec(veh); await q(sb.from('recorridos').update({ conductor: nombre.trim() || null }).eq('id', r.id)) })
 
   // Columnas: camión y mensajero (ruta 1) siempre; las rutas que existan ese día; y las que se agreguen
@@ -413,6 +414,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
       </div>
       {aj && !planta && <Aviso tipo="warn">Falta la ubicación de la planta (punto de salida). Sin ella no se puede calcular el orden ni el tiempo de viaje. <button className="btn-link" onClick={() => setVerAjustes(true)}>Configurarla</button></Aviso>}
       <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
+      <datalist id="lista-conductores">{conductores.map((t) => <option key={t.id} value={t.nombre}>{t.telefono || ''}</option>)}</datalist>
       {!d || !aj ? <Cargando /> : (
         <div className="log-columnas" style={{ gridTemplateColumns: `repeat(${cols.length + 1}, minmax(260px, 1fr))` }}>
           <div className="log-col">
@@ -457,8 +459,11 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                   {est.problemas > 0 && <div className="t-mal pequeño">{est.problemas === 1 ? 'Una parada queda' : `${est.problemas} paradas quedan`} fuera de su horario: usa "Ordenar", pásala a otro vehículo o a otro día.</div>}
                 </div>
                 <div className="log-ruta-datos">
-                  <input className="log-conductor" placeholder={vehDe(veh) === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || ''} key={r?.id || veh} disabled={conf}
+                  {/* El conductor se puede cambiar aunque la ruta esté confirmada (p. ej. si el conductor se incapacita) */}
+                  <input className="log-conductor" list="lista-conductores" placeholder={vehDe(veh) === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || ''} key={`${r?.id || veh}-${r?.conductor || ''}`}
+                    title="Escribe o elige un conductor guardado en Transportadores"
                     onBlur={(e) => e.target.value !== (r?.conductor || '') && guardarConductor(veh, e.target.value)} />
+                  {(() => { const t = conductores.find((x) => x.nombre === r?.conductor); return t?.telefono ? <a className="btn btn-sec btn-sm" href={telLink(t.telefono)}>Llamar</a> : null })()}
                   <label className="pequeño" title="Si no se pone, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior">Sale<SelectorHora value={r?.salida ? String(r.salida).slice(0, 5) : ''} vacio={`Auto (${h12(cr.salida)})`} onChange={(h) => !conf && guardarSalida(veh, h)} /></label>
                 </div>
                 {ps.length > 0 && <PuntoPlanta tipo="sale" hora={aMin(cr.salida)} lleva={nombresDe(est.sim.alSalir)} sinPlanta={!planta} />}
@@ -503,7 +508,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
 
 // Servicios contratados: cada vuelta se pide por aparte al transportador, cuando se necesite (sin ruta ni horario del camión)
 function ColContratados({ titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onAccion, onSacar, destinos }) {
-  const activos = transps.filter((t) => t.activo !== false)
+  const activos = transps.filter((t) => t.activo !== false && t.tipo !== 'conductor')
   const asignar = (v, id) => onAccion(() => q(sb.from('vueltas').update({ transportador_id: id || null }).eq('id', v.id)))
   const hecha = (v, si) => onAccion(() => q(sb.from('vueltas').update(si ? { estado: 'hecha', hecha_en: new Date().toISOString() } : { estado: 'pendiente', hecha_en: null }).eq('id', v.id)), si ? `${v.destino}: hecha.` : '')
   const pend = ps.filter((v) => v.estado === 'pendiente').length
@@ -543,7 +548,7 @@ function Transportadores({ lista, onCambio }) {
   return (
     <div>
       <div className="filtros">
-        <span className="tenue">Mensajeros y servicios de transporte que se contratan seguido. Al asignar una vuelta a "Servicio contratado" se elige uno de ellos.</span>
+        <span className="tenue">Mensajeros y servicios de transporte que se contratan seguido, y conductores que pueden manejar el camión de la empresa. Los servicios se eligen en las vueltas de "Servicio contratado"; los conductores, en el campo Conductor de cada ruta del camión.</span>
         <label className="check pequeño"><input type="checkbox" checked={verInactivos} onChange={(e) => setVerInactivos(e.target.checked)} /> Ver inactivos</label>
         <button className="btn" onClick={() => setForm({ tipo: 'moto' })}>+ Agregar</button>
       </div>
