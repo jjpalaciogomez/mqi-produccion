@@ -4,7 +4,7 @@ import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_VUELTA, VEHICULOS, aMin, cfgDe, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_VUELTA, VEHICULOS, aMin, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
   linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
@@ -53,7 +53,7 @@ function Vueltas({ perfil, gestor, lugares, onLugares }) {
   const yo = perfil?.user_id
   const cargar = useCallback(async () => {
     try {
-      let c = sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado)').order('fecha').order('hora', { nullsFirst: false }).order('creado')
+      let c = sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado, numero)').order('fecha').order('hora', { nullsFirst: false }).order('creado')
       if (filtro === 'pendientes') c = c.in('estado', ['pendiente', 'no_hecha'])
       else c = c.gte('fecha', sumarDias(hoy, -30))
       if (filtro === 'mias') c = c.eq('solicitante', yo)
@@ -85,7 +85,7 @@ function Vueltas({ perfil, gestor, lugares, onLugares }) {
             <tbody>{vs.map((v) => (
               <tr key={v.id} onClick={() => setForm(v)} className={v.estado === 'cancelada' ? 'omitida' : ''}>
                 <td><span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span>{v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}</td>
-                <td><b>{v.destino}</b><div className="tenue pequeño">{[v.direccion, v.municipio].filter(Boolean).join(', ')}</div></td>
+                <td><b>{v.destino}</b>{zonaTxt(v) && <span className={`zona z-${zonaDe(v)}`}>{zonaTxt(v)}</span>}<div className="tenue pequeño">{[v.direccion, v.municipio].filter(Boolean).join(', ')}</div></td>
                 <td>{v.descripcion}{v.op && <span className="tenue"> · OP {v.op}</span>}{v.necesita_camion && <span className="etq">camión</span>}</td>
                 <td>{v.hora ? <b className="hora-exacta">⏰ {cuandoTxt(v)}</b> : cuandoTxt(v) || 'Cualquier hora'}{recepcionTxt(v.recepcion) && <div className="tenue pequeño">recibe {recepcionTxt(v.recepcion)}</div>}</td>
                 <td className="tenue pequeño">{v.solicitante_nombre || '—'}</td>
@@ -106,7 +106,7 @@ function EstadoVuelta({ v }) {
   if (v.estado === 'no_hecha') return <span className="badge badge-bad" title={v.resultado || ''}>No se pudo</span>
   if (v.estado === 'cancelada') return <span className="badge badge-muted">Cancelada</span>
   if (v.pospuesta) return <span className="badge badge-muted">No programar por ahora</span>
-  if (v.recorridos) return <span className={`badge ${v.recorridos.estado === 'confirmada' ? 'badge-info' : 'badge-muted'}`}>{VEHICULOS[v.recorridos.vehiculo]?.split(' ')[0]}{v.recorridos.estado === 'confirmada' ? ' · confirmada' : ' · en borrador'}</span>
+  if (v.recorridos) return <span className={`badge ${v.recorridos.estado === 'confirmada' ? 'badge-info' : 'badge-muted'}`}>{VEHICULOS[v.recorridos.vehiculo]?.split(' ')[0]}{v.recorridos.numero > 1 ? ` (ruta ${v.recorridos.numero})` : ''}{v.recorridos.estado === 'confirmada' ? ' · confirmada' : ' · en borrador'}</span>
   return <span className="badge badge-warn">Sin asignar</span>
 }
 
@@ -272,9 +272,9 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
     try {
       const [recs, delDia, previas] = await Promise.all([
         q(sb.from('recorridos').select('*').eq('fecha', fecha)),
-        q(sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado)').eq('fecha', fecha).neq('estado', 'cancelada')),
+        q(sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado, numero)').eq('fecha', fecha).neq('estado', 'cancelada')),
         // Lo que quedó pendiente o no se pudo hacer en días anteriores
-        q(sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado)').lt('fecha', fecha).in('estado', ['pendiente', 'no_hecha']).gte('fecha', sumarDias(fecha, -60))),
+        q(sb.from('vueltas').select('*, recorridos(fecha, vehiculo, estado, numero)').lt('fecha', fecha).in('estado', ['pendiente', 'no_hecha']).gte('fecha', sumarDias(fecha, -60))),
       ])
       const ids = new Set(recs.map((r) => r.id))
       const vs = [...delDia, ...previas.filter((v) => !v.recorrido_id || !ids.has(v.recorrido_id))]
@@ -285,19 +285,21 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
 
   const planta = aj && tieneUbic(aj) ? aj : null
   const cfg = cfgDe(aj)
-  const rec = (veh) => d?.recs.find((r) => r.vehiculo === veh)
-  const deVeh = (veh) => { const r = rec(veh); return r ? d.vs.filter((v) => v.recorrido_id === r.id).sort((a, b) => (a.orden ?? 99) - (b.orden ?? 99)) : [] }
+  // Cada columna es una ruta: vehículo + número (un vehículo puede hacer varias rutas en el día)
+  const [vehDe, numDe] = [(k) => k.split(':')[0], (k) => Number(k.split(':')[1] || 1)]
+  const rec = (k) => d?.recs.find((r) => r.vehiculo === vehDe(k) && (r.numero || 1) === numDe(k))
+  const deVeh = (k) => { const r = rec(k); return r ? d.vs.filter((v) => v.recorrido_id === r.id).sort((a, b) => (a.orden ?? 99) - (b.orden ?? 99)) : [] }
   const libresDia = d ? d.vs.filter((v) => !d.recs.some((r) => r.id === v.recorrido_id) && v.estado !== 'hecha') : []
   const sinAsignar = libresDia.filter((v) => !v.pospuesta)
   const pospuestas = libresDia.filter((v) => v.pospuesta) // "No programar por ahora": no entran en la ruta ni en la propuesta
   const [verPosp, setVerPosp] = useState(false)
   const bloqueado = (veh) => rec(veh)?.estado === 'confirmada'
 
-  // Crea el recorrido del vehículo si no existe
-  const asegurarRec = async (veh) => {
-    const r = rec(veh)
+  // Crea la ruta (vehículo + número) si no existe
+  const asegurarRec = async (k) => {
+    const r = rec(k)
     if (r) return r
-    const [n] = await q(sb.from('recorridos').upsert({ fecha, vehiculo: veh }, { onConflict: 'fecha,vehiculo' }).select())
+    const [n] = await q(sb.from('recorridos').upsert({ fecha, vehiculo: vehDe(k), numero: numDe(k) }, { onConflict: 'fecha,vehiculo,numero' }).select())
     return n
   }
   const guardarOrden = async (veh, lista) => {
@@ -310,7 +312,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
     setOcupado(false)
   }
   const sacarTodas = (veh) => {
-    if (!window.confirm(`¿Sacar las vueltas pendientes de ${VEHICULOS[veh].toLowerCase()} para reorganizar? Vuelven a "Sin asignar".`)) return
+    if (!window.confirm(`¿Sacar las vueltas pendientes de ${nombreRuta(veh).toLowerCase()} para reorganizar? Vuelven a "Sin asignar".`)) return
     accion(async () => { await Promise.all(deVeh(veh).filter((v) => v.estado === 'pendiente').map((v) => q(sb.from('vueltas').update({ recorrido_id: null, orden: null }).eq('id', v.id)))) }, 'Vueltas devueltas a Sin asignar.')
   }
   const mover = (v, destino) => accion(async () => {
@@ -325,22 +327,43 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
     ;[l[i], l[j]] = [l[j], l[i]]
     await guardarOrden(veh, l)
   })
-  const ordenar = (veh) => accion(() => guardarOrden(veh, ordenarParadas(deVeh(veh), planta, cfg, fecha)), 'Paradas ordenadas según la hora pedida, el horario de recepción de cada sitio, el almuerzo y la cercanía.')
+  const ordenar = (veh) => accion(() => guardarOrden(veh, ordenarParadas(deVeh(veh), planta, cfgRuta[veh] || cfg, fecha)), 'Paradas ordenadas según la hora pedida, el horario de recepción de cada sitio, el almuerzo y la cercanía.')
+  // La propuesta usa la última ruta abierta (sin confirmar) del camión y del mensajero
+  const abierta = (veh) => { const ks = cols.filter((c) => vehDe(c) === veh && !bloqueado(c)); return ks[ks.length - 1] || null }
   const proponer = () => accion(async () => {
-    const libres = [...sinAsignar, ...(bloqueado('camion') ? [] : deVeh('camion')), ...(bloqueado('mensajero') ? [] : deVeh('mensajero'))]
-    const p = proponerAsignacion(libres, planta, cfg, fecha)
-    if (!bloqueado('camion')) await guardarOrden('camion', p.camion)
-    if (!bloqueado('mensajero') && p.mensajero.length) await guardarOrden('mensajero', p.mensajero)
+    const kc = abierta('camion'), km = abierta('mensajero')
+    const libres = [...sinAsignar, ...(kc ? deVeh(kc) : []), ...(km ? deVeh(km) : [])]
+    const p = proponerAsignacion(libres, planta, (kc && cfgRuta[kc]) || cfg, fecha)
+    if (kc) await guardarOrden(kc, p.camion)
+    else p.mensajero.unshift(...p.camion)
+    if (km && p.mensajero.length) await guardarOrden(km, p.mensajero)
   }, 'Asignación propuesta: el camión se llena primero mientras llegue a tiempo a cada sitio y regrese antes de su hora de fin; lo demás va con mensajero. Revísala y confirma.')
   const confirmar = (veh, si) => accion(async () => {
     const r = await asegurarRec(veh)
     await q(sb.from('recorridos').update(si ? { estado: 'confirmada', confirmada_por: perfil?.user_id, confirmada_en: new Date().toISOString() } : { estado: 'borrador' }).eq('id', r.id))
-  }, si ? `Ruta de ${VEHICULOS[veh].toLowerCase()} confirmada: ya la ve el conductor en su celular.` : 'La ruta volvió a borrador.')
+  }, si ? `${nombreRuta(veh)} confirmada: ya la ve el conductor en su celular.` : 'La ruta volvió a borrador.')
+  const guardarSalida = (k, h) => accion(async () => { const r = await asegurarRec(k); await q(sb.from('recorridos').update({ salida: h || null }).eq('id', r.id)) })
   const guardarConductor = (veh, nombre) => accion(async () => { const r = await asegurarRec(veh); await q(sb.from('recorridos').update({ conductor: nombre.trim() || null }).eq('id', r.id)) })
 
-  const vehiculos = ['camion', 'mensajero', ...(rec('externo') || deVeh('externo').length ? ['externo'] : [])]
-  const [verExterno, setVerExterno] = useState(false)
-  const cols = verExterno && !vehiculos.includes('externo') ? [...vehiculos, 'externo'] : vehiculos
+  // Columnas: camión y mensajero (ruta 1) siempre; las rutas que existan ese día; y las que se agreguen
+  const [extraCols, setExtraCols] = useState([])
+  useEffect(() => { setExtraCols([]) }, [fecha])
+  const ordenVeh = Object.keys(VEHICULOS)
+  const cols = [...new Set(['camion:1', 'mensajero:1', ...(d?.recs || []).map((r) => `${r.vehiculo}:${r.numero || 1}`), ...extraCols])]
+    .sort((a, b) => ordenVeh.indexOf(vehDe(a)) - ordenVeh.indexOf(vehDe(b)) || numDe(a) - numDe(b))
+  const rutasDe = (veh) => cols.filter((c) => vehDe(c) === veh)
+  const nombreRuta = (k) => `${VEHICULOS[vehDe(k)]}${rutasDe(vehDe(k)).length > 1 || numDe(k) > 1 ? ` · Ruta ${numDe(k)}` : ''}`
+  const otraRuta = (veh) => { const n = Math.max(0, ...rutasDe(veh).map(numDe)) + 1; setExtraCols([...extraCols, `${veh}:${n}`]) }
+  // Hora de salida de cada ruta: la que se puso; si no, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior del mismo vehículo
+  const cfgRuta = {}, estRuta = {}
+  for (const k of cols) {
+    const r = rec(k), prev = cols.filter((c) => vehDe(c) === vehDe(k) && numDe(c) < numDe(k)).pop()
+    const salida = r?.salida ? String(r.salida).slice(0, 5) : prev && estRuta[prev] && deVeh(prev).length ? hm(estRuta[prev].regreso + (Number(cfg.min_descargue) || 15)) : cfg.salida
+    // Si en una ruta anterior del mismo vehículo ya almorzó, en esta no se vuelve a contar el almuerzo
+    const yaAlmorzo = cols.some((c) => vehDe(c) === vehDe(k) && numDe(c) < numDe(k) && estRuta[c]?.sim?.almuerzo !== null && deVeh(c).length)
+    cfgRuta[k] = { ...cfg, salida, ...(yaAlmorzo ? { almuerzo_min: 0 } : {}) }
+    estRuta[k] = d ? estimar(deVeh(k), planta, cfgRuta[k], fecha) : null
+  }
 
   return (
     <div>
@@ -353,7 +376,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
         </div>
         <button className="btn btn-sec" onClick={() => setForm({ fecha })}>+ Vuelta</button>
         <button className="btn" disabled={ocupado || !aj || !d} onClick={proponer} title="Llena primero el camión mientras cumpla los horarios; lo demás va con mensajero">Proponer asignación</button>
-        {!cols.includes('externo') && <button className="btn btn-sec btn-sm" onClick={() => setVerExterno(true)}>+ Otro transporte</button>}
+        {!rutasDe('externo').length && <button className="btn btn-sec btn-sm" onClick={() => otraRuta('externo')}>+ Otro transporte</button>}
         <button className="btn-link" onClick={() => setVerAjustes(true)}>Punto de salida y horarios</button>
       </div>
       {aj && !planta && <Aviso tipo="warn">Falta la ubicación de la planta (punto de salida). Sin ella no se puede calcular el orden ni el tiempo de viaje. <button className="btn-link" onClick={() => setVerAjustes(true)}>Configurarla</button></Aviso>}
@@ -364,40 +387,45 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
             <div className="log-col-cab"><b>Sin asignar</b><span className="tenue pequeño">{sinAsignar.length} {sinAsignar.length === 1 ? 'vuelta' : 'vueltas'}</span></div>
             {sinAsignar.length === 0 ? <div className="vacio pequeño">Nada pendiente.</div> : sinAsignar.map((v) => (
               <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => setForm(v)}
-                acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Asignar a…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}<option value="pospuesta">No programar por ahora</option></select>} />
+                acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Asignar a…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{nombreRuta(c)}</option>)}<option value="pospuesta">No programar por ahora</option></select>} />
             ))}
             {pospuestas.length > 0 && (
               <div className="log-pospuestas">
                 <button className="btn-link" onClick={() => setVerPosp(!verPosp)}>{verPosp ? '▾' : '▸'} No programar por ahora ({pospuestas.length})</button>
                 {verPosp && pospuestas.map((v) => (
                   <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => setForm(v)}
-                    acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Programar en…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}<option value="retomar">Volver a Sin asignar</option></select>} />
+                    acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Programar en…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{nombreRuta(c)}</option>)}<option value="retomar">Volver a Sin asignar</option></select>} />
                 ))}
               </div>
             )}
           </div>
           {cols.map((veh) => {
             const ps = deVeh(veh), r = rec(veh), conf = r?.estado === 'confirmada'
-            const est = estimar(ps, planta, cfg, fecha)
+            const est = estRuta[veh], cr = cfgRuta[veh]
             const pasa = est.regreso > aMin(cfg.fin)
+            const zonas = Object.entries(ps.reduce((g, v) => { const z = zonaTxt(v) || 'Sin zona'; g[z] = (g[z] || 0) + 1; return g }, {}))
             const links = linksRecorrido(ps, planta)
             const nombresDe = (ids) => ids.map((id) => ps.find((x) => x.id === id)?.destino).filter(Boolean).join(', ')
             return (
               <div key={veh} className={`log-col${conf ? ' confirmada' : ''}`}>
                 <div className="log-col-cab">
-                  <b>{VEHICULOS[veh]}</b>
+                  <b>{nombreRuta(veh)}</b>
                   <span className={`badge ${conf ? 'badge-info' : 'badge-muted'}`}>{conf ? 'Confirmada' : 'Borrador'}</span>
                 </div>
                 <div className="log-est">
-                  {ps.length} {ps.length === 1 ? 'parada' : 'paradas'}{ps.length > 0 && <> · sale {cfg.salida} · regresa ≈ <b className={pasa ? 't-mal' : ''}>{hm(est.regreso)}</b></>}{planta && est.km ? ` · ${fmtNum(est.km, 0)} km` : ''}
+                  {ps.length} {ps.length === 1 ? 'parada' : 'paradas'}{ps.length > 0 && <> · sale {h12(cr.salida)} · regresa ≈ <b className={pasa ? 't-mal' : ''}>{hm(est.regreso)}</b></>}{planta && est.km ? ` · ${fmtNum(est.km, 0)} km` : ''}
+                  {zonas.length > 0 && <div className="log-zonas">{zonas.map(([z, n]) => <span key={z} className={`zona z-${z.toLowerCase().replace(' ', '-')}`}>{z} {n}</span>)}</div>}
                   {ps.length > 0 && est.sim.almuerzo !== null && <div className="tenue pequeño">🍽 almuerzo ≈ {hm(est.sim.almuerzo)}</div>}
                   {est.sim.alSalir.length > 0 && <div className="tenue pequeño">⤓ Sale de la planta con la mercancía de: {nombresDe(est.sim.alSalir)}</div>}
                   {pasa && <div className="t-mal pequeño">Regresa después de su hora de fin ({cfg.fin}): mueve algo a otro vehículo o a otro día.</div>}
                   {est.sinUbic > 0 && ps.length > 0 && <div className="tenue pequeño">{est.sinUbic} sin ubicación: el tiempo es aproximado.</div>}
                   {est.problemas > 0 && <div className="t-mal pequeño">{est.problemas === 1 ? 'Una parada queda' : `${est.problemas} paradas quedan`} fuera de su horario: usa "Ordenar", pásala a otro vehículo o a otro día.</div>}
                 </div>
-                <input className="log-conductor" placeholder={veh === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || ''} key={r?.id || veh} disabled={conf}
-                  onBlur={(e) => e.target.value !== (r?.conductor || '') && guardarConductor(veh, e.target.value)} />
+                <div className="log-ruta-datos">
+                  <input className="log-conductor" placeholder={vehDe(veh) === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || ''} key={r?.id || veh} disabled={conf}
+                    onBlur={(e) => e.target.value !== (r?.conductor || '') && guardarConductor(veh, e.target.value)} />
+                  <label className="pequeño" title="Si no se pone, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior">Sale<SelectorHora value={r?.salida ? String(r.salida).slice(0, 5) : ''} vacio={`Auto (${h12(cr.salida)})`} onChange={(h) => !conf && guardarSalida(veh, h)} /></label>
+                </div>
                 {ps.map((v, i) => (<Fragment key={v.id}>
                   {v.recoger_planta && (!planta || est.sim.pasos[i]?.carga) && <ParadaPlanta motivo="recoger" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.carga?.lleva || [v.id])} />}
                   <Parada v={v} n={i + 1} fecha={fecha} paso={est.sim.pasos[i]} onAbrir={() => setForm(v)}
@@ -405,7 +433,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
                       <button className="btn-icono" disabled={ocupado || i === ps.length - 1} onClick={() => subir(veh, i, 1)} title="Bajar">↓</button>
                       <select value={veh} disabled={ocupado} onChange={(e) => mover(v, e.target.value)}>
-                        <option value="">Sacar de la ruta</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}<option value="pospuesta">No programar por ahora</option>
+                        <option value="">Sacar de la ruta</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{nombreRuta(c)}</option>)}<option value="pospuesta">No programar por ahora</option>
                       </select>
                       <button className="btn-link peligro" disabled={ocupado} onClick={() => mover(v, '')} title="Vuelve a Sin asignar">Sacar</button>
                     </>} />
@@ -419,6 +447,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                   {ps.length > 0 && (conf
                     ? <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => confirmar(veh, false)}>Volver a borrador</button>
                     : <button className="btn btn-sm" disabled={ocupado} onClick={() => confirmar(veh, true)}>Confirmar ruta</button>)}
+                  {numDe(veh) === Math.max(...rutasDe(vehDe(veh)).map(numDe)) && <button className="btn-link" onClick={() => otraRuta(vehDe(veh))} title="Otra salida del mismo vehículo más tarde en el día">+ Otra ruta</button>}
                 </div>
               </div>
             )
@@ -464,7 +493,7 @@ function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
       <div className="log-parada-cab" onClick={onAbrir}>
         {n && <span className="log-n">{n}</span>}
         <div className="crece">
-          <div><span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span><b>{v.destino}</b></div>
+          <div><span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span><b>{v.destino}</b>{zonaTxt(v) && <span className={`zona z-${zonaDe(v)}`}>{zonaTxt(v)}</span>}</div>
           <div className="tenue pequeño">{[v.direccion, v.municipio].filter(Boolean).join(', ') || 'Sin dirección'}{!tieneUbic(v) && ' · sin ubicación'}</div>
           <div className="pequeño">{v.descripcion}{v.op ? ` · OP ${v.op}` : ''}</div>
           <div className="log-tags">
@@ -619,7 +648,7 @@ function validarRecepcion(rec) {
 }
 
 // Selector de hora en formato de 12 horas (cada 15 minutos), para que no haya confusiones de formato
-export function SelectorHora({ value, onChange, desde = '05:00', hasta = '21:00', paso = 15 }) {
+export function SelectorHora({ value, onChange, desde = '05:00', hasta = '21:00', paso = 15, vacio = '— hora —' }) {
   const opts = []
   for (let m = aMin(desde); m <= aMin(hasta); m += paso) opts.push(hm(m))
   const v = value ? String(value).slice(0, 5) : ''
@@ -627,7 +656,7 @@ export function SelectorHora({ value, onChange, desde = '05:00', hasta = '21:00'
   opts.sort()
   return (
     <select className="sel-hora" value={v} onChange={(e) => onChange(e.target.value)}>
-      <option value="">— hora —</option>
+      <option value="">{vacio}</option>
       {opts.map((o) => <option key={o} value={o}>{h12(o)}</option>)}
     </select>
   )
@@ -667,7 +696,7 @@ function Lugares({ lugares, onCambio }) {
           <thead><tr><th>Nombre</th><th>Tipo</th><th>Dirección</th><th>Contacto</th><th>Recibe</th><th>Ubicación</th></tr></thead>
           <tbody>{lista.map((l) => (
             <tr key={l.id} onClick={() => setForm(l)} className={l.activo ? '' : 'omitida'}>
-              <td><b>{l.nombre}</b></td><td>{TIPOS_LUGAR[l.tipo]}</td>
+              <td><b>{l.nombre}</b>{zonaTxt(l) && <span className={`zona z-${zonaDe(l)}`}>{zonaTxt(l)}</span>}</td><td>{TIPOS_LUGAR[l.tipo]}</td>
               <td>{[l.direccion, l.municipio].filter(Boolean).join(', ')}</td>
               <td>{l.contacto}{l.telefono && <div className="tenue pequeño">{l.telefono}</div>}</td>
               <td className="pequeño">{recepcionTxt(l.recepcion) || (l.horario ? <span className="t-mal">Falta pasar a días y horas: "{l.horario}"</span> : <span className="tenue">cualquier hora</span>)}{l.min_parada ? <div className="tenue">{l.min_parada} min en el sitio</div> : null}</td>

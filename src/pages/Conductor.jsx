@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal } from '../ui.jsx'
 import { hoyCO } from '../cumplimiento.js'
-import { TIPOS_VUELTA, cfgDe, cuandoTxt, h12, recepcionTxt, simular, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
+import { TIPOS_VUELTA, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, recepcionTxt, simular, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
 
 // Celular del conductor: la ruta confirmada de hoy, en orden, para marcar cada parada
 export default function Conductor({ perfil }) {
@@ -19,7 +19,7 @@ export default function Conductor({ perfil }) {
         q(sb.from('ajustes').select('valor').eq('clave', 'logistica')),
       ])
       for (const r of recs) r.vueltas = (r.vueltas || []).filter((v) => v.estado !== 'cancelada').sort((a, b) => (a.orden ?? 99) - (b.orden ?? 99))
-      recs.sort((a, b) => Object.keys(VEHICULOS).indexOf(a.vehiculo) - Object.keys(VEHICULOS).indexOf(b.vehiculo))
+      recs.sort((a, b) => Object.keys(VEHICULOS).indexOf(a.vehiculo) - Object.keys(VEHICULOS).indexOf(b.vehiculo) || (a.numero || 1) - (b.numero || 1))
       setD({ recs, planta: aj[0]?.valor || null }); setError('')
     } catch (e) { setError(e.message) }
   }, [hoy])
@@ -34,11 +34,12 @@ export default function Conductor({ perfil }) {
     } catch (e) { setError(e.message); return false }
   }
 
-  const rec = d?.recs.find((r) => r.vehiculo === veh) || d?.recs[0]
+  const rec = d?.recs.find((r) => r.id === veh) || d?.recs[0]
+  const nombreRec = (r) => `${VEHICULOS[r.vehiculo].split(' (')[0]}${(r.numero || 1) > 1 || d?.recs.some((x) => x.id !== r.id && x.vehiculo === r.vehiculo) ? ` · Ruta ${r.numero || 1}` : ''}`
   const vs = rec?.vueltas || []
   const faltan = vs.filter((v) => v.estado === 'pendiente')
   // Igual que en la ruta: un paso por la planta carga toda la mercancía que ya esté lista
-  const sim = d?.planta && tieneUbic(d.planta) && vs.length ? simular(vs, d.planta, cfgDe(d.planta), hoy) : null
+  const sim = d?.planta && tieneUbic(d.planta) && vs.length ? simular(vs, d.planta, { ...cfgDe(d.planta), ...(rec?.salida ? { salida: String(rec.salida).slice(0, 5) } : {}) }, hoy) : null
   const nombresDe = (ids) => ids.map((id) => vs.find((x) => x.id === id)?.destino).filter(Boolean).join(', ')
   const planta = d?.planta && tieneUbic(d.planta) ? d.planta : null
   return (
@@ -57,10 +58,10 @@ export default function Conductor({ perfil }) {
       ) : (
         <>
           {d.recs.length > 1 && (
-            <div className="segmentado cond-veh">{d.recs.map((r) => <button key={r.id} className={rec?.id === r.id ? 'sel' : ''} onClick={() => setVeh(r.vehiculo)}>{VEHICULOS[r.vehiculo].split(' (')[0]}</button>)}</div>
+            <div className="segmentado cond-veh">{d.recs.map((r) => <button key={r.id} className={rec?.id === r.id ? 'sel' : ''} onClick={() => setVeh(r.id)}>{nombreRec(r)}</button>)}</div>
           )}
           <div className="cond-resumen">
-            <span><b>{VEHICULOS[rec.vehiculo]}</b>{rec.conductor ? ` · ${rec.conductor}` : ''}</span>
+            <span><b>{nombreRec(rec)}</b>{rec.salida ? ` · sale ${h12(rec.salida)}` : ''}{rec.conductor ? ` · ${rec.conductor}` : ''}</span>
             <span>{vs.length - faltan.length} de {vs.length} hechas</span>
           </div>
           {sim?.alSalir?.length > 0 && <div className="cond-volver">⤓ Al salir de la planta lleva la mercancía de: {nombresDe(sim.alSalir)}</div>}
@@ -90,7 +91,7 @@ export default function Conductor({ perfil }) {
                       <span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span>
                       {v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}
                       {v.hora ? <b className="hora-exacta grande">⏰ {cuandoTxt(v).replace(/^./, (c) => c.toUpperCase())}</b> : cuandoTxt(v) && <span className="etq">{cuandoTxt(v)}</span>}
-                      <div className="cond-destino">{v.destino}</div>
+                      <div className="cond-destino">{v.destino}{zonaTxt(v) && <span className={`zona z-${zonaDe(v)}`}>{zonaTxt(v)}</span>}</div>
                       <div className="cond-dir">{[v.direccion, v.municipio].filter(Boolean).join(', ')}</div>
                     </div>
                   </div>

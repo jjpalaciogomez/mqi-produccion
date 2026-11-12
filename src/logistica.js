@@ -41,6 +41,42 @@ export const minViaje = (a, b) => (km(a, b) * FACTOR_CALLE / KMH) * 60
 
 const pos = (x) => ({ lat: Number(x.lat), lng: Number(x.lng) })
 
+// ---------------- Zona de la ciudad (Valle de Aburrá) ----------------
+const MUN_ZONA = {
+  norte: ['bello', 'copacabana', 'girardota', 'barbosa'],
+  sur: ['envigado', 'itagui', 'sabaneta', 'la estrella', 'caldas'],
+  oriente: ['rionegro', 'marinilla', 'guarne', 'la ceja', 'el retiro', 'el carmen de viboral', 'el santuario', 'llanogrande', 'san antonio de pereira'],
+}
+const sinTilde = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').trim()
+export const ZONAS = { norte: 'Norte', sur: 'Sur', centro: 'Centro', oriente: 'Oriente', occidente: 'Occidente' }
+/** Zona aproximada: por la ubicación (si la hay) o por el municipio. Medellín: centro, norte, sur (Poblado/Guayabal), oriente y occidente (Laureles/Belén/Robledo). */
+export function zonaDe(v) {
+  if (!v) return null
+  const mun = sinTilde(v.municipio)
+  for (const [z, ms] of Object.entries(MUN_ZONA)) if (ms.some((m) => mun.includes(m))) return z
+  if (v.lat !== null && v.lat !== undefined && v.lat !== '' && v.lng !== null && v.lng !== undefined && v.lng !== '') {
+    const lat = Number(v.lat), lng = Number(v.lng)
+    if (lng > -75.5) return 'oriente' // Oriente antioqueño
+    if (lat >= 6.275) return 'norte'
+    if (lat < 6.235) return 'sur'
+    if (lng < -75.585) return 'occidente'
+    if (lng > -75.556) return 'oriente'
+    return 'centro'
+  }
+  // Sin ubicación: por el barrio escrito en la dirección
+  const dir = sinTilde(v.direccion)
+  for (const [z, bs] of Object.entries(BARRIOS)) if (bs.some((b) => dir.includes(b))) return z
+  return null
+}
+const BARRIOS = {
+  occidente: ['belen', 'laureles', 'estadio', 'san joaquin', 'la america', 'calasanz', 'san javier', 'robledo', 'floresta', 'conquistadores', 'santa monica'],
+  sur: ['poblado', 'guayabal', 'cristo rey', 'campo amor', 'manila', 'patio bonito'],
+  centro: ['candelaria', 'centro', 'prado', 'boston', 'san benito', 'guayaquil'],
+  norte: ['aranjuez', 'castilla', 'manrique', 'popular', 'santa cruz', 'doce de octubre', 'pedregal', 'tricentenario'],
+  oriente: ['buenos aires', 'villa hermosa', 'milagrosa', 'loreto', 'las palmas'],
+}
+export const zonaTxt = (v) => ZONAS[zonaDe(v)] || ''
+
 // ---------------- Horas ----------------
 export const aMin = (h) => { const [a, b] = String(h).split(':'); return Number(a) * 60 + Number(b || 0) }
 export const hm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m % 60) % 60).padStart(2, '0')}`
