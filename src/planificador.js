@@ -1,3 +1,4 @@
+import { festivo } from './festivos.js'
 // Planificador automático de la programación.
 // Reparte las horas pendientes de una OP en un área por los días hábiles, respetando:
 //  · la jornada de cada día (lunes a jueves 8,5 h, viernes 8 h, sábado y domingo no se programa) más las horas extra programadas,
@@ -8,7 +9,9 @@
 
 export const aMin = (h) => { const [a, b] = String(h).split(':'); return Number(a) * 60 + Number(b) }
 export const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m % 60)).padStart(2, '0')}`
-export const jornadaMin = (f) => { const w = new Date(f + 'T12:00:00').getDay(); return w === 5 ? 480 : w >= 1 && w <= 4 ? 510 : 0 }
+// Jornada normal: lunes a jueves 8,5 h, viernes 8 h; sábados, domingos y festivos no hay jornada (solo horas extra)
+export const jornadaMin = (f) => { if (festivo(f)) return 0; const w = new Date(f + 'T12:00:00').getDay(); return w === 5 ? 480 : w >= 1 && w <= 4 ? 510 : 0 }
+export { festivo }
 export const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
 const arriba15 = (m) => Math.ceil(m / 15 - 1e-9) * 15
 
@@ -36,19 +39,19 @@ export function capacidadArea(area, operarios) {
 let EXTRA = {}
 export function fijarExtras(lista) {
   EXTRA = {}
-  for (const x of lista || []) (EXTRA[x.fecha] ||= {})[x.area || '*'] = String(x.hasta).slice(0, 5)
+  for (const x of lista || []) (EXTRA[x.fecha] ||= {})[x.area || '*'] = { h: String(x.hasta).slice(0, 5), d: x.desde ? String(x.desde).slice(0, 5) : null }
 }
-export const extraDe = (f, area) => {
-  const e = EXTRA[f]
-  if (!e) return null
-  const v = [e['*'], area && e[area]].filter(Boolean).sort()
-  return v.length ? v[v.length - 1] : null
-}
+const extrasDe = (f, area) => { const e = EXTRA[f]; return e ? [e['*'], area && e[area]].filter(Boolean) : [] }
+// Hasta qué hora hay horas extra ese día (la más tarde de la planta o del área)
+export const extraDe = (f, area) => { const v = extrasDe(f, area).map((x) => x.h).sort(); return v.length ? v[v.length - 1] : null }
+// Desde qué hora se trabaja un día sin jornada normal (sábado, domingo o festivo); si no se dijo, desde la entrada
+export const hayExtra = (f) => !!EXTRA[f]
+export const extraDesde = (f, area) => { const v = extrasDe(f, area).map((x) => x.d).filter(Boolean).sort(); return v.length ? v[0] : null }
 
 // Horario de trabajo de un día para un área: [inicio, fin] en minutos (con horas extra si las hay)
 export function ventana(f, horario, area) {
-  const ini = aMin(horario?.entrada || '07:00')
   const j = jornadaMin(f)
+  const ini = aMin((!j && extraDesde(f, area)) || horario?.entrada || '07:00')
   const ex = extraDe(f, area)
   const fin = Math.max(j ? ini + j : 0, ex ? aMin(ex) : 0)
   return fin > ini ? [ini, fin] : null

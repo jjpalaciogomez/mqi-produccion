@@ -3,11 +3,11 @@ import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { AREAS_PLANTA } from '../estandar.js'
-import { APOYO, aMin, capacidadArea, extraDe, fijarExtras, fijarMaquinas, hhBloque, jornadaArea, jornadaMin, maqBloque, numMaquinas, planificar, planificarOP, reorganizar } from '../planificador.js'
+import { APOYO, aMin, capacidadArea, extraDe, extraDesde, festivo, fijarExtras, hayExtra, fijarMaquinas, hhBloque, jornadaArea, jornadaMin, maqBloque, numMaquinas, planificar, planificarOP, reorganizar } from '../planificador.js'
 
 // Programación de la planta: bloques de trabajo (OP + área + día + horario + operarios opcionales)
 
-const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 const COLORES = ['#2a78d6', '#1d8a4e', '#b5530f', '#7a4cc2', '#c0392b', '#0f8a8a', '#a8326e', '#5b6b1a', '#2c4f9e', '#8a5a00']
 export const hoyCO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
 export const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
@@ -50,7 +50,7 @@ export default function Programacion({ perfil, gestor }) {
   const [pend, setPend] = useState(null)
   const lunes = lunesDe(dia)
   const desde = vista === 'semana' ? lunes : dia
-  const hasta = vista === 'semana' ? sumarDias(lunes, 5) : dia
+  const hasta = vista === 'semana' ? sumarDias(lunes, 6) : dia
   const areas = filtro ? [filtro] : AREAS_PLANTA
   const { d, error, cargar } = useProgramacion(desde, hasta, null)
 
@@ -143,7 +143,7 @@ export function BarraFechas({ vista, setVista, dia, setDia, children }) {
   const lunes = lunesDe(dia)
   const paso = vista === 'semana' ? 7 : 1
   const titulo = vista === 'semana'
-    ? `Semana del ${new Date(lunes + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })} al ${new Date(sumarDias(lunes, 5) + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}`
+    ? `Semana del ${new Date(lunes + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })} al ${new Date(sumarDias(lunes, 6) + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}`
     : new Date(dia + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
   return (
     <div className="prog-barra">
@@ -177,14 +177,17 @@ export function Calendario({ vista, dia, lunes, areas, bloques, personas, maquin
   })
 
   if (vista === 'semana') {
-    const dias = DIAS.map((_, i) => sumarDias(lunes, i))
+    // El domingo solo sale si ese día hay horas extra o algo programado
+    const dom = sumarDias(lunes, 6)
+    const dias = DIAS.map((_, i) => sumarDias(lunes, i)).filter((f) => f !== dom || hayExtra(f) || bloques.some((b) => b.fecha === f))
     return (
       <div className="prog-semana" style={{ gridTemplateColumns: `130px repeat(${dias.length}, minmax(150px, 1fr))` }}>
         <div className="ps-esq" />
         {dias.map((f, i) => (
-          <button key={f} className={`ps-dia${f === hoy ? ' es-hoy' : ''}`} onClick={() => onDia?.(f)} title="Ver el día por horas">
-            {DIAS[i]} <b>{new Date(f + 'T12:00:00').getDate()}</b>
-            {extraDe(f) && <span className="ps-extra">extra hasta {extraDe(f)}</span>}
+          <button key={f} className={`ps-dia${f === hoy ? ' es-hoy' : ''}${festivo(f) ? ' festivo' : ''}`} onClick={() => onDia?.(f)} title="Ver el día por horas">
+            {DIAS[(new Date(f + 'T12:00:00').getDay() + 6) % 7]} <b>{new Date(f + 'T12:00:00').getDate()}</b>
+            {festivo(f) && <span className="ps-festivo">Festivo · {festivo(f)}</span>}
+            {extraDe(f) && <span className="ps-extra">extra {extraDesde(f) ? `${extraDesde(f)}–` : 'hasta '}{extraDe(f)}</span>}
           </button>
         ))}
         {areas.map((a) => [
@@ -369,25 +372,27 @@ function ListaPlan({ bloques, maquinas, personas }) {
 function HorasExtra({ dia, horario, onClose, onCambio, onReorganizar }) {
   const hoy = hoyCO()
   const [lista, setLista] = useState(null)
-  const [f, setF] = useState({ fecha: dia < hoy ? hoy : dia, area: '', hasta: '18:00', nota: '' })
+  const [f, setF] = useState({ fecha: dia < hoy ? hoy : dia, area: '', desde: horario?.entrada || '07:00', hasta: '18:00', nota: '' })
   const [error, setError] = useState('')
   const [cambio, setCambio] = useState(false)
   const cargar = useCallback(() => q(sb.from('horas_extra').select('*').gte('fecha', hoy).order('fecha').order('area', { nullsFirst: true }))
     .then(setLista).catch((e) => setError(e.message)), [hoy])
   useEffect(() => { cargar() }, [cargar])
-  const sabado = new Date(f.fecha + 'T12:00:00').getDay() === 6
+  const w = new Date(f.fecha + 'T12:00:00').getDay()
+  const sinJornada = jornadaMin(f.fecha) === 0 // sábado, domingo o festivo: se dice desde y hasta qué hora
+  const tipoDia = festivo(f.fecha) ? `Festivo (${festivo(f.fecha)})` : w === 0 ? 'Domingo' : w === 6 ? 'Sábado' : ''
   const finNormal = (() => { const j = jornadaMin(f.fecha); return j ? hmm(aMin(horario?.entrada || '07:00') + j) : null })()
   const agregar = async (e) => {
     e.preventDefault(); setError('')
-    if (new Date(f.fecha + 'T12:00:00').getDay() === 0) { setError('Los domingos no se programan.'); return }
     if (finNormal && f.hasta <= finNormal) { setError(`Ese día la jornada normal termina a las ${finNormal}; la hora extra debe ser después.`); return }
-    if (f.hasta <= (horario?.entrada || '07:00')) { setError('La hora debe ser después de la entrada.'); return }
+    if (sinJornada && (!f.desde || f.hasta <= f.desde)) { setError('La hora "hasta" debe ser después de la hora "desde".'); return }
+    if (!sinJornada && f.hasta <= (horario?.entrada || '07:00')) { setError('La hora debe ser después de la entrada.'); return }
     try {
       // Si ya había horas extra ese día para lo mismo, se reemplazan
       let del = sb.from('horas_extra').delete().eq('fecha', f.fecha)
       del = f.area ? del.eq('area', f.area) : del.is('area', null)
       await q(del)
-      await q(sb.from('horas_extra').insert({ fecha: f.fecha, area: f.area || null, hasta: f.hasta, nota: f.nota.trim() || null }))
+      await q(sb.from('horas_extra').insert({ fecha: f.fecha, area: f.area || null, desde: sinJornada ? f.desde : null, hasta: f.hasta, nota: f.nota.trim() || null }))
       setCambio(true); cargar(); onCambio()
     } catch (err) { setError(err.message) }
   }
@@ -396,24 +401,25 @@ function HorasExtra({ dia, horario, onClose, onCambio, onReorganizar }) {
   }
   return (
     <Modal titulo="Horas extra en la planta" onClose={onClose} ancho={640}>
-      <p className="tenue">Indica el día y la hora hasta la que se quedan los trabajadores. La programación usa ese tiempo de más (también los sábados).
-        Entrada: {horario?.entrada || '07:00'}; jornada normal de lunes a jueves 8,5 h y viernes 8 h.</p>
+      <p className="tenue">Indica el día y la hora hasta la que se quedan los trabajadores. Los sábados, domingos y festivos no tienen jornada normal:
+        ahí se indica desde y hasta qué hora se trabaja. La programación usa ese tiempo. Entrada: {horario?.entrada || '07:00'}; jornada normal de lunes a jueves 8,5 h y viernes 8 h.</p>
       <form className="form fila-form" onSubmit={agregar}>
         <label>Día<input type="date" min={hoy} value={f.fecha} onChange={(e) => setF({ ...f, fecha: e.target.value })} required /></label>
         <label>Área<select value={f.area} onChange={(e) => setF({ ...f, area: e.target.value })}><option value="">Toda la planta</option>{AREAS_PLANTA.map((a) => <option key={a}>{a}</option>)}</select></label>
+        {sinJornada && <label>Desde las<input type="time" step={900} value={f.desde} onChange={(e) => setF({ ...f, desde: e.target.value })} required /></label>}
         <label>Hasta las<input type="time" step={900} value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.target.value })} required /></label>
         <label>Nota<input value={f.nota} onChange={(e) => setF({ ...f, nota: e.target.value })} placeholder="Opcional" /></label>
         <button className="btn">Agregar</button>
       </form>
-      <p className="tenue pequeño">{sabado ? `Sábado: se trabaja de ${horario?.entrada || '07:00'} a ${f.hasta}.` : finNormal ? `Ese día la jornada normal termina a las ${finNormal}: serían ${fmtH(Math.max(aMin(f.hasta) - aMin(finNormal), 0))} de más por persona.` : ''}</p>
+      <p className="tenue pequeño">{sinJornada ? `${tipoDia}: no hay jornada normal; se trabaja de ${f.desde} a ${f.hasta} (${fmtH(Math.max(aMin(f.hasta) - aMin(f.desde || '00:00'), 0))} por persona).` : finNormal ? `Ese día la jornada normal termina a las ${finNormal}: serían ${fmtH(Math.max(aMin(f.hasta) - aMin(finNormal), 0))} de más por persona.` : ''}</p>
       <Aviso>{error}</Aviso>
       {!lista ? <Cargando /> : lista.length === 0 ? <div className="vacio">No hay horas extra programadas.</div> : (
         <table className="tabla">
-          <thead><tr><th>Día</th><th>Área</th><th>Hasta</th><th>Nota</th><th /></tr></thead>
+          <thead><tr><th>Día</th><th>Área</th><th>Horario</th><th>Nota</th><th /></tr></thead>
           <tbody>{lista.map((x) => (
             <tr key={x.id}>
-              <td>{new Date(x.fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
-              <td>{x.area || 'Toda la planta'}</td><td><b>{String(x.hasta).slice(0, 5)}</b></td><td className="tenue">{x.nota || ''}</td>
+              <td>{new Date(x.fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}{festivo(x.fecha) && <div className="tenue pequeño">festivo</div>}</td>
+              <td>{x.area || 'Toda la planta'}</td><td><b>{x.desde ? `${String(x.desde).slice(0, 5)} a ` : 'hasta '}{String(x.hasta).slice(0, 5)}</b></td><td className="tenue">{x.nota || ''}</td>
               <td><button className="btn-link peligro" onClick={() => quitar(x)}>Quitar</button></td>
             </tr>
           ))}</tbody>

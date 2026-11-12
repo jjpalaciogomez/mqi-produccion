@@ -4,15 +4,13 @@ import { Aviso, Modal, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { DIF_NOMBRE, calcMaquina, textoMedidas, unidadProc } from '../estandar.js'
 import { BarraFechas, hoyCO, lunesDe, sumarDias, useProgramacion } from './Programacion.jsx'
+import { jornadaMin } from '../planificador.js'
 
 // Pantalla de la tablet de un área. Muestra las tareas de su área y de Pintura
 // (Pintura no tiene tablet propia). El operario toca su nombre y escribe cuánto trabajó.
 
-// Jornada en minutos según el día (hora de Colombia): lunes a jueves 8,5 h, viernes 8 h
-const jornadaHoy = () => {
-  const dia = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' })).getDay()
-  return dia === 5 ? 480 : dia >= 1 && dia <= 4 ? 510 : 0
-}
+// Jornada en minutos según el día (hora de Colombia): lunes a jueves 8,5 h, viernes 8 h, festivos 0
+const jornadaHoy = () => jornadaMin(hoyCO()) // festivos y fines de semana: 0
 
 export default function Tablet({ perfil }) {
   const area = perfil.area
@@ -214,7 +212,7 @@ function CalendarioTablet({ areas, tareas, personas }) {
   const [dia, setDia] = useState(hoyCO())
   const lunes = lunesDe(dia)
   const desde = modo === 'semana' ? lunes : dia
-  const hasta = modo === 'semana' ? sumarDias(lunes, 5) : dia
+  const hasta = modo === 'semana' ? sumarDias(lunes, 6) : dia
   const { d, error } = useProgramacion(desde, hasta, areas)
   const dias = []
   for (let f = desde; f <= hasta; f = sumarDias(f, 1)) dias.push(f)
@@ -236,7 +234,7 @@ function CalendarioTablet({ areas, tareas, personas }) {
       <Aviso>{error}</Aviso>
       {!d ? <div className="vacio">Cargando…</div> : dias.map((f) => {
         const bs = d.bloques.filter((b) => b.fecha === f).sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio) || String(a.ordenes?.numero).localeCompare(String(b.ordenes?.numero)))
-        if (modo === 'semana' && !bs.length && new Date(f + 'T12:00:00').getDay() === 6) return null
+        if (modo === 'semana' && !bs.length && [0, 6].includes(new Date(f + 'T12:00:00').getDay())) return null
         return (
           <div key={f} className="agenda-dia">
             {modo === 'semana' && <h3 className="agenda-fecha">{new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>}

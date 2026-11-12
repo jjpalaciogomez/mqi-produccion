@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { jornadaMin } from '../planificador.js'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Badge, Cargando, fmtMin } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 
 // Reporte de horas registradas por persona: por día o por semana.
-// Jornada: lunes a jueves 8,5 h, viernes 8 h, sábado y domingo no laborales.
-const jornada = (fecha) => { const d = new Date(fecha + 'T12:00:00').getDay(); return d === 5 ? 480 : d >= 1 && d <= 4 ? 510 : 0 }
+// Jornada: lunes a jueves 8,5 h, viernes 8 h; sábados, domingos y festivos no laborales.
+const jornada = (fecha) => jornadaMin(fecha) // festivos: 0
 const hoyCO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
 const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
 const lunesDe = (f) => { const d = new Date(f + 'T12:00:00').getDay(); return sumarDias(f, d === 0 ? -6 : 1 - d) }

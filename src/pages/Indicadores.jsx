@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { jornadaMin } from '../planificador.js'
 import { sb, q, PERSONA_COLS } from '../supabase.js'
 import { Aviso, Cargando, Semaforo, fmtFecha, fmtMin, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
@@ -100,7 +101,7 @@ function calcular(d, desde, hoy) {
   const minTareas = porDia.reduce((s, x) => s + x.tareas, 0), minParos = porDia.reduce((s, x) => s + x.paros, 0)
 
   // Máquinas: horas pendientes (estándar) y horas trabajadas en el periodo frente a la jornada
-  const minHabiles = dias.reduce((s, f) => { const w = new Date(f + 'T12:00:00').getDay(); return s + (w === 5 ? 480 : w >= 1 && w <= 4 ? 510 : 0) }, 0)
+  const minHabiles = dias.reduce((s, f) => s + jornadaMin(f), 0)
   const maquinas = d.procMaq.map((p) => {
     const pend = d.pendientes.filter((t) => t.proceso === p.codigo).reduce((s, t) => s + Math.max(Number(t.min_maquina || 0) - Number(t.min_maquina_real || 0), 0), 0)
     const hecho = d.maq.filter((x) => x.proceso === p.codigo).reduce((s, x) => s + Number(x.min_maquina || 0), 0)
