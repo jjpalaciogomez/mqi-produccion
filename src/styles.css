@@ -621,3 +621,9 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .wa-fila.enviado { opacity: .75; }
 .wa-fila .badge { margin-left: 6px; }
 .wa-texto { white-space: pre-wrap; font-family: inherit; font-size: .85rem; background: #f0fdf4; border-radius: 8px; padding: 8px; margin: 6px 0 0; }
+.wa-campos { display: flex; flex-wrap: wrap; gap: 6px; }
+.wa-campos .chip { border: 1px solid #d1d5db; background: #fff; border-radius: 999px; padding: 3px 10px; font-size: .8rem; cursor: pointer; }
+.wa-campos .chip:hover { background: #f0fdf4; }
+.wa-editor { display: flex; gap: 12px; flex-wrap: wrap; }
+.wa-editor > * { min-width: 280px; flex: 1; }
+.wa-editor textarea { font-family: inherit; font-size: .9rem; }

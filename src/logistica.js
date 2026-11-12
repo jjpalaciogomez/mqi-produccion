@@ -384,31 +384,73 @@ export function waNumero(tel) {
 }
 export const linkWhatsApp = (tel, texto) => `https://wa.me/${waNumero(tel)}?text=${encodeURIComponent(texto)}`
 const TIPO_TXT = { entrega: 'ENTREGA', recogida: 'RECOGIDA', diligencia: 'DILIGENCIA', regreso: 'REGRESO A LA PLANTA' }
-export function mensajeVuelta(v, { n, total, titulo, paso } = {}) {
-  const l = []
-  l.push(`*MQI · ${titulo || 'Vuelta'}${n ? ` · Vuelta ${n}${total ? ` de ${total}` : ''}` : ''}*`)
-  if (v.recoger_planta) l.push('➡️ Antes: recoger la mercancía en la Planta MQI')
-  l.push(`*${TIPO_TXT[v.tipo] || 'VUELTA'}* · ${v.destino}`)
-  const dir = [v.direccion, v.municipio].filter(Boolean).join(', ')
-  if (dir) l.push(`📍 ${dir}`)
-  if (tieneUbic(v) || dir) l.push(`🗺️ ${linkMaps(v)}`)
-  if (v.descripcion || v.op) l.push(`📦 ${[v.descripcion, v.op ? `OP ${v.op}` : ''].filter(Boolean).join(' · ')}`)
-  if (v.contacto || v.telefono) l.push(`👤 ${[v.contacto, v.telefono].filter(Boolean).join(' · ')}`)
-  const cu = cuandoTxt(v)
-  if (cu) l.push(`⏰ ${cu.charAt(0).toUpperCase()}${cu.slice(1)}`)
-  const rc = recepcionTxt(v.recepcion)
-  if (rc) l.push(`🕒 Recibe ${rc}`)
-  if (paso?.llega != null) l.push(`🚚 Llegada estimada: ${h12(hm(paso.llega))}`)
-  if (v.volver_planta) l.push(`↩️ Después: volver a la Planta MQI${v.volver_antes ? ` antes de las ${h12(v.volver_antes)}` : ''}`)
-  if (v.nota) l.push(`📝 ${v.nota}`)
-  return l.join('\n')
+
+// Plantillas de los mensajes (se pueden personalizar en Logística → Transportadores).
+// Un renglón con campos {…} que quedan todos vacíos no se envía.
+export const PLANTILLA_VUELTA = `*MQI · {ruta} · {vuelta}*
+➡️ Antes: {antes}
+*{tipo}* · {destino}
+📍 {direccion}
+🗺️ {mapa}
+📦 {que}
+👤 {contacto}
+⏰ {cuando}
+🕒 Recibe {recepcion}
+🚚 Llegada estimada: {llegada}
+↩️ Después: {despues}`
+export const PLANTILLA_RESUMEN = `*MQI · {ruta}*
+{cantidad} · sale de la planta a las {salida}
+🏭 Planta MQI: {mapa_planta}
+{paradas}
+🗺️ Recorrido completo: {recorrido}
+Le envío cada vuelta en un mensaje aparte.`
+export const CAMPOS_VUELTA = [
+  ['ruta', 'Nombre de la ruta'], ['vuelta', 'Vuelta 2 de 5'], ['tipo', 'Entrega / Recogida / Diligencia'], ['destino', 'Sitio'], ['direccion', 'Dirección y municipio'],
+  ['mapa', 'Link de Google Maps'], ['que', 'Qué llevar o recoger y OP'], ['op', 'Solo la OP'], ['contacto', 'Contacto y teléfono del sitio'], ['cuando', 'Hora pedida'],
+  ['recepcion', 'Horario de recepción'], ['llegada', 'Hora estimada de llegada'], ['antes', 'Recoger en la planta antes'], ['despues', 'Volver a la planta después'], ['fecha', 'Fecha de la vuelta'],
+]
+export const CAMPOS_RESUMEN = [['ruta', 'Nombre de la ruta'], ['cantidad', '3 vueltas'], ['salida', 'Hora de salida'], ['mapa_planta', 'Ubicación de la planta'], ['paradas', 'Lista de paradas'], ['recorrido', 'Link del recorrido completo']]
+export function llenarPlantilla(tpl, datos) {
+  return String(tpl || '').split('\n').map((linea) => {
+    const campos = [...linea.matchAll(/\{(\w+)\}/g)].map((m) => m[1])
+    if (campos.length && campos.every((c) => !datos[c])) return null
+    return linea.replace(/\{(\w+)\}/g, (_, c) => datos[c] ?? '').replace(/ · (?=\*|$)/g, '').replace(/ {2,}/g, ' ')
+  }).filter((l) => l !== null).join('\n').trim()
 }
-export function mensajeResumen(paradas, { titulo, salida, planta }) {
-  const l = [`*MQI · ${titulo}*`, `${paradas.length} ${paradas.length === 1 ? 'vuelta' : 'vueltas'}${salida ? ` · sale de la planta a las ${h12(salida)}` : ''}`]
-  if (tieneUbic(planta)) l.push(`🏭 Planta MQI: https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}`)
-  paradas.forEach((v, i) => l.push(`${i + 1}. ${v.destino}${v.municipio ? ` (${v.municipio})` : ''}`))
+export function datosVuelta(v, { n, total, titulo, paso } = {}) {
+  const cu = cuandoTxt(v)
+  const dir = [v.direccion, v.municipio].filter(Boolean).join(', ')
+  return {
+    ruta: titulo || 'Vuelta', vuelta: n ? `Vuelta ${n}${total ? ` de ${total}` : ''}` : '', tipo: TIPO_TXT[v.tipo] || 'VUELTA', destino: v.destino || '', direccion: dir,
+    mapa: tieneUbic(v) || dir ? linkMaps(v) : '', que: [v.descripcion, v.op ? `OP ${v.op}` : ''].filter(Boolean).join(' · '), op: v.op ? `OP ${v.op}` : '',
+    contacto: [v.contacto, v.telefono].filter(Boolean).join(' · '), cuando: cu ? cu.charAt(0).toUpperCase() + cu.slice(1) : '', recepcion: recepcionTxt(v.recepcion),
+    llegada: paso?.llega != null ? h12(hm(paso.llega)) : '', antes: v.recoger_planta ? 'recoger la mercancía en la Planta MQI' : '',
+    despues: v.volver_planta ? `volver a la Planta MQI${v.volver_antes ? ` antes de las ${h12(v.volver_antes)}` : ''}` : '', fecha: v.fecha || '',
+  }
+}
+export const mensajeVuelta = (v, opts = {}, tpl) => llenarPlantilla(tpl || PLANTILLA_VUELTA, datosVuelta(v, opts))
+export function mensajeResumen(paradas, { titulo, salida, planta }, tpl) {
   const links = linksRecorrido(paradas, planta)
-  if (links.length) l.push(`🗺️ Recorrido completo: ${links.join(' ')}`)
-  l.push('Le envío cada vuelta en un mensaje aparte.')
-  return l.join('\n')
+  return llenarPlantilla(tpl || PLANTILLA_RESUMEN, {
+    ruta: titulo, cantidad: `${paradas.length} ${paradas.length === 1 ? 'vuelta' : 'vueltas'}`, salida: salida ? h12(salida) : '',
+    mapa_planta: tieneUbic(planta) ? `https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}` : '',
+    paradas: paradas.map((v, i) => `${i + 1}. ${v.destino}${v.municipio ? ` (${v.municipio})` : ''}`).join('\n'), recorrido: links.join(' '),
+  })
+}
+
+// Pedir en Uber: abre la app con la recogida y el destino puestos (en una recogida, del sitio a la planta)
+export function linkUber(v, planta) {
+  const pl = tieneUbic(planta) ? planta : null
+  const sitio = { lat: tieneUbic(v) ? v.lat : null, lng: tieneUbic(v) ? v.lng : null, nombre: v.destino, dir: [v.direccion, v.municipio].filter(Boolean).join(', ') }
+  const plantaP = { lat: pl?.lat, lng: pl?.lng, nombre: 'Planta MQI', dir: '' }
+  const [a, b] = v.tipo === 'recogida' ? [sitio, plantaP] : [plantaP, sitio]
+  const p = new URLSearchParams({ action: 'setPickup' })
+  const poner = (pre, x) => {
+    if (x.lat != null && x.lat !== undefined) { p.set(`${pre}[latitude]`, x.lat); p.set(`${pre}[longitude]`, x.lng) }
+    if (x.nombre) p.set(`${pre}[nickname]`, x.nombre)
+    if (x.dir) p.set(`${pre}[formatted_address]`, x.dir)
+  }
+  if (a.lat != null) poner('pickup', a); else p.set('pickup', 'my_location')
+  poner('dropoff', b)
+  return `https://m.uber.com/ul/?${p.toString()}`
 }

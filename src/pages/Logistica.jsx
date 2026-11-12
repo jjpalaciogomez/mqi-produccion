@@ -1,11 +1,11 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEnVivo } from '../vivo.js'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, linkUber, PLANTILLA_VUELTA, PLANTILLA_RESUMEN, CAMPOS_VUELTA, CAMPOS_RESUMEN, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
   linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
@@ -20,6 +20,15 @@ function useAjustesLog() {
   useEffect(() => { cargar() }, [cargar])
   useEnVivo(cargar, ['ajustes'])
   return [aj, cargar]
+}
+
+// Plantillas de WhatsApp personalizadas (ajustes 'whatsapp'); si no hay, se usan las predeterminadas
+function usePlantillasWa() {
+  const [tpl, setTpl] = useState({})
+  const cargar = useCallback(() => q(sb.from('ajustes').select('valor').eq('clave', 'whatsapp')).then((r) => setTpl(r[0]?.valor || {})).catch(() => setTpl({})), [])
+  useEffect(() => { cargar() }, [cargar])
+  useEnVivo(cargar, ['ajustes'])
+  return [tpl, cargar]
 }
 
 export default function Logistica({ perfil, gestor }) {
@@ -46,7 +55,7 @@ export default function Logistica({ perfil, gestor }) {
       {tab === 'ruta' && gestor && <RutaDelDia lugares={lugares || []} transps={transps || []} perfil={perfil} onLugares={cargarLugares} />}
       {tab === 'vueltas' && <Vueltas perfil={perfil} gestor={gestor} lugares={lugares || []} onLugares={cargarLugares} />}
       {tab === 'lugares' && <Lugares lugares={lugares} onCambio={cargarLugares} />}
-      {tab === 'transportadores' && <Transportadores lista={transps} onCambio={cargarTransps} />}
+      {tab === 'transportadores' && <Transportadores lista={transps} onCambio={cargarTransps} gestor={gestor} />}
     </div>
   )
 }
@@ -354,6 +363,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   // El camión está en la planta a cierta hora: lo hecho queda en su ruta y lo pendiente se vuelve a programar desde la hora en que puede volver a salir
   const [verEnPlanta, setVerEnPlanta] = useState(false)
   const [wa, setWa] = useState(null) // ruta (o vuelta) para mandar por WhatsApp
+  const [tplWa] = usePlantillasWa()
   const replanificar = ({ enPlanta, sale, almorzo }) => accion(async () => {
     const rutas = cols.filter((c) => vehDe(c) === 'camion' && rec(c))
     const ult = Math.max(0, ...rutas.filter((k) => fijasDe(k).length).map(numDe))
@@ -465,7 +475,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
           </div>
           {cols.map((veh) => {
             if (vehDe(veh) === 'mensajero') return (
-              <ColContratados key={veh} titulo={nombreRuta(veh)} ps={deVeh(veh)} fecha={fecha} cfg={cfg} transps={transps} ocupado={ocupado}
+              <ColContratados key={veh} tplWa={tplWa} planta={planta} titulo={nombreRuta(veh)} ps={deVeh(veh)} fecha={fecha} cfg={cfg} transps={transps} ocupado={ocupado}
                 onAbrir={setForm} onAccion={accion} onSacar={(v, destino) => mover(v, destino)} destinos={cols.filter((c) => c !== veh && !bloqueado(c)).map((c) => [c, nombreRuta(c)])} />
             )
             const ps = deVeh(veh), r = rec(veh), conf = r?.estado === 'confirmada', contratada = vehDe(veh) === 'externo'
@@ -506,6 +516,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                       {contratada && (v.estado === 'pendiente'
                         ? <button className="btn btn-ok btn-sm" disabled={ocupado} onClick={() => marcarHecha(v, true)}>Hecha</button>
                         : v.estado === 'hecha' && <button className="btn-link" disabled={ocupado} onClick={() => marcarHecha(v, false)}>Deshacer</button>)}
+                      {contratada && v.estado === 'pendiente' && <a className="btn btn-sec btn-sm" href={linkUber(v, planta)} target="_blank" rel="noreferrer" title="Abre Uber con la recogida y el destino de esta vuelta">🚗 Uber</a>}
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
                       <button className="btn-icono" disabled={ocupado || i === ps.length - 1} onClick={() => subir(veh, i, 1)} title="Bajar">↓</button>
                       <select value={veh} disabled={ocupado} onChange={(e) => mover(v, e.target.value)}>
@@ -526,8 +537,8 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                       : (() => { const nom = r?.conductor || cfg.conductor; return conductores.find((x) => x.nombre === nom)?.telefono || (nom === cfg.conductor ? cfg.conductor_tel : '') })()
                     const nombre = contratada ? transps.find((x) => x.id === r?.transportador_id)?.nombre : (r?.conductor || cfg.conductor)
                     const pend = ps.filter((x) => x.estado === 'pendiente')
-                    setWa({ titulo: nombreRuta(veh), tel: tel || '', nombre: nombre || '', resumen: mensajeResumen(pend, { titulo: nombreRuta(veh), salida: cr.salida, planta }),
-                      mensajes: pend.map((x, j) => ({ id: x.id, destino: x.destino, texto: mensajeVuelta(x, { n: j + 1, total: pend.length, titulo: nombreRuta(veh), paso: est.sim.pasos[ps.indexOf(x)] }) })) })
+                    setWa({ titulo: nombreRuta(veh), tel: tel || '', nombre: nombre || '', resumen: mensajeResumen(pend, { titulo: nombreRuta(veh), salida: cr.salida, planta }, tplWa.resumen),
+                      mensajes: pend.map((x, j) => ({ id: x.id, destino: x.destino, texto: mensajeVuelta(x, { n: j + 1, total: pend.length, titulo: nombreRuta(veh), paso: est.sim.pasos[ps.indexOf(x)] }, tplWa.vuelta) })) })
                   }} title="Manda la ruta por WhatsApp: un mensaje por cada vuelta con dirección y ubicación en Maps">📲 WhatsApp</button>}
                   {links.map((l, i) => <a key={l} className="btn btn-sec btn-sm" href={l} target="_blank" rel="noreferrer">Ver en Google Maps{links.length > 1 ? ` (${i + 1})` : ''}</a>)}
                   {!contratada && ps.length > 0 && (conf
@@ -552,7 +563,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
 }
 
 // Servicios contratados: cada vuelta se pide por aparte al transportador, cuando se necesite (sin ruta ni horario del camión)
-function ColContratados({ titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onAccion, onSacar, destinos }) {
+function ColContratados({ tplWa, planta, titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onAccion, onSacar, destinos }) {
   const activos = transps.filter((t) => t.activo !== false && t.tipo !== 'conductor')
   const asignar = (v, id) => onAccion(() => q(sb.from('vueltas').update({ transportador_id: id || null }).eq('id', v.id)))
   const hecha = (v, si) => onAccion(() => q(sb.from('vueltas').update(si ? { estado: 'hecha', hecha_en: new Date().toISOString() } : { estado: 'pendiente', hecha_en: null }).eq('id', v.id)), si ? `${v.destino}: hecha.` : '')
@@ -571,7 +582,8 @@ function ColContratados({ titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onA
                 <option value="">Transportador…</option>{activos.map((x) => <option key={x.id} value={x.id}>{x.nombre}{x.tipo ? ` (${TIPOS_TRANSPORTE[x.tipo] || x.tipo}${x.tamano ? ` ${x.tamano}` : ''})` : ''}</option>)}
               </select>
               {t?.telefono && <a className="btn btn-sec btn-sm" href={telLink(t.telefono)}>Llamar</a>}
-              {v.estado === 'pendiente' && <a className="btn btn-sec btn-sm" href={linkWhatsApp(t?.telefono, mensajeVuelta(v, { titulo: 'Servicio contratado' }))} target="_blank" rel="noreferrer" title="Manda esta vuelta por WhatsApp al transportador">📲 WhatsApp</a>}
+              {v.estado === 'pendiente' && <a className="btn btn-sec btn-sm" href={linkWhatsApp(t?.telefono, mensajeVuelta(v, { titulo: 'Servicio contratado' }, tplWa.vuelta))} target="_blank" rel="noreferrer" title="Manda esta vuelta por WhatsApp al transportador">📲 WhatsApp</a>}
+              {v.estado === 'pendiente' && <a className="btn btn-sec btn-sm" href={linkUber(v, planta)} target="_blank" rel="noreferrer" title="Abre Uber con la recogida y el destino puestos; eliges el servicio (Envíos, moto, carro) y confirmas allá">🚗 Uber</a>}
               <CampoValor valor={v.valor} disabled={ocupado} onGuardar={(n) => onAccion(() => q(sb.from('vueltas').update({ valor: n }).eq('id', v.id)))} />
               {v.estado === 'pendiente'
                 ? <button className="btn btn-ok btn-sm" disabled={ocupado} onClick={() => hecha(v, true)}>Hecha</button>
@@ -642,8 +654,9 @@ function DatosContratada({ r, transps, ocupado, onGuardar }) {
 }
 
 // Transportadores recurrentes (mensajeros y servicios de transporte que se contratan)
-function Transportadores({ lista, onCambio }) {
+function Transportadores({ lista, onCambio, gestor }) {
   const [form, setForm] = useState(null)
+  const [verMensajes, setVerMensajes] = useState(false)
   const [verInactivos, setVerInactivos] = useState(false)
   if (!lista) return <Cargando />
   const ls = lista.filter((t) => verInactivos || t.activo !== false)
@@ -652,6 +665,7 @@ function Transportadores({ lista, onCambio }) {
       <div className="filtros">
         <span className="tenue">Mensajeros y servicios de transporte que se contratan seguido, y conductores que pueden manejar el camión de la empresa. Los servicios se eligen en las vueltas de "Servicio contratado"; los conductores, en el campo Conductor de cada ruta del camión.</span>
         <label className="check pequeño"><input type="checkbox" checked={verInactivos} onChange={(e) => setVerInactivos(e.target.checked)} /> Ver inactivos</label>
+        {gestor && <button className="btn btn-sec" onClick={() => setVerMensajes(true)}>✏️ Mensajes de WhatsApp</button>}
         <button className="btn" onClick={() => setForm({ tipo: 'moto' })}>+ Agregar</button>
       </div>
       {ls.length === 0 ? <div className="vacio">No hay transportadores guardados.</div> : (
@@ -665,10 +679,63 @@ function Transportadores({ lista, onCambio }) {
           ))}</tbody>
         </table>
       )}
+      {verMensajes && <EditorMensajesWa onClose={() => setVerMensajes(false)} />}
       {form && <FormTransportador inicial={form} onClose={() => setForm(null)} onGuardado={() => { setForm(null); onCambio() }} />}
     </div>
   )
 }
+// Personalizar los mensajes de WhatsApp que se mandan a conductores y transportadores
+const EJEMPLO_WA = { tipo: 'entrega', destino: 'Helados Yom Yom', direccion: 'Cra. 46 # 48C Sur', municipio: 'Envigado', lat: 6.17, lng: -75.59, descripcion: 'Llevar ADH huellitas', op: '3904',
+  contacto: 'Ana', telefono: '3001234567', recepcion: [{ d: [1, 2, 3, 4, 5], a: '07:30', b: '16:00' }], franja: 'manana', recoger_planta: true, fecha: '2026-11-12' }
+function EditorMensajesWa({ onClose }) {
+  const [tpl, cargar] = usePlantillasWa()
+  const [f, setF] = useState(null)
+  const [cual, setCual] = useState('vuelta')
+  const [error, setError] = useState('')
+  const [ok, setOk] = useState(false)
+  useEffect(() => { if (!f) setF({ vuelta: tpl.vuelta || PLANTILLA_VUELTA, resumen: tpl.resumen || PLANTILLA_RESUMEN }) }, [tpl]) // eslint-disable-line react-hooks/exhaustive-deps
+  const ref = useRef(null)
+  if (!f) return null
+  const campos = cual === 'vuelta' ? CAMPOS_VUELTA : CAMPOS_RESUMEN
+  const insertar = (c) => {
+    const el = ref.current, t = f[cual], i = el ? el.selectionStart : t.length, j = el ? el.selectionEnd : t.length
+    setF({ ...f, [cual]: t.slice(0, i) + `{${c}}` + t.slice(j) })
+    setTimeout(() => { if (el) { el.focus(); el.selectionStart = el.selectionEnd = i + c.length + 2 } }, 0)
+  }
+  const guardar = async () => {
+    setError(''); setOk(false)
+    try {
+      await q(sb.from('ajustes').upsert({ clave: 'whatsapp', valor: { vuelta: f.vuelta.trim() === PLANTILLA_VUELTA ? null : f.vuelta, resumen: f.resumen.trim() === PLANTILLA_RESUMEN ? null : f.resumen } }))
+      await cargar(); setOk(true)
+    } catch (e) { setError(e.message) }
+  }
+  const vista = cual === 'vuelta'
+    ? mensajeVuelta(EJEMPLO_WA, { n: 1, total: 3, titulo: 'Ruta contratada 1', paso: { llega: 7 * 60 + 29 } }, f.vuelta)
+    : mensajeResumen([EJEMPLO_WA, { ...EJEMPLO_WA, destino: 'PVZ SAS Carolina', municipio: 'Medellín' }], { titulo: 'Ruta contratada 1', salida: '11:30' }, f.resumen)
+  return (
+    <Modal titulo="Mensajes de WhatsApp" onClose={onClose} ancho={860}>
+      <div className="form">
+        <div className="segmentado">
+          <button className={cual === 'vuelta' ? 'sel' : ''} onClick={() => setCual('vuelta')}>Mensaje de cada vuelta</button>
+          <button className={cual === 'resumen' ? 'sel' : ''} onClick={() => setCual('resumen')}>Resumen de la ruta</button>
+        </div>
+        <p className="tenue pequeño">Escribe el mensaje como quieres que le llegue al conductor. Los datos de cada vuelta se ponen con los campos entre llaves (toca uno para insertarlo donde está el cursor). Si un renglón tiene campos y todos quedan vacíos, ese renglón no se envía. *texto* sale en negrilla en WhatsApp.</p>
+        <div className="wa-campos">{campos.map(([c, d]) => <button key={c} type="button" className="chip" title={d} onClick={() => insertar(c)}>{`{${c}}`} <span className="tenue">{d}</span></button>)}</div>
+        <div className="wa-editor">
+          <label className="crece">Plantilla<textarea ref={ref} rows={14} value={f[cual]} onChange={(e) => { setF({ ...f, [cual]: e.target.value }); setOk(false) }} /></label>
+          <div className="crece"><div className="pequeño"><b>Así le llega (ejemplo)</b></div><pre className="wa-texto">{vista}</pre></div>
+        </div>
+        <Aviso>{error}</Aviso>{ok && <Aviso tipo="ok">Mensajes guardados. Se usan desde ya en todas las rutas.</Aviso>}
+        <div className="acciones">
+          <button type="button" className="btn-link" onClick={() => setF({ ...f, [cual]: cual === 'vuelta' ? PLANTILLA_VUELTA : PLANTILLA_RESUMEN })}>Restaurar el predeterminado</button>
+          <button type="button" className="btn btn-sec" onClick={onClose}>Cerrar</button>
+          <button type="button" className="btn" onClick={guardar}>Guardar</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function FormTransportador({ inicial, onClose, onGuardado }) {
   const [f, setF] = useState({ nombre: '', tipo: 'moto', tamano: '', contacto: '', telefono: '', notas: '', ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)) })
   const [error, setError] = useState('')
