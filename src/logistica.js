@@ -136,17 +136,26 @@ export function simular(paradas, planta, cfg, fecha) {
   let almuerzo = null
   const tomarAlmuerzo = () => { if (almMin && almuerzo === null && t >= almDesde) { almuerzo = t; t += almMin; return true } return false }
   const pp = tieneUbic(planta) ? pos(planta) : null
+  // Mercancía que hay que recoger en la planta: cada vez que el camión está en la planta carga todo lo que ya esté listo
+  const porCargar = new Set(pp ? paradas.filter((v) => v.recoger_planta) : [])
+  const cargar = () => {
+    const lleva = []
+    for (const v of [...porCargar]) if (!v.lista_desde || aMin(v.lista_desde) <= t) { porCargar.delete(v); lleva.push(v) }
+    return lleva
+  }
+  const alSalir = cargar() // lo que ya está listo a la hora de salida va desde el principio
   const pasos = paradas.map((v) => {
     const almuerzoAntes = tomarAlmuerzo()
-    // Antes de esta parada pasa por la planta a recoger la mercancía (esperando a que esté lista)
+    // Si la mercancía de esta parada aún no va en el camión, pasa por la planta (espera a que esté lista) y carga todo lo listo
     let carga = null
-    if (v.recoger_planta && pp) {
+    if (porCargar.has(v)) {
       if (p && (p.lat !== pp.lat || p.lng !== pp.lng)) { t += minViaje(p, pp); kms += km(p, pp) * FACTOR_CALLE }
       p = pp
       const llegaP = t
       if (v.lista_desde && t < aMin(v.lista_desde)) t = aMin(v.lista_desde)
+      const lleva = cargar()
       t += Number(cfg.min_descargue) || 15
-      carga = { llega: llegaP, sale: t }
+      carga = { llega: llegaP, sale: t, lleva: lleva.map((x) => x.id) }
     }
     if (tieneUbic(v)) { const q = pos(v); if (p) { t += minViaje(p, q); kms += km(p, q) * FACTOR_CALLE } p = q } else { sinUbic++; t += 20 }
     const llega = t
@@ -167,6 +176,7 @@ export function simular(paradas, planta, cfg, fecha) {
       p = pos(planta)
       vuelve = { sale, llega: t, tarde: v.volver_antes ? Math.max(0, t - aMin(v.volver_antes)) : 0 }
       t += Number(cfg.min_descargue) || 15
+      vuelve.lleva = cargar().map((x) => x.id) // de paso carga lo que ya esté listo
     }
     return { llega, inicio, sale, espera, tarde, cerrado, choque, almuerzoAntes, vuelve, carga }
   })
@@ -174,7 +184,7 @@ export function simular(paradas, planta, cfg, fecha) {
     tomarAlmuerzo()
     if (p && tieneUbic(planta)) { t += minViaje(p, pos(planta)); kms += km(p, pos(planta)) * FACTOR_CALLE }
   }
-  return { pasos, regreso: t, km: Math.round(kms), sinUbic, almuerzo }
+  return { pasos, regreso: t, km: Math.round(kms), kmExacto: kms, sinUbic, almuerzo, alSalir: alSalir.map((x) => x.id) }
 }
 export const problemas = (sim) => sim.pasos.filter((x) => x.tarde > 0 || x.cerrado || x.choque || x.vuelve?.tarde > 0).length
 
@@ -188,6 +198,7 @@ function costo(paradas, sim, cfg) {
     if (paradas[i].prioridad === 1) c += x.inicio * 0.5
   })
   c += Math.max(0, sim.regreso - aMin(cfg.fin)) * 20
+  c += (sim.kmExacto || 0) * 0.5 // a igual hora de regreso, la ruta más corta (agrupa zonas)
   return c
 }
 
@@ -201,36 +212,66 @@ export function ordenarParadas(vueltas, planta, cfg, fecha) {
   const malas = vueltas.filter(imposible)
   vueltas = vueltas.filter((v) => !imposible(v))
   if (vueltas.length < 2) return [...vueltas, ...malas]
+  const evalua = (r) => costo(r, simular(r, planta, cfg, fecha), cfg)
   const fin = (v) => { const w = ventanasParada(v, fecha, cfg).ventanas; return w.length ? w[w.length - 1][1] : DIA }
   const ancho = (v) => ventanasParada(v, fecha, cfg).ventanas.reduce((s, [a, b]) => s + b - a, 0)
-  const lista = [...vueltas].sort((a, b) => fin(a) - fin(b) || ancho(a) - ancho(b) || a.prioridad - b.prioridad)
-  const evalua = (r) => costo(r, simular(r, planta, cfg, fecha), cfg)
-  let ruta = []
-  for (const v of lista) {
-    let mejor = null
-    for (let i = 0; i <= ruta.length; i++) {
-      const cand = [...ruta.slice(0, i), v, ...ruta.slice(i)]
-      const c = evalua(cand)
-      if (!mejor || c < mejor.c) mejor = { cand, c }
-    }
-    ruta = mejor.cand
-  }
-  // Mejora: sacar cada parada y ponerla donde quede mejor
-  let actual = evalua(ruta)
-  for (let pasada = 0; pasada < 3; pasada++) {
-    let cambio = false
-    for (let i = 0; i < ruta.length; i++) {
-      const sin = [...ruta.slice(0, i), ...ruta.slice(i + 1)]
-      for (let j = 0; j <= sin.length; j++) {
-        if (j === i) continue
-        const cand = [...sin.slice(0, j), ruta[i], ...sin.slice(j)]
+  const insertar = (lista) => {
+    let ruta = []
+    for (const v of lista) {
+      let mejor = null
+      for (let i = 0; i <= ruta.length; i++) {
+        const cand = [...ruta.slice(0, i), v, ...ruta.slice(i)]
         const c = evalua(cand)
-        if (c + 1e-6 < actual) { ruta = cand; actual = c; cambio = true; break }
+        if (!mejor || c < mejor.c) mejor = { cand, c }
       }
+      ruta = mejor.cand
+    }
+    return ruta
+  }
+  // Varias rutas de partida: por ventana más estrecha, y "barridos" por zona (ángulo alrededor de la planta, en ambos sentidos)
+  const semillas = [insertar([...vueltas].sort((a, b) => fin(a) - fin(b) || ancho(a) - ancho(b) || a.prioridad - b.prioridad))]
+  if (tieneUbic(planta)) {
+    const pl = pos(planta)
+    const ang = (v) => (tieneUbic(v) ? Math.atan2(Number(v.lat) - pl.lat, Number(v.lng) - pl.lng) : 9)
+    for (const giro of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const rot = (v) => { let x = ang(v) - giro; while (x < -Math.PI) x += 2 * Math.PI; while (x > Math.PI) x -= 2 * Math.PI; return x }
+      const barrido = [...vueltas].sort((a, b) => rot(a) - rot(b))
+      semillas.push(barrido, [...barrido].reverse())
+    }
+  }
+  let mejor = null
+  for (const sem of semillas) {
+    const r = mejorar(sem, evalua)
+    const c = evalua(r)
+    if (!mejor || c < mejor.c) mejor = { r, c }
+  }
+  return [...mejor.r, ...malas]
+}
+
+// Mejora una ruta: mover una parada o un tramo de 2-3 paradas a otro lugar, e invertir tramos (2-opt)
+function mejorar(ruta, evalua) {
+  let actual = evalua(ruta)
+  for (let pasada = 0; pasada < 6; pasada++) {
+    let cambio = false
+    for (let largo = 1; largo <= 3; largo++) {
+      for (let i = 0; i + largo <= ruta.length; i++) {
+        const tramo = ruta.slice(i, i + largo), sin = [...ruta.slice(0, i), ...ruta.slice(i + largo)]
+        for (let j = 0; j <= sin.length; j++) {
+          if (j === i) continue
+          const cand = [...sin.slice(0, j), ...tramo, ...sin.slice(j)]
+          const c = evalua(cand)
+          if (c + 1e-6 < actual) { ruta = cand; actual = c; cambio = true }
+        }
+      }
+    }
+    for (let i = 0; i < ruta.length - 1; i++) for (let j = i + 1; j < ruta.length; j++) {
+      const cand = [...ruta.slice(0, i), ...ruta.slice(i, j + 1).reverse(), ...ruta.slice(j + 1)]
+      const c = evalua(cand)
+      if (c + 1e-6 < actual) { ruta = cand; actual = c; cambio = true }
     }
     if (!cambio) break
   }
-  return [...ruta, ...malas]
+  return ruta
 }
 
 // Kilómetros y tiempo del recorrido

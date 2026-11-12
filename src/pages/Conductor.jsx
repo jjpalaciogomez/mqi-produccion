@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal } from '../ui.jsx'
 import { hoyCO } from '../cumplimiento.js'
-import { TIPOS_VUELTA, cuandoTxt, h12, recepcionTxt, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
+import { TIPOS_VUELTA, cfgDe, cuandoTxt, h12, recepcionTxt, simular, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
 
 // Celular del conductor: la ruta confirmada de hoy, en orden, para marcar cada parada
 export default function Conductor({ perfil }) {
@@ -37,6 +37,9 @@ export default function Conductor({ perfil }) {
   const rec = d?.recs.find((r) => r.vehiculo === veh) || d?.recs[0]
   const vs = rec?.vueltas || []
   const faltan = vs.filter((v) => v.estado === 'pendiente')
+  // Igual que en la ruta: un paso por la planta carga toda la mercancía que ya esté lista
+  const sim = d?.planta && tieneUbic(d.planta) && vs.length ? simular(vs, d.planta, cfgDe(d.planta), hoy) : null
+  const nombresDe = (ids) => ids.map((id) => vs.find((x) => x.id === id)?.destino).filter(Boolean).join(', ')
   const planta = d?.planta && tieneUbic(d.planta) ? d.planta : null
   return (
     <div className="conductor">
@@ -60,6 +63,7 @@ export default function Conductor({ perfil }) {
             <span><b>{VEHICULOS[rec.vehiculo]}</b>{rec.conductor ? ` · ${rec.conductor}` : ''}</span>
             <span>{vs.length - faltan.length} de {vs.length} hechas</span>
           </div>
+          {sim?.alSalir?.length > 0 && <div className="cond-volver">⤓ Al salir de la planta lleva la mercancía de: {nombresDe(sim.alSalir)}</div>}
           {faltan.length > 0 && linksRecorrido(faltan, planta).map((l, i, a) => (
             <a key={l} className="btn btn-sec cond-todo" href={l} target="_blank" rel="noreferrer">🗺 Abrir {a.length > 1 ? `tramo ${i + 1}` : 'el recorrido'} en Google Maps</a>
           ))}
@@ -78,7 +82,7 @@ export default function Conductor({ perfil }) {
                 </div>
               )
               return (<Fragment key={v.id}>
-                {v.recoger_planta && pasoPlanta(`Recoger la mercancía para ${v.destino}${v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}`)}
+                {v.recoger_planta && (!planta || sim?.pasos[i]?.carga) && pasoPlanta(`Recoger la mercancía para ${nombresDe(sim?.pasos[i]?.carga?.lleva || [v.id])}${v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}`)}
                 <div className={`cond-parada ${v.tipo}${hecha ? ' hecha' : ''}${no ? ' no-hecha' : ''}${siguiente ? ' siguiente' : ''}`}>
                   <div className="cond-p-cab">
                     <span className="log-n">{i + 1}</span>
@@ -106,7 +110,7 @@ export default function Conductor({ perfil }) {
                     </div>
                   )}
                 </div>
-                {v.volver_planta && pasoPlanta(`Volver a dejar lo que trae de ${v.destino}${v.volver_antes ? ` · antes de las ${h12(v.volver_antes)}` : ' · lo antes posible'}`)}
+                {v.volver_planta && pasoPlanta(`Volver a dejar lo que trae de ${v.destino}${v.volver_antes ? ` · antes de las ${h12(v.volver_antes)}` : ' · lo antes posible'}${sim?.pasos[i]?.vuelve?.lleva?.length ? ` · y recoger la mercancía para ${nombresDe(sim.pasos[i].vuelve.lleva)}` : ''}`)}
               </Fragment>)
             })}
           </div>

@@ -381,6 +381,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
             const est = estimar(ps, planta, cfg, fecha)
             const pasa = est.regreso > aMin(cfg.fin)
             const links = linksRecorrido(ps, planta)
+            const nombresDe = (ids) => ids.map((id) => ps.find((x) => x.id === id)?.destino).filter(Boolean).join(', ')
             return (
               <div key={veh} className={`log-col${conf ? ' confirmada' : ''}`}>
                 <div className="log-col-cab">
@@ -390,6 +391,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                 <div className="log-est">
                   {ps.length} {ps.length === 1 ? 'parada' : 'paradas'}{ps.length > 0 && <> · sale {cfg.salida} · regresa ≈ <b className={pasa ? 't-mal' : ''}>{hm(est.regreso)}</b></>}{planta && est.km ? ` · ${fmtNum(est.km, 0)} km` : ''}
                   {ps.length > 0 && est.sim.almuerzo !== null && <div className="tenue pequeño">🍽 almuerzo ≈ {hm(est.sim.almuerzo)}</div>}
+                  {est.sim.alSalir.length > 0 && <div className="tenue pequeño">⤓ Sale de la planta con la mercancía de: {nombresDe(est.sim.alSalir)}</div>}
                   {pasa && <div className="t-mal pequeño">Regresa después de su hora de fin ({cfg.fin}): mueve algo a otro vehículo o a otro día.</div>}
                   {est.sinUbic > 0 && ps.length > 0 && <div className="tenue pequeño">{est.sinUbic} sin ubicación: el tiempo es aproximado.</div>}
                   {est.problemas > 0 && <div className="t-mal pequeño">{est.problemas === 1 ? 'Una parada queda' : `${est.problemas} paradas quedan`} fuera de su horario: usa "Ordenar", pásala a otro vehículo o a otro día.</div>}
@@ -397,7 +399,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                 <input className="log-conductor" placeholder={veh === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || ''} key={r?.id || veh} disabled={conf}
                   onBlur={(e) => e.target.value !== (r?.conductor || '') && guardarConductor(veh, e.target.value)} />
                 {ps.map((v, i) => (<Fragment key={v.id}>
-                  {v.recoger_planta && <ParadaPlanta motivo="recoger" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} />}
+                  {v.recoger_planta && (!planta || est.sim.pasos[i]?.carga) && <ParadaPlanta motivo="recoger" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.carga?.lleva || [v.id])} />}
                   <Parada v={v} n={i + 1} fecha={fecha} paso={est.sim.pasos[i]} onAbrir={() => setForm(v)}
                     acciones={conf ? null : <>
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
@@ -407,7 +409,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                       </select>
                       <button className="btn-link peligro" disabled={ocupado} onClick={() => mover(v, '')} title="Vuelve a Sin asignar">Sacar</button>
                     </>} />
-                  {v.volver_planta && <ParadaPlanta motivo="dejar" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} />}
+                  {v.volver_planta && <ParadaPlanta motivo="dejar" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.vuelve?.lleva || [])} />}
                 </Fragment>))}
                 <div className="log-col-pie">
                   {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar</button>}
@@ -431,7 +433,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
 }
 
 // Paso por la planta dentro de la ruta: recoger la mercancía antes de una vuelta o volver a dejar algo después
-function ParadaPlanta({ motivo, v, paso, sinPlanta }) {
+function ParadaPlanta({ motivo, v, paso, sinPlanta, nombres }) {
   const x = motivo === 'recoger' ? paso?.carga : paso?.vuelve
   const tarde = motivo === 'dejar' && x?.tarde > 0
   return (
@@ -440,7 +442,7 @@ function ParadaPlanta({ motivo, v, paso, sinPlanta }) {
         <span className="log-n planta">P</span>
         <div className="crece">
           <div><span className="etq-vuelta regreso">{motivo === 'recoger' ? 'Recoger en la planta' : 'Volver a la planta'}</span><b>Planta MQI</b></div>
-          <div className="pequeño">{motivo === 'recoger' ? `Recoger la mercancía para ${v.destino}` : `Dejar lo que trae de ${v.destino}`}</div>
+          <div className="pequeño">{motivo === 'recoger' ? `Recoger la mercancía para ${nombres || v.destino}` : `Dejar lo que trae de ${v.destino}${nombres ? ` y recoger la mercancía para ${nombres}` : ''}`}</div>
           <div className={`log-llega${tarde ? ' t-mal' : ''}`}>
             {sinPlanta ? 'Falta la ubicación de la planta para calcular este paso.'
               : motivo === 'recoger'
@@ -479,6 +481,7 @@ function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
             {paso.cerrado ? 'Ese día el sitio no recibe' : paso.choque ? 'Lo pedido no cae en su horario de recepción'
               : <>Llega ≈ {hm(paso.llega)}{paso.espera >= 5 ? ` · espera hasta ${hm(paso.inicio)}` : ''}{paso.tarde > 0 ? ` · ${Math.round(paso.tarde)} min tarde` : ''} · sale {hm(paso.sale)}</>}
           </div>}
+          {paso && v.recoger_planta && !paso.carga && <div className="log-llega">⤓ Su mercancía ya va en el camión (se cargó al salir o en un paso anterior por la planta)</div>}
           {!paso && v.recoger_planta && <div className="log-llega">⤓ Antes pasa por la planta a recoger{v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}{paso?.carga ? ` · en la planta ≈ ${hm(paso.carga.llega)}–${hm(paso.carga.sale)}` : ''}</div>}
           {!paso && v.volver_planta && <div className={`log-llega${paso?.vuelve?.tarde > 0 ? ' t-mal' : ''}`}>↩ Luego vuelve a la planta {v.volver_antes ? `antes de las ${h12(v.volver_antes)}` : 'lo antes posible'}{paso?.vuelve ? ` · llega ≈ ${hm(paso.vuelve.llega)}${paso.vuelve.tarde > 0 ? ` (${Math.round(paso.vuelve.tarde)} min tarde)` : ''}` : ''}</div>}
           {vp && (vp.cerrado || vp.choque) && <div className="log-llega t-mal">{vp.cerrado ? 'Ese día el sitio no recibe' : 'Lo pedido no cae en su horario de recepción'}</div>}
