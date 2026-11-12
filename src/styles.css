@@ -615,3 +615,5 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .log-col.contratado { background: #f6f3fb; }
 .contratado-acc { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .contratado-acc select { max-width: 200px; }
+.campo-valor { display: inline-flex; flex-direction: row !important; align-items: center; gap: 4px; font-size: .85rem; margin: 0; }
+.campo-valor input { width: 95px; }

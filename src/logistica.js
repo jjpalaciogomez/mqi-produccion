@@ -1,6 +1,6 @@
 // Logística: ubicaciones, orden de las paradas y estimación del tiempo de un recorrido (sin GPS ni servicios pagos)
 
-export const VEHICULOS = { camion: 'Camión MQI', mensajero: 'Servicio contratado', externo: 'Otro servicio contratado' }
+export const VEHICULOS = { camion: 'Camión MQI', mensajero: 'Servicio contratado', externo: 'Ruta contratada' }
 // Servicios contratados (mensajeros, carros, camiones externos): se piden cuando se necesitan, sin ruta ni horario del camión
 export const esContratado = (veh) => veh !== 'camion'
 // conductor: persona que puede manejar el camión de la empresa (reemplazos)
