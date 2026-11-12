@@ -105,6 +105,7 @@ function EstadoVuelta({ v }) {
   if (v.estado === 'hecha') return <span className="badge badge-ok">Hecha</span>
   if (v.estado === 'no_hecha') return <span className="badge badge-bad" title={v.resultado || ''}>No se pudo</span>
   if (v.estado === 'cancelada') return <span className="badge badge-muted">Cancelada</span>
+  if (v.pospuesta) return <span className="badge badge-muted">No programar por ahora</span>
   if (v.recorridos) return <span className={`badge ${v.recorridos.estado === 'confirmada' ? 'badge-info' : 'badge-muted'}`}>{VEHICULOS[v.recorridos.vehiculo]?.split(' ')[0]}{v.recorridos.estado === 'confirmada' ? ' · confirmada' : ' · en borrador'}</span>
   return <span className="badge badge-warn">Sin asignar</span>
 }
@@ -286,7 +287,10 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
   const cfg = cfgDe(aj)
   const rec = (veh) => d?.recs.find((r) => r.vehiculo === veh)
   const deVeh = (veh) => { const r = rec(veh); return r ? d.vs.filter((v) => v.recorrido_id === r.id).sort((a, b) => (a.orden ?? 99) - (b.orden ?? 99)) : [] }
-  const sinAsignar = d ? d.vs.filter((v) => !d.recs.some((r) => r.id === v.recorrido_id) && v.estado !== 'hecha') : []
+  const libresDia = d ? d.vs.filter((v) => !d.recs.some((r) => r.id === v.recorrido_id) && v.estado !== 'hecha') : []
+  const sinAsignar = libresDia.filter((v) => !v.pospuesta)
+  const pospuestas = libresDia.filter((v) => v.pospuesta) // "No programar por ahora": no entran en la ruta ni en la propuesta
+  const [verPosp, setVerPosp] = useState(false)
   const bloqueado = (veh) => rec(veh)?.estado === 'confirmada'
 
   // Crea el recorrido del vehículo si no existe
@@ -298,7 +302,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
   }
   const guardarOrden = async (veh, lista) => {
     const r = await asegurarRec(veh)
-    await Promise.all(lista.map((v, i) => q(sb.from('vueltas').update({ recorrido_id: r.id, orden: i + 1, ...(v.fecha !== fecha || v.estado === 'no_hecha' ? { fecha, estado: 'pendiente' } : {}) }).eq('id', v.id))))
+    await Promise.all(lista.map((v, i) => q(sb.from('vueltas').update({ recorrido_id: r.id, orden: i + 1, pospuesta: false, ...(v.fecha !== fecha || v.estado === 'no_hecha' ? { fecha, estado: 'pendiente' } : {}) }).eq('id', v.id))))
   }
   const accion = async (fn, msg) => {
     setOcupado(true); setError(''); setOk('')
@@ -310,7 +314,9 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
     accion(async () => { await Promise.all(deVeh(veh).filter((v) => v.estado === 'pendiente').map((v) => q(sb.from('vueltas').update({ recorrido_id: null, orden: null }).eq('id', v.id)))) }, 'Vueltas devueltas a Sin asignar.')
   }
   const mover = (v, destino) => accion(async () => {
-    if (!destino) { await q(sb.from('vueltas').update({ recorrido_id: null, orden: null }).eq('id', v.id)); return }
+    if (!destino || destino === 'pospuesta' || destino === 'retomar') {
+      await q(sb.from('vueltas').update({ recorrido_id: null, orden: null, pospuesta: destino === 'pospuesta' }).eq('id', v.id)); return
+    }
     await guardarOrden(destino, [...deVeh(destino).filter((x) => x.id !== v.id), v])
   })
   const subir = (veh, i, dir) => accion(async () => {
@@ -358,8 +364,17 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
             <div className="log-col-cab"><b>Sin asignar</b><span className="tenue pequeño">{sinAsignar.length} {sinAsignar.length === 1 ? 'vuelta' : 'vueltas'}</span></div>
             {sinAsignar.length === 0 ? <div className="vacio pequeño">Nada pendiente.</div> : sinAsignar.map((v) => (
               <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => setForm(v)}
-                acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Asignar a…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}</select>} />
+                acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Asignar a…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}<option value="pospuesta">No programar por ahora</option></select>} />
             ))}
+            {pospuestas.length > 0 && (
+              <div className="log-pospuestas">
+                <button className="btn-link" onClick={() => setVerPosp(!verPosp)}>{verPosp ? '▾' : '▸'} No programar por ahora ({pospuestas.length})</button>
+                {verPosp && pospuestas.map((v) => (
+                  <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => setForm(v)}
+                    acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Programar en…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}<option value="retomar">Volver a Sin asignar</option></select>} />
+                ))}
+              </div>
+            )}
           </div>
           {cols.map((veh) => {
             const ps = deVeh(veh), r = rec(veh), conf = r?.estado === 'confirmada'
@@ -388,7 +403,7 @@ function RutaDelDia({ lugares, perfil, onLugares }) {
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
                       <button className="btn-icono" disabled={ocupado || i === ps.length - 1} onClick={() => subir(veh, i, 1)} title="Bajar">↓</button>
                       <select value={veh} disabled={ocupado} onChange={(e) => mover(v, e.target.value)}>
-                        <option value="">Sacar de la ruta</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}
+                        <option value="">Sacar de la ruta</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{VEHICULOS[c]}</option>)}<option value="pospuesta">No programar por ahora</option>
                       </select>
                       <button className="btn-link peligro" disabled={ocupado} onClick={() => mover(v, '')} title="Vuelve a Sin asignar">Sacar</button>
                     </>} />
