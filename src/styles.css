@@ -627,3 +627,4 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .wa-editor { display: flex; gap: 12px; flex-wrap: wrap; }
 .wa-editor > * { min-width: 280px; flex: 1; }
 .wa-editor textarea { font-family: inherit; font-size: .9rem; }
+.log-ruta-datos select.log-conductor { flex: 1 1 140px; min-width: 140px; }

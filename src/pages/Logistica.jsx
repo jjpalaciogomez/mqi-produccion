@@ -5,7 +5,7 @@ import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, linkUber, PLANTILLA_VUELTA, PLANTILLA_RESUMEN, CAMPOS_VUELTA, CAMPOS_RESUMEN, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, esConductor, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, linkUber, PLANTILLA_VUELTA, PLANTILLA_RESUMEN, CAMPOS_VUELTA, CAMPOS_RESUMEN, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
   linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
@@ -319,7 +319,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   const asegurarRec = async (k) => {
     const r = rec(k)
     if (r) return r
-    const [n] = await q(sb.from('recorridos').upsert({ fecha, vehiculo: vehDe(k), numero: numDe(k), ...(vehDe(k) === 'camion' && cfg.conductor ? { conductor: cfg.conductor } : {}) }, { onConflict: 'fecha,vehiculo,numero' }).select())
+    const [n] = await q(sb.from('recorridos').upsert({ fecha, vehiculo: vehDe(k), numero: numDe(k), ...(vehDe(k) === 'camion' && condPred ? { conductor: condPred } : {}) }, { onConflict: 'fecha,vehiculo,numero' }).select())
     return n
   }
   const guardarOrden = async (veh, lista) => {
@@ -399,7 +399,10 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   }
   const guardarRec = (k, cambios) => accion(async () => { const r = await asegurarRec(k); await q(sb.from('recorridos').update(cambios).eq('id', r.id)) })
   const marcarHecha = (v, si) => accion(() => q(sb.from('vueltas').update(si ? { estado: 'hecha', hecha_en: new Date().toISOString() } : { estado: 'pendiente', hecha_en: null }).eq('id', v.id)), si ? `${v.destino}: hecha.` : '')
-  const conductores = transps.filter((t) => t.tipo === 'conductor' && t.activo !== false)
+  // Conductores registrados: primero el de la empresa (predeterminado), luego los de reemplazo
+  const conductores = transps.filter((t) => esConductor(t.tipo) && t.activo !== false).sort((a, b) => (a.tipo === 'conductor_empresa' ? 0 : 1) - (b.tipo === 'conductor_empresa' ? 0 : 1) || a.nombre.localeCompare(b.nombre))
+  const condPred = conductores.find((t) => t.tipo === 'conductor_empresa')?.nombre || cfg.conductor || ''
+  const telConductor = (nom) => conductores.find((x) => x.nombre === nom)?.telefono || (nom && nom === cfg.conductor ? cfg.conductor_tel : '') || ''
   const guardarConductor = (veh, nombre) => accion(async () => { const r = await asegurarRec(veh); await q(sb.from('recorridos').update({ conductor: nombre.trim() || null }).eq('id', r.id)) })
 
   // Columnas: camión y mensajero (ruta 1) siempre; las rutas que existan ese día; y las que se agreguen
@@ -501,10 +504,17 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                 <div className="log-ruta-datos">
                   {contratada ? <DatosContratada r={r} transps={transps} ocupado={ocupado} onGuardar={(cambios) => guardarRec(veh, cambios)} /> : <>
                   {/* El conductor se puede cambiar aunque la ruta esté confirmada (p. ej. si el conductor se incapacita) */}
-                  <input className="log-conductor" list="lista-conductores" placeholder={vehDe(veh) === 'camion' ? 'Conductor' : 'Quién la hace'} defaultValue={r?.conductor || cfg.conductor || ''} key={`${r?.id || veh}-${r?.conductor || ''}-${cfg.conductor || ''}`}
-                    title="Escribe o elige un conductor guardado en Transportadores"
-                    onBlur={(e) => e.target.value !== (r?.conductor || cfg.conductor || '') && guardarConductor(veh, e.target.value)} />
-                  {(() => { const nom = r?.conductor || cfg.conductor; const tel = conductores.find((x) => x.nombre === nom)?.telefono || (nom && nom === cfg.conductor ? cfg.conductor_tel : null); return tel ? <a className="btn btn-sec btn-sm" href={telLink(tel)}>Llamar</a> : null })()}
+                  {(() => {
+                    const actual = r?.conductor || condPred
+                    return (<>
+                      <select className="log-conductor" value={actual} disabled={ocupado} onChange={(e) => guardarConductor(veh, e.target.value)} title="El conductor de la empresa sale por defecto; se puede cambiar por otro conductor registrado en Transportadores">
+                        <option value="">Conductor…</option>
+                        {conductores.map((t) => <option key={t.id} value={t.nombre}>{t.nombre}{t.tipo === 'conductor_empresa' ? ' (empresa)' : ''}</option>)}
+                        {actual && !conductores.some((t) => t.nombre === actual) && <option value={actual}>{actual}</option>}
+                      </select>
+                      {telConductor(actual) && <a className="btn btn-sec btn-sm" href={telLink(telConductor(actual))}>Llamar</a>}
+                    </>)
+                  })()}
                   </>}
                   <label className="pequeño" title="Si no se pone, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior">Sale<SelectorHora value={r?.salida ? String(r.salida).slice(0, 5) : ''} vacio={contratada ? `(${h12(cr.salida)})` : `Auto (${h12(cr.salida)})`} onChange={(h) => !conf && guardarSalida(veh, h)} /></label>
                 </div>
@@ -512,10 +522,11 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                 {ps.map((v, i) => (<Fragment key={v.id}>
                   {v.recoger_planta && (!planta || est.sim.pasos[i]?.carga) && <ParadaPlanta motivo="recoger" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.carga?.lleva || [v.id])} />}
                   <Parada v={v} n={i + 1} fecha={fecha} paso={est.sim.pasos[i]} onAbrir={() => setForm(v)}
-                    acciones={conf ? null : <>
-                      {contratada && (v.estado === 'pendiente'
+                    acciones={<>
+                      {v.estado === 'pendiente'
                         ? <button className="btn btn-ok btn-sm" disabled={ocupado} onClick={() => marcarHecha(v, true)}>Hecha</button>
-                        : v.estado === 'hecha' && <button className="btn-link" disabled={ocupado} onClick={() => marcarHecha(v, false)}>Deshacer</button>)}
+                        : v.estado === 'hecha' && <button className="btn-link" disabled={ocupado} onClick={() => marcarHecha(v, false)}>Deshacer</button>}
+                      {!conf && <>
                       {contratada && v.estado === 'pendiente' && <a className="btn btn-sec btn-sm" href={linkUber(v, planta)} target="_blank" rel="noreferrer" title="Abre Uber con la recogida y el destino de esta vuelta">🚗 Uber</a>}
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
                       <button className="btn-icono" disabled={ocupado || i === ps.length - 1} onClick={() => subir(veh, i, 1)} title="Bajar">↓</button>
@@ -523,6 +534,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                         <option value="">Sacar de la ruta</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{nombreRuta(c)}</option>)}<option value="pospuesta">No programar por ahora</option>
                       </select>
                       <button className="btn-link peligro" disabled={ocupado} onClick={() => mover(v, '')} title="Vuelve a Sin asignar">Sacar</button>
+                      </>}
                     </>} />
                   {v.volver_planta && <ParadaPlanta motivo="dejar" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.vuelve?.lleva || [])} />}
                 </Fragment>))}
@@ -534,8 +546,8 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                   {conf && <span className="tenue pequeño">Para sacar o mover vueltas, vuelve la ruta a borrador.</span>}
                   {ps.length > 0 && <button className="btn btn-sec btn-sm" onClick={() => {
                     const tel = contratada ? transps.find((x) => x.id === r?.transportador_id)?.telefono
-                      : (() => { const nom = r?.conductor || cfg.conductor; return conductores.find((x) => x.nombre === nom)?.telefono || (nom === cfg.conductor ? cfg.conductor_tel : '') })()
-                    const nombre = contratada ? transps.find((x) => x.id === r?.transportador_id)?.nombre : (r?.conductor || cfg.conductor)
+                      : telConductor(r?.conductor || condPred)
+                    const nombre = contratada ? transps.find((x) => x.id === r?.transportador_id)?.nombre : (r?.conductor || condPred)
                     const pend = ps.filter((x) => x.estado === 'pendiente')
                     setWa({ titulo: nombreRuta(veh), tel: tel || '', nombre: nombre || '', resumen: mensajeResumen(pend, { titulo: nombreRuta(veh), salida: cr.salida, planta }, tplWa.resumen),
                       mensajes: pend.map((x, j) => ({ id: x.id, destino: x.destino, texto: mensajeVuelta(x, { n: j + 1, total: pend.length, titulo: nombreRuta(veh), paso: est.sim.pasos[ps.indexOf(x)] }, tplWa.vuelta) })) })
@@ -564,7 +576,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
 
 // Servicios contratados: cada vuelta se pide por aparte al transportador, cuando se necesite (sin ruta ni horario del camión)
 function ColContratados({ tplWa, planta, titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onAccion, onSacar, destinos }) {
-  const activos = transps.filter((t) => t.activo !== false && t.tipo !== 'conductor')
+  const activos = transps.filter((t) => t.activo !== false && !esConductor(t.tipo))
   const asignar = (v, id) => onAccion(() => q(sb.from('vueltas').update({ transportador_id: id || null }).eq('id', v.id)))
   const hecha = (v, si) => onAccion(() => q(sb.from('vueltas').update(si ? { estado: 'hecha', hecha_en: new Date().toISOString() } : { estado: 'pendiente', hecha_en: null }).eq('id', v.id)), si ? `${v.destino}: hecha.` : '')
   const pend = ps.filter((v) => v.estado === 'pendiente').length
@@ -645,7 +657,7 @@ function DatosContratada({ r, transps, ocupado, onGuardar }) {
     <div className="contratado-acc">
       <select value={r?.transportador_id || ''} disabled={ocupado} onChange={(e) => onGuardar({ transportador_id: e.target.value || null })}>
         <option value="">Transportador…</option>
-        {transps.filter((x) => x.activo !== false && x.tipo !== 'conductor').map((x) => <option key={x.id} value={x.id}>{x.nombre}{x.tipo ? ` (${TIPOS_TRANSPORTE[x.tipo] || x.tipo}${x.tamano ? ` ${x.tamano}` : ''})` : ''}</option>)}
+        {transps.filter((x) => x.activo !== false && !esConductor(x.tipo)).map((x) => <option key={x.id} value={x.id}>{x.nombre}{x.tipo ? ` (${TIPOS_TRANSPORTE[x.tipo] || x.tipo}${x.tamano ? ` ${x.tamano}` : ''})` : ''}</option>)}
       </select>
       {t?.telefono && <a className="btn btn-sec btn-sm" href={telLink(t.telefono)}>Llamar</a>}
       <CampoValor valor={r?.valor} disabled={ocupado} onGuardar={(n) => onGuardar({ valor: n })} />
@@ -742,7 +754,7 @@ function FormTransportador({ inicial, onClose, onGuardado }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   const guardar = async (e) => {
     e.preventDefault()
-    const fila = { nombre: f.nombre.trim(), tipo: f.tipo, tamano: f.tipo === 'conductor' ? null : (f.tamano || '').trim() || null, contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, notas: f.notas.trim() || null }
+    const fila = { nombre: f.nombre.trim(), tipo: f.tipo, tamano: esConductor(f.tipo) ? null : (f.tamano || '').trim() || null, contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, notas: f.notas.trim() || null }
     try { if (f.id) await q(sb.from('transportadores').update(fila).eq('id', f.id)); else await q(sb.from('transportadores').insert(fila)); onGuardado() } catch (err) { setError(err.message) }
   }
   const activar = async (si) => { try { await q(sb.from('transportadores').update({ activo: si }).eq('id', f.id)); onGuardado() } catch (err) { setError(err.message) } }
@@ -753,7 +765,7 @@ function FormTransportador({ inicial, onClose, onGuardado }) {
           <label className="crece">Nombre (persona o empresa)<input value={f.nombre} onChange={set('nombre')} required /></label>
           <label>Tipo<select value={f.tipo} onChange={set('tipo')}>{Object.entries(TIPOS_TRANSPORTE).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
         </div>
-        {f.tipo !== 'conductor' && <label>Tamaño o capacidad del vehículo<input value={f.tamano || ''} onChange={set('tamano')} placeholder="Ej.: camión de 6 m, furgón 2 t, carro pequeño" /></label>}
+        {!esConductor(f.tipo) && <label>Tamaño o capacidad del vehículo<input value={f.tamano || ''} onChange={set('tamano')} placeholder="Ej.: camión de 6 m, furgón 2 t, carro pequeño" /></label>}
         <div className="fila-form">
           <label>Contacto<input value={f.contacto} onChange={set('contacto')} /></label>
           <label>Teléfono<input value={f.telefono} onChange={set('telefono')} inputMode="tel" /></label>

@@ -2,9 +2,10 @@
 
 export const VEHICULOS = { camion: 'Camión MQI', mensajero: 'Servicio contratado', externo: 'Ruta contratada' }
 // Servicios contratados (mensajeros, carros, camiones externos): se piden cuando se necesitan, sin ruta ni horario del camión
+export const esConductor = (tipo) => tipo === 'conductor' || tipo === 'conductor_empresa'
 export const esContratado = (veh) => veh !== 'camion'
 // conductor: persona que puede manejar el camión de la empresa (reemplazos)
-export const TIPOS_TRANSPORTE = { conductor: 'Conductor (maneja nuestro camión)', moto: 'Moto', carro: 'Carro', camioneta: 'Camioneta / van', camion: 'Camión', otro: 'Otro' }
+export const TIPOS_TRANSPORTE = { conductor_empresa: 'Conductor de la empresa (predeterminado)', conductor: 'Conductor de reemplazo (maneja nuestro camión)', moto: 'Moto', carro: 'Carro', camioneta: 'Camioneta / van', camion: 'Camión', otro: 'Otro' }
 export const TIPOS_VUELTA = { entrega: 'Entrega', recogida: 'Recogida', diligencia: 'Diligencia', regreso: 'Regreso a la planta' }
 export const FRANJAS = { todo: 'Cualquier hora', manana: 'Mañana', tarde: 'Tarde' }
 export const TIPOS_LUGAR = { cliente: 'Cliente', proveedor: 'Proveedor', otro: 'Otro' }
