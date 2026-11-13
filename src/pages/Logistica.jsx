@@ -397,6 +397,16 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
       setExtraCols([])
     }, `${nombreRuta(k)} eliminada.`)
   }
+  // Cargue y descargue en la planta (los marca el conductor o el administrador)
+  const marcarPlanta = (ids, campo, si) => accion(async () => {
+    const r = await q(sb.rpc('marcar_planta', { p_ids: ids, p_campo: campo, p_hecho: si }))
+    if (r !== 'ok') throw new Error(r)
+  })
+  const marcarPasoPlanta = (motivo, v, paso, si) => accion(async () => {
+    const llamar = async (ids, campo) => { if (!ids.length) return; const r = await q(sb.rpc('marcar_planta', { p_ids: ids, p_campo: campo, p_hecho: si })); if (r !== 'ok') throw new Error(r) }
+    if (motivo === 'recoger') await llamar(paso?.carga?.lleva || [v.id], 'cargado')
+    else { await llamar([v.id], 'descargado'); await llamar(paso?.vuelve?.lleva || [], 'cargado') }
+  })
   const guardarRec = (k, cambios) => accion(async () => { const r = await asegurarRec(k); await q(sb.from('recorridos').update(cambios).eq('id', r.id)) })
   const marcarHecha = (v, si) => accion(() => q(sb.from('vueltas').update(si ? { estado: 'hecha', hecha_en: new Date().toISOString() } : { estado: 'pendiente', hecha_en: null }).eq('id', v.id)), si ? `${v.destino}: hecha.` : '')
   // Conductores registrados: primero el de la empresa (predeterminado), luego los de reemplazo
@@ -487,6 +497,9 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
             const zonas = Object.entries(ps.reduce((g, v) => { const z = zonaTxt(v) || 'Sin zona'; g[z] = (g[z] || 0) + 1; return g }, {}))
             const links = linksRecorrido(ps, planta)
             const nombresDe = (ids) => ids.map((id) => ps.find((x) => x.id === id)?.destino).filter(Boolean).join(', ')
+            // Número de cada parada contando los pasos por la planta como paradas
+            let cN = 0
+            const numeros = ps.map((v, i) => ({ carga: v.recoger_planta && (!planta || est.sim.pasos[i]?.carga) ? ++cN : null, n: ++cN, vuelve: v.volver_planta ? ++cN : null }))
             return (
               <div key={veh} className={`log-col${conf ? ' confirmada' : ''}${contratada ? ' contratado' : ''}`}>
                 <div className="log-col-cab">
@@ -518,10 +531,12 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                   </>}
                   <label className="pequeño" title="Si no se pone, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior">Sale<SelectorHora value={r?.salida ? String(r.salida).slice(0, 5) : ''} vacio={contratada ? `(${h12(cr.salida)})` : `Auto (${h12(cr.salida)})`} onChange={(h) => !conf && guardarSalida(veh, h)} /></label>
                 </div>
-                {ps.length > 0 && <PuntoPlanta tipo="sale" hora={aMin(cr.salida)} lleva={nombresDe(est.sim.alSalir)} sinPlanta={!planta} />}
+                {ps.length > 0 && <PuntoPlanta tipo="sale" hora={aMin(cr.salida)} lleva={nombresDe(est.sim.alSalir)} sinPlanta={!planta}
+                  cargado={est.sim.alSalir.length > 0 && est.sim.alSalir.every((id) => ps.find((x) => x.id === id)?.cargado_en)}
+                  onCargado={est.sim.alSalir.length ? (si) => marcarPlanta(est.sim.alSalir, 'cargado', si) : null} ocupado={ocupado} />}
                 {ps.map((v, i) => (<Fragment key={v.id}>
-                  {v.recoger_planta && (!planta || est.sim.pasos[i]?.carga) && <ParadaPlanta motivo="recoger" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.carga?.lleva || [v.id])} />}
-                  <Parada v={v} n={i + 1} fecha={fecha} paso={est.sim.pasos[i]} onAbrir={() => setForm(v)}
+                  {v.recoger_planta && (!planta || est.sim.pasos[i]?.carga) && <ParadaPlanta motivo="recoger" n={numeros[i].carga} ocupado={ocupado} onMarcar={marcarPasoPlanta} v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.carga?.lleva || [v.id])} />}
+                  <Parada v={v} n={numeros[i].n} fecha={fecha} paso={est.sim.pasos[i]} onAbrir={() => setForm(v)}
                     acciones={<>
                       {v.estado === 'pendiente'
                         ? <button className="btn btn-ok btn-sm" disabled={ocupado} onClick={() => marcarHecha(v, true)}>Hecha</button>
@@ -536,7 +551,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                       <button className="btn-link peligro" disabled={ocupado} onClick={() => mover(v, '')} title="Vuelve a Sin asignar">Sacar</button>
                       </>}
                     </>} />
-                  {v.volver_planta && <ParadaPlanta motivo="dejar" v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.vuelve?.lleva || [])} />}
+                  {v.volver_planta && <ParadaPlanta motivo="dejar" n={numeros[i].vuelve} ocupado={ocupado} onMarcar={marcarPasoPlanta} v={v} paso={est.sim.pasos[i]} sinPlanta={!planta} nombres={nombresDe(est.sim.pasos[i]?.vuelve?.lleva || [])} />}
                 </Fragment>))}
                 {!contratada && ps.length > 0 && <PuntoPlanta tipo="regresa" hora={est.regreso} real={est.real} tarde={pasa} fin={cfg.fin} sinPlanta={!planta} />}
                 <div className="log-col-pie">
@@ -818,13 +833,16 @@ function CamionEnPlanta({ cfg, fecha, hechas, pendientes, ocupado, onClose, onAc
 }
 
 // Inicio y fin del recorrido: siempre en la planta
-function PuntoPlanta({ tipo, hora, lleva, tarde, fin, sinPlanta, real }) {
+function PuntoPlanta({ tipo, hora, lleva, tarde, fin, sinPlanta, real, cargado, onCargado, ocupado }) {
   return (
     <div className={`log-planta-punto ${tipo}${tarde ? ' tarde' : ''}`}>
       <span className="ico">🏭</span>
       <div className="crece">
         <b>{tipo === 'sale' ? 'Sale de la planta' : real ? 'En la planta' : 'Regresa a la planta'}</b> <span className={tarde ? 't-mal' : ''}>{tipo === 'sale' || real ? h12(hm(hora)) : `≈ ${h12(hm(hora))}`}</span>{real && <span className="tenue pequeño"> (indicado)</span>}
         {tipo === 'sale' && lleva && <div className="pequeño">Lleva la mercancía de: {lleva}</div>}
+        {tipo === 'sale' && onCargado && (cargado
+          ? <div className="pequeño">✓ Cargado y salió <button className="btn-link claro pequeño" disabled={ocupado} onClick={() => onCargado(false)}>Deshacer</button></div>
+          : <button className="btn btn-sm btn-ok" disabled={ocupado} onClick={() => onCargado(true)}>Cargado, salió</button>)}
         {tarde && <div className="t-mal pequeño">Después de su hora de regreso ({h12(fin)})</div>}
         {sinPlanta && <div className="tenue pequeño">Falta la ubicación de la planta</div>}
       </div>
@@ -833,13 +851,14 @@ function PuntoPlanta({ tipo, hora, lleva, tarde, fin, sinPlanta, real }) {
 }
 
 // Paso por la planta dentro de la ruta: recoger la mercancía antes de una vuelta o volver a dejar algo después
-function ParadaPlanta({ motivo, v, paso, sinPlanta, nombres }) {
+function ParadaPlanta({ motivo, v, paso, sinPlanta, nombres, n, onMarcar, ocupado }) {
   const x = motivo === 'recoger' ? paso?.carga : paso?.vuelve
-  const tarde = motivo === 'dejar' && x?.tarde > 0
+  const tarde = motivo === 'dejar' && x?.tarde > 0 && !x?.hecho
+  const hecho = !!x?.hecho
   return (
-    <div className={`log-parada planta${tarde ? ' no-hecha' : ''}`}>
+    <div className={`log-parada planta${tarde ? ' no-hecha' : ''}${hecho ? ' hecha' : ''}`}>
       <div className="log-parada-cab">
-        <span className="log-n planta">P</span>
+        <span className="log-n planta">{n || 'P'}</span>
         <div className="crece">
           <div><span className="etq-vuelta regreso">{motivo === 'recoger' ? 'Recoger en la planta' : 'Volver a la planta'}</span><b>Planta MQI</b></div>
           <div className="pequeño">{motivo === 'recoger' ? `Recoger la mercancía para ${nombres || v.destino}` : `Dejar lo que trae de ${v.destino}${nombres ? ` y recoger la mercancía para ${nombres}` : ''}`}</div>
@@ -849,6 +868,9 @@ function ParadaPlanta({ motivo, v, paso, sinPlanta, nombres }) {
                 ? <>{v.lista_desde ? `Lista desde las ${h12(v.lista_desde)} · ` : ''}{x ? `en la planta ≈ ${hm(x.llega)}, sale ${hm(x.sale)}` : ''}</>
                 : <>{v.volver_antes ? `Debe llegar antes de las ${h12(v.volver_antes)} · ` : 'Lo antes posible · '}{x ? `llega ≈ ${hm(x.llega)}${tarde ? ` (${Math.round(x.tarde)} min tarde)` : ''}` : ''}</>}
           </div>
+          {onMarcar && !sinPlanta && x && (hecho
+            ? <div className="log-llega">✓ {motivo === 'recoger' ? 'Cargado' : 'Descargado'} a las {h12(hm(x.hora))} <button className="btn-link pequeño" disabled={ocupado} onClick={() => onMarcar(motivo, v, paso, false)}>Deshacer</button></div>
+            : <button className="btn btn-ok btn-sm" disabled={ocupado} onClick={() => onMarcar(motivo, v, paso, true)}>{motivo === 'recoger' ? 'Cargado' : 'Descargado'}</button>)}
         </div>
       </div>
     </div>
@@ -878,7 +900,7 @@ function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
           {recepcionTxt(v.recepcion) && <div className="tenue pequeño">🕒 Recibe {recepcionTxt(v.recepcion)}</div>}
           {v.horario && <div className="tenue pequeño">{v.horario}</div>}
           {paso && <div className={`log-llega ${paso.cerrado || paso.choque || paso.tarde > 0 ? 't-mal' : ''}`}>
-            {paso.cerrado ? 'Ese día el sitio no recibe' : paso.choque ? 'Lo pedido no cae en su horario de recepción'
+            {paso.real ? `✓ ${v.estado === 'hecha' ? 'Hecha' : 'Marcada'} a las ${h12(hm(paso.sale))}` : paso.cerrado ? 'Ese día el sitio no recibe' : paso.choque ? 'Lo pedido no cae en su horario de recepción'
               : <>Llega ≈ {hm(paso.llega)}{paso.espera >= 5 ? ` · espera hasta ${hm(paso.inicio)}` : ''}{paso.tarde > 0 ? ` · ${Math.round(paso.tarde)} min tarde` : ''} · sale {hm(paso.sale)}</>}
           </div>}
           {paso && v.recoger_planta && !paso.carga && <div className="log-llega">⤓ Su mercancía ya va en el camión (se cargó al salir o en un paso anterior por la planta)</div>}

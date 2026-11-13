@@ -171,6 +171,22 @@ export const minParadaDe = (v, cfg) => Number(v.min_parada) || Number(cfg.min_pa
  * atiende cada parada, toma el almuerzo cuando le llega la hora y regresa a la planta.
  * @returns {pasos: [{llega, inicio, sale, espera, tarde, cerrado, choque, almuerzoAntes}], regreso, km, sinUbic, almuerzo}
  */
+// Hora real (minutos del día, en Colombia) de una marca de tiempo, si es del mismo día de la ruta
+export function minReal(ts, fecha) {
+  if (!ts) return null
+  const d = new Date(ts)
+  if (isNaN(d)) return null
+  const f = d.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+  if (fecha && f !== fecha) return null
+  const [h, m] = d.toLocaleTimeString('en-GB', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hour12: false }).split(':').map(Number)
+  return (h % 24) * 60 + m
+}
+const realDeTodos = (vs, campo, fecha) => {
+  if (!vs.length) return null
+  const ms = vs.map((v) => minReal(v[campo], fecha))
+  return ms.some((m) => m === null) ? null : Math.max(...ms)
+}
+
 export function simular(paradas, planta, cfg, fecha) {
   let t = aMin(cfg.salida), p = tieneUbic(planta) ? pos(planta) : null, kms = 0, sinUbic = 0
   const almDesde = aMin(cfg.almuerzo_desde || '12:00'), almMin = Number(cfg.almuerzo_min) || 0
@@ -185,6 +201,9 @@ export function simular(paradas, planta, cfg, fecha) {
     return lleva
   }
   const alSalir = cargar() // lo que ya está listo a la hora de salida va desde el principio
+  // Si el conductor ya marcó el cargue de la salida, el recorrido arranca a esa hora real
+  const salioReal = realDeTodos(alSalir, 'cargado_en', fecha)
+  if (salioReal !== null) t = salioReal
   const pasos = paradas.map((v) => {
     const almuerzoAntes = tomarAlmuerzo()
     // Si la mercancía de esta parada aún no va en el camión, pasa por la planta (espera a que esté lista) y carga todo lo listo
@@ -197,6 +216,9 @@ export function simular(paradas, planta, cfg, fecha) {
       const lleva = cargar()
       t += Number(cfg.min_descargue) || 15
       carga = { llega: llegaP, sale: t, lleva: lleva.map((x) => x.id) }
+      // Cargue ya marcado: lo que sigue se calcula desde la hora real
+      const r = realDeTodos(lleva, 'cargado_en', fecha)
+      if (r !== null) { t = r; carga.sale = r; carga.llega = Math.min(carga.llega, r); carga.hecho = true; carga.hora = r }
     }
     if (tieneUbic(v)) { const q = pos(v); if (p) { t += minViaje(p, q); kms += km(p, q) * FACTOR_CALLE } p = q } else { sinUbic++; t += 20 }
     const llega = t
@@ -209,6 +231,9 @@ export function simular(paradas, planta, cfg, fecha) {
     if (almMin && almuerzo === null && inicio - t >= almMin && inicio >= almDesde) almuerzo = Math.max(t, almDesde)
     const espera = inicio - t
     t = inicio + minParadaDe(v, cfg)
+    // Vuelta ya hecha (o que no se pudo): el resto de la ruta se recalcula desde la hora real en que se marcó
+    const real = v.estado !== 'pendiente' ? minReal(v.hecha_en, fecha) : null
+    if (real !== null) t = real
     const sale = t
     // Después de esta parada el camión vuelve a la planta a dejar algo (lo antes posible o antes de una hora)
     let vuelve = null
@@ -219,7 +244,13 @@ export function simular(paradas, planta, cfg, fecha) {
       t += Number(cfg.min_descargue) || 15
       vuelve.lleva = cargar().map((x) => x.id) // de paso carga lo que ya esté listo
     }
-    return { llega, inicio, sale, espera, tarde, cerrado, choque, almuerzoAntes, vuelve, carga }
+    if (vuelve) {
+      const r = minReal(v.descargado_en, fecha)
+      if (r !== null) { t = r; vuelve.llega = Math.min(vuelve.llega, r); vuelve.hecho = true; vuelve.hora = r; vuelve.tarde = v.volver_antes ? Math.max(0, r - aMin(v.volver_antes)) : 0 }
+    }
+    return real !== null
+      ? { llega: Math.min(llega, real), inicio: Math.min(inicio, real), sale, espera: 0, tarde: 0, cerrado: false, choque: false, almuerzoAntes, vuelve, carga, real: true }
+      : { llega, inicio, sale, espera, tarde, cerrado, choque, almuerzoAntes, vuelve, carga }
   })
   if (paradas.length) {
     tomarAlmuerzo()

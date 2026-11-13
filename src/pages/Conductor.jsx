@@ -3,7 +3,7 @@ import { useEnVivo } from '../vivo.js'
 import { sb, q } from '../supabase.js'
 import { Aviso, Cargando, Modal } from '../ui.jsx'
 import { hoyCO } from '../cumplimiento.js'
-import { TIPOS_VUELTA, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, recepcionTxt, simular, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
+import { TIPOS_VUELTA, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, recepcionTxt, simular, hm, VEHICULOS, linkMaps, linkWaze, linksRecorrido, telLink, tieneUbic } from '../logistica.js'
 
 // Celular del conductor: la ruta confirmada de hoy, en orden, para marcar cada parada
 export default function Conductor({ perfil }) {
@@ -38,6 +38,16 @@ export default function Conductor({ perfil }) {
     } catch (e) { setError(e.message); return false }
   }
 
+  // Cargue y descargue en la planta
+  const marcarPlanta = async (ids, campo, si, txt) => {
+    if (!ids.length) return
+    try {
+      const r = await q(sb.rpc('marcar_planta', { p_ids: ids, p_campo: campo, p_hecho: si }))
+      if (r !== 'ok') { setError(r); return }
+      if (si && txt) setMsg(txt); cargar()
+    } catch (e) { setError(e.message) }
+  }
+
   const rec = d?.recs.find((r) => r.id === veh) || d?.recs[0]
   const nombreRec = (r) => `${VEHICULOS[r.vehiculo].split(' (')[0]}${(r.numero || 1) > 1 || d?.recs.some((x) => x.id !== r.id && x.vehiculo === r.vehiculo) ? ` · Ruta ${r.numero || 1}` : ''}`
   const vs = rec?.vueltas || []
@@ -46,6 +56,9 @@ export default function Conductor({ perfil }) {
   const sim = d?.planta && tieneUbic(d.planta) && vs.length ? simular(vs, d.planta, { ...cfgDe(d.planta), ...(rec?.salida ? { salida: String(rec.salida).slice(0, 5) } : {}) }, hoy) : null
   const nombresDe = (ids) => ids.map((id) => vs.find((x) => x.id === id)?.destino).filter(Boolean).join(', ')
   const planta = d?.planta && tieneUbic(d.planta) ? d.planta : null
+  // Número de cada parada, contando los pasos por la planta como paradas
+  let cN = 0
+  const numeros = vs.map((v, i) => ({ carga: v.recoger_planta && (!planta || sim?.pasos[i]?.carga) ? ++cN : null, n: ++cN, vuelve: v.volver_planta ? ++cN : null }))
   return (
     <div className="conductor">
       <header className="cond-cab">
@@ -72,25 +85,43 @@ export default function Conductor({ perfil }) {
             <a key={l} className="btn btn-sec cond-todo" href={l} target="_blank" rel="noreferrer">🗺 Abrir {a.length > 1 ? `tramo ${i + 1}` : 'el recorrido'} en Google Maps</a>
           ))}
           <div className="cond-lista">
-            <div className="log-planta-punto sale"><span className="ico">🏭</span><div className="crece"><b>Sale de la planta</b>{sim?.alSalir?.length ? <div className="pequeño">Lleva la mercancía de: {nombresDe(sim.alSalir)}</div> : null}</div></div>
+            <div className="log-planta-punto sale"><span className="ico">🏭</span><div className="crece"><b>Sale de la planta</b>{sim?.alSalir?.length ? <div className="pequeño">Lleva la mercancía de: {nombresDe(sim.alSalir)}</div> : null}
+              {sim?.alSalir?.length > 0 && (sim.alSalir.every((id) => vs.find((x) => x.id === id)?.cargado_en)
+                ? <div className="pequeño">✓ Cargado <button className="btn-link claro" onClick={() => marcarPlanta(sim.alSalir, 'cargado', false)}>Deshacer</button></div>
+                : <button className="btn btn-ok" onClick={() => marcarPlanta(sim.alSalir, 'cargado', true, 'Cargue registrado ✓')}>Cargado, salgo</button>)}</div></div>
             {vs.map((v, i) => {
               const hecha = v.estado === 'hecha', no = v.estado === 'no_hecha'
               const siguiente = v.id === faltan[0]?.id
-              const pasoPlanta = (txt) => (
-                <div className={`cond-parada regreso${hecha || no ? ' hecha' : ''}`}>
-                  <div className="cond-p-cab"><span className="log-n planta">P</span>
-                    <div className="crece"><span className="etq-vuelta regreso">Planta MQI</span><div className="cond-destino">{txt}</div></div></div>
-                  {planta && <div className="cond-acc">
-                    <a className="btn btn-sec" href={linkMaps(planta)} target="_blank" rel="noreferrer">Maps</a>
-                    <a className="btn btn-sec" href={linkWaze(planta)} target="_blank" rel="noreferrer">Waze</a>
-                  </div>}
-                </div>
-              )
+              const paso = sim?.pasos[i]
+              // Paso por la planta: es una parada más; el conductor marca el cargue o el descargue
+              const pasoPlanta = (txt, motivo, num) => {
+                const x = motivo === 'recoger' ? paso?.carga : paso?.vuelve
+                const listo = !!x?.hecho
+                const marcar2 = async (si) => {
+                  if (motivo === 'recoger') await marcarPlanta(paso?.carga?.lleva || [v.id], 'cargado', si, 'Cargue registrado ✓')
+                  else { await marcarPlanta([v.id], 'descargado', si, 'Descargue registrado ✓'); await marcarPlanta(paso?.vuelve?.lleva || [], 'cargado', si) }
+                }
+                return (
+                  <div className={`cond-parada regreso${listo ? ' hecha' : ''}`}>
+                    <div className="cond-p-cab"><span className="log-n planta">{num || 'P'}</span>
+                      <div className="crece"><span className="etq-vuelta regreso">{motivo === 'recoger' ? 'Cargar en la planta' : 'Descargar en la planta'}</span><div className="cond-destino">{txt}</div></div></div>
+                    {listo && <div className="cond-estado ok">✓ {motivo === 'recoger' ? 'Cargado' : 'Descargado'}{x?.hora != null ? ` a las ${h12(hm(x.hora))}` : ''}</div>}
+                    {planta && <div className="cond-acc">
+                      <a className="btn btn-sec" href={linkMaps(planta)} target="_blank" rel="noreferrer">Maps</a>
+                      <a className="btn btn-sec" href={linkWaze(planta)} target="_blank" rel="noreferrer">Waze</a>
+                    </div>}
+                    <div className="cond-acc">
+                      {listo ? <button className="btn-link" onClick={() => marcar2(false)}>Deshacer</button>
+                        : <button className="btn btn-ok btn-grande" onClick={() => marcar2(true)}>{motivo === 'recoger' ? 'Cargado' : 'Descargado'}</button>}
+                    </div>
+                  </div>
+                )
+              }
               return (<Fragment key={v.id}>
-                {v.recoger_planta && (!planta || sim?.pasos[i]?.carga) && pasoPlanta(`Recoger la mercancía para ${nombresDe(sim?.pasos[i]?.carga?.lleva || [v.id])}${v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}`)}
+                {v.recoger_planta && (!planta || sim?.pasos[i]?.carga) && pasoPlanta(`Recoger la mercancía para ${nombresDe(sim?.pasos[i]?.carga?.lleva || [v.id])}${v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}`, 'recoger', numeros[i]?.carga)}
                 <div className={`cond-parada ${v.tipo}${hecha ? ' hecha' : ''}${no ? ' no-hecha' : ''}${siguiente ? ' siguiente' : ''}`}>
                   <div className="cond-p-cab">
-                    <span className="log-n">{i + 1}</span>
+                    <span className="log-n">{numeros[i]?.n || i + 1}</span>
                     <div className="crece">
                       <span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span>
                       {v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}
@@ -115,7 +146,7 @@ export default function Conductor({ perfil }) {
                     </div>
                   )}
                 </div>
-                {v.volver_planta && pasoPlanta(`Volver a dejar lo que trae de ${v.destino}${v.volver_antes ? ` · antes de las ${h12(v.volver_antes)}` : ' · lo antes posible'}${sim?.pasos[i]?.vuelve?.lleva?.length ? ` · y recoger la mercancía para ${nombresDe(sim.pasos[i].vuelve.lleva)}` : ''}`)}
+                {v.volver_planta && pasoPlanta(`Volver a dejar lo que trae de ${v.destino}${v.volver_antes ? ` · antes de las ${h12(v.volver_antes)}` : ' · lo antes posible'}${sim?.pasos[i]?.vuelve?.lleva?.length ? ` · y recoger la mercancía para ${nombresDe(sim.pasos[i].vuelve.lleva)}` : ''}`, 'dejar', numeros[i]?.vuelve)}
               </Fragment>)
             })}
             <div className="log-planta-punto regresa"><span className="ico">🏭</span><div className="crece"><b>Regresa a la planta</b>{sim ? <span> ≈ {h12(String(Math.floor(sim.regreso / 60)).padStart(2, '0') + ':' + String(Math.round(sim.regreso % 60) % 60).padStart(2, '0'))}</span> : null}</div>
