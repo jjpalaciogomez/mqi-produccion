@@ -200,7 +200,10 @@ export function simular(paradas, planta, cfg, fecha) {
     for (const v of [...porCargar]) if (!v.lista_desde || aMin(v.lista_desde) <= t) { porCargar.delete(v); lleva.push(v) }
     return lleva
   }
-  const alSalir = cargar() // lo que ya está listo a la hora de salida va desde el principio
+  // Ruta contratada (inicioLibre): si la primera parada no necesita mercancía de la planta, el servicio empieza allá, no en la planta
+  const inicioPlanta = !(cfg.inicioLibre && paradas.length && !paradas[0].recoger_planta)
+  if (!inicioPlanta) p = null
+  const alSalir = inicioPlanta ? cargar() : [] // lo que ya está listo a la hora de salida va desde el principio
   // Si el conductor ya marcó el cargue de la salida, el recorrido arranca a esa hora real
   const salioReal = realDeTodos(alSalir, 'cargado_en', fecha)
   if (salioReal !== null) t = salioReal
@@ -252,11 +255,12 @@ export function simular(paradas, planta, cfg, fecha) {
       ? { llega: Math.min(llega, real), inicio: Math.min(inicio, real), sale, espera: 0, tarde: 0, cerrado: false, choque: false, almuerzoAntes, vuelve, carga, real: true }
       : { llega, inicio, sale, espera, tarde, cerrado, choque, almuerzoAntes, vuelve, carga }
   })
+  const fin = t
   if (paradas.length) {
     tomarAlmuerzo()
-    if (p && tieneUbic(planta)) { t += minViaje(p, pos(planta)); kms += km(p, pos(planta)) * FACTOR_CALLE }
+    if (!cfg.sinRegreso && p && tieneUbic(planta)) { t += minViaje(p, pos(planta)); kms += km(p, pos(planta)) * FACTOR_CALLE }
   }
-  return { pasos, regreso: t, km: Math.round(kms), kmExacto: kms, sinUbic, almuerzo, alSalir: alSalir.map((x) => x.id) }
+  return { pasos, regreso: cfg.sinRegreso ? fin : t, km: Math.round(kms), kmExacto: kms, sinUbic, almuerzo, alSalir: alSalir.map((x) => x.id), inicioPlanta }
 }
 export const problemas = (sim) => sim.pasos.filter((x) => x.tarde > 0 || x.cerrado || x.choque || x.vuelve?.tarde > 0).length
 
@@ -378,24 +382,28 @@ export const linkWaze = (v) => (tieneUbic(v) ? `https://waze.com/ul?ll=${v.lat},
 // Recorrido completo en Google Maps (hasta 9 paradas intermedias; si hay más, se parte en tramos)
 // Paradas del recorrido incluyendo los pasos por la planta (recoger mercancía antes / volver a dejar algo después)
 export const PLANTA_NOMBRE = 'Planta MQI'
-export function puntosRuta(paradas, planta) {
+export function puntosRuta(paradas, planta, sim) {
   const pl = tieneUbic(planta) ? { ...planta, destino: PLANTA_NOMBRE, esPlanta: true } : null
   const out = []
-  for (const v of paradas) {
-    for (const x of [...(v.recoger_planta && pl ? [pl] : []), v, ...(v.volver_planta && pl ? [pl] : [])]) {
+  for (const [i, v] of paradas.entries()) {
+    // Con la simulación se sabe en qué parada se pasa de verdad por la planta a cargar
+    const pasaAntes = sim ? !!sim.pasos?.[i]?.carga : v.recoger_planta
+    for (const x of [...(pasaAntes && pl ? [pl] : []), v, ...(v.volver_planta && pl ? [pl] : [])]) {
       if (x.esPlanta && out[out.length - 1]?.esPlanta) continue // dos pasos seguidos por la planta = uno
       out.push(x)
     }
   }
   return out
 }
-export function linksRecorrido(paradas, planta) {
-  // El recorrido siempre sale de la planta y termina en la planta
-  const pts = puntosRuta(paradas, planta).filter((v) => tieneUbic(v) || v.direccion)
-  if (pts.length && tieneUbic(planta) && !pts[pts.length - 1].esPlanta) pts.push({ ...planta, destino: PLANTA_NOMBRE, esPlanta: true })
+export function linksRecorrido(paradas, planta, { sim, libre } = {}) {
+  // El camión sale de la planta y termina en la planta; una ruta contratada (libre) empieza en su primera parada y termina en la última
+  const pts = puntosRuta(paradas, planta, sim).filter((v) => tieneUbic(v) || v.direccion)
+  const desdePlanta = !libre || sim?.inicioPlanta
+  if (!libre && pts.length && tieneUbic(planta) && !pts[pts.length - 1].esPlanta) pts.push({ ...planta, destino: PLANTA_NOMBRE, esPlanta: true })
   if (!pts.length) return []
   const tramos = []
-  let origen = tieneUbic(planta) ? `${planta.lat},${planta.lng}` : null
+  let origen = desdePlanta && tieneUbic(planta) ? `${planta.lat},${planta.lng}` : null
+  if (!origen && pts.length > 1) origen = punto(pts.shift())
   for (let i = 0; i < pts.length; i += 10) {
     const t = pts.slice(i, i + 10)
     const dest = punto(t[t.length - 1])
@@ -473,11 +481,12 @@ export function datosVuelta(v, { n, total, titulo, paso } = {}) {
   }
 }
 export const mensajeVuelta = (v, opts = {}, tpl) => llenarPlantilla(tpl || PLANTILLA_VUELTA, datosVuelta(v, opts))
-export function mensajeResumen(paradas, { titulo, salida, planta }, tpl) {
-  const links = linksRecorrido(paradas, planta)
+export function mensajeResumen(paradas, { titulo, salida, planta, sim, libre }, tpl) {
+  const links = linksRecorrido(paradas, planta, { sim, libre })
+  const enPlanta = !libre || sim?.inicioPlanta !== false
   return llenarPlantilla(tpl || PLANTILLA_RESUMEN, {
     ruta: titulo, cantidad: `${paradas.length} ${paradas.length === 1 ? 'vuelta' : 'vueltas'}`, salida: salida ? h12(salida) : '',
-    mapa_planta: tieneUbic(planta) ? `https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}` : '',
+    mapa_planta: enPlanta && tieneUbic(planta) ? `https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}` : '',
     paradas: paradas.map((v, i) => `${i + 1}. ${v.destino}${v.municipio ? ` (${v.municipio})` : ''}`).join('\n'), recorrido: links.join(' '),
   })
 }
@@ -540,10 +549,12 @@ export function mensajeCotizacion(paradas, { fecha, salida, planta, sim, nombre 
   const alSalir = (sim?.alSalir || []).map((id) => paradas.find((v) => v.id === id)?.destino).filter(Boolean)
   return llenarPlantilla(tpl || PLANTILLA_COTIZACION, {
     saludo: nombre ? `Hola ${nombre},` : 'Hola,', nombre: nombre || '',
-    inicio: ['Planta MQI', plDir, salida ? `desde las ${h12(salida)}` : ''].filter(Boolean).join(' · '),
+    inicio: sim && sim.inicioPlanta === false && paradas[0]
+      ? [paradas[0].destino, [paradas[0].direccion, paradas[0].municipio].filter(Boolean).join(', '), salida ? `desde las ${h12(salida)}` : ''].filter(Boolean).join(' · ')
+      : ['Planta MQI', plDir, salida ? `desde las ${h12(salida)}` : ''].filter(Boolean).join(' · '),
     fecha: fecha ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) : '',
     direccion_planta: plDir, salida: salida ? h12(salida) : '', carga_inicio: alSalir.join(', '),
-    mapa_planta: tieneUbic(planta) ? `https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}` : '',
-    cantidad: `${paradas.length} ${paradas.length === 1 ? 'vuelta' : 'vueltas'}`, paradas: lp.join('\n'), recorrido: linksRecorrido(paradas, planta).join(' '),
+    mapa_planta: sim?.inicioPlanta === false ? '' : tieneUbic(planta) ? `https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}` : '',
+    cantidad: `${paradas.length} ${paradas.length === 1 ? 'vuelta' : 'vueltas'}`, paradas: lp.join('\n'), recorrido: linksRecorrido(paradas, planta, { sim, libre: sim?.inicioPlanta === false || undefined }).join(' '),
   })
 }

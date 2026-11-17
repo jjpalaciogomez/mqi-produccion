@@ -462,7 +462,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
     const yaAlmorzo = cols.some((c) => vehDe(c) === vehDe(k) && numDe(c) < numDe(k) && estRuta[c]?.sim?.almuerzo !== null && deVeh(c).length)
     cfgRuta[k] = vehDe(k) === 'externo'
       // Ruta con un transportador contratado: sin almuerzo ni hora de fin del camión
-      ? { ...cfg, salida: r?.salida ? String(r.salida).slice(0, 5) : cfg.salida, almuerzo_min: 0, fin: '23:59' }
+      ? { ...cfg, salida: r?.salida ? String(r.salida).slice(0, 5) : cfg.salida, almuerzo_min: 0, fin: '23:59', inicioLibre: true, sinRegreso: true }
       : { ...cfg, salida, ...(yaAlmorzo || r?.ya_almorzo ? { almuerzo_min: 0 } : {}) }
     const arrancada = rec(k)?.estado === 'confirmada' || deVeh(k).some((v) => v.estado !== 'pendiente')
     if (ahoraMin !== null && !arrancada && aMin(cfgRuta[k].salida) < ahoraMin) cfgRuta[k] = { ...cfgRuta[k], salida: hm(ahoraMin), desdeAhora: true }
@@ -517,7 +517,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
             const est = estRuta[veh], cr = cfgRuta[veh]
             const pasa = !contratada && est.regreso > aMin(cfg.fin)
             const zonas = Object.entries(ps.reduce((g, v) => { const z = zonaTxt(v) || 'Sin zona'; g[z] = (g[z] || 0) + 1; return g }, {}))
-            const links = linksRecorrido(ps, planta)
+            const links = linksRecorrido(ps, planta, { sim: est.sim, libre: contratada })
             const nombresDe = (ids) => ids.map((id) => ps.find((x) => x.id === id)?.destino).filter(Boolean).join(', ')
             // Número de cada parada contando los pasos por la planta como paradas
             let cN = 0
@@ -553,7 +553,8 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                   </>}
                   <label className="pequeño" title="Si no se pone, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior">Sale<SelectorHora value={r?.salida ? String(r.salida).slice(0, 5) : ''} vacio={contratada ? `(${h12(cr.salida)})` : `Auto (${h12(cr.salida)})`} onChange={(h) => !conf && guardarSalida(veh, h)} /></label>
                 </div>
-                {ps.length > 0 && <PuntoPlanta tipo="sale" hora={aMin(cr.salida)} lleva={nombresDe(est.sim.alSalir)} sinPlanta={!planta}
+                {ps.length > 0 && contratada && est.sim.inicioPlanta === false && <div className="log-planta-punto sale"><span className="ico">📍</span><div className="crece"><b>Empieza en {ps[0].destino}</b> <span>{h12(cr.salida)}</span><div className="pequeño">La primera vuelta no necesita nada de la planta: el servicio arranca allá.</div></div></div>}
+                {ps.length > 0 && est.sim.inicioPlanta !== false && <PuntoPlanta tipo="sale" hora={aMin(cr.salida)} lleva={nombresDe(est.sim.alSalir)} sinPlanta={!planta}
                   cargado={est.sim.alSalir.length > 0 && est.sim.alSalir.every((id) => ps.find((x) => x.id === id)?.cargado_en)}
                   onCargado={est.sim.alSalir.length ? (si) => marcarPlanta(est.sim.alSalir, 'cargado', si) : null} ocupado={ocupado} />}
                 {ps.map((v, i) => (<Fragment key={v.id}>
@@ -594,7 +595,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                       : telConductor(r?.conductor || condPred)
                     const nombre = contratada ? transps.find((x) => x.id === r?.transportador_id)?.nombre : (r?.conductor || condPred)
                     const pend = ps.filter((x) => x.estado === 'pendiente')
-                    setWa({ titulo: nombreRuta(veh), tel: tel || '', nombre: nombre || '', resumen: mensajeResumen(pend, { titulo: nombreRuta(veh), salida: cr.salida, planta }, tplWa.resumen),
+                    setWa({ titulo: nombreRuta(veh), tel: tel || '', nombre: nombre || '', resumen: mensajeResumen(pend, { titulo: nombreRuta(veh), salida: cr.salida, planta, sim: estimar(pend, planta, cr, fecha).sim, libre: contratada }, tplWa.resumen),
                       mensajes: pend.map((x, j) => ({ id: x.id, destino: x.destino, texto: mensajeVuelta(x, { n: j + 1, total: pend.length, titulo: nombreRuta(veh), paso: est.sim.pasos[ps.indexOf(x)] }, tplWa.vuelta) })) })
                   }} title="Manda la ruta por WhatsApp: un mensaje por cada vuelta con dirección y ubicación en Maps">📲 WhatsApp</button>}
                   {links.map((l, i) => <a key={l} className="btn btn-sec btn-sm" href={l} target="_blank" rel="noreferrer">Ver en Google Maps{links.length > 1 ? ` (${i + 1})` : ''}</a>)}
