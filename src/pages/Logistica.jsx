@@ -5,7 +5,7 @@ import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, esConductor, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, linkUber, PLANTILLA_VUELTA, PLANTILLA_RESUMEN, CAMPOS_VUELTA, CAMPOS_RESUMEN, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, esConductor, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, linkUber, mensajeCotizacion, PLANTILLA_VUELTA, PLANTILLA_RESUMEN, CAMPOS_VUELTA, CAMPOS_RESUMEN, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
   linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
@@ -364,6 +364,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   const [verEnPlanta, setVerEnPlanta] = useState(false)
   const [wa, setWa] = useState(null) // ruta (o vuelta) para mandar por WhatsApp
   const [didi, setDidi] = useState(null) // vuelta para pedir por DiDi
+  const [cotizar, setCotizar] = useState(null) // ruta contratada para pedir cotización
   const [tplWa] = usePlantillasWa()
   const replanificar = ({ enPlanta, sale, almorzo }) => accion(async () => {
     const rutas = cols.filter((c) => vehDe(c) === 'camion' && rec(c))
@@ -407,6 +408,26 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
     const llamar = async (ids, campo) => { if (!ids.length) return; const r = await q(sb.rpc('marcar_planta', { p_ids: ids, p_campo: campo, p_hecho: si })); if (r !== 'ok') throw new Error(r) }
     if (motivo === 'recoger') await llamar(paso?.carga?.lleva || [v.id], 'cargado')
     else { await llamar([v.id], 'descargado'); await llamar(paso?.vuelve?.lleva || [], 'cargado') }
+  })
+  // Sugerir una sola ruta (camión o contratada): toma vueltas de Sin asignar y la ordena
+  const sugerirRuta = (k) => accion(async () => {
+    const cfgK = cfgRuta[k] || cfg
+    const propias = pendDe(k)
+    let candidatas = sinAsignar
+    if (vehDe(k) === 'externo') {
+      // Ruta contratada: no tiene hora de fin, así que se agrupa por zona (las de la ruta, o la zona con más vueltas sin asignar)
+      const conteo = {}
+      for (const v of sinAsignar.filter((x) => !x.necesita_camion)) { const z = zonaDe(v) || '?'; conteo[z] = (conteo[z] || 0) + 1 }
+      const zonas = new Set(propias.length ? propias.map((v) => zonaDe(v) || '?') : [Object.entries(conteo).sort((a, b) => b[1] - a[1])[0]?.[0]])
+      candidatas = sinAsignar.filter((v) => !v.necesita_camion && zonas.has(zonaDe(v) || '?'))
+    }
+    const p = proponerAsignacion([...propias, ...candidatas], planta, cfgK, fecha)
+    const nuevas = p.camion.filter((v) => !propias.includes(v)).length
+    await guardarOrden(k, [...fijasDe(k), ...p.camion])
+    // Lo que estaba en la ruta y ya no cabe vuelve a Sin asignar
+    const fuera = propias.filter((v) => !p.camion.includes(v))
+    await Promise.all(fuera.map((v) => q(sb.from('vueltas').update({ recorrido_id: null, orden: null }).eq('id', v.id))))
+    setOk(`${nombreRuta(k)}: ${nuevas ? `se agregaron ${nuevas} ${nuevas === 1 ? 'vuelta' : 'vueltas'}` : 'no se agregaron vueltas nuevas'} y quedó ordenada.${fuera.length ? ` ${fuera.length} no alcanzan y volvieron a "Sin asignar".` : ''}`)
   })
   const guardarRec = (k, cambios) => accion(async () => { const r = await asegurarRec(k); await q(sb.from('recorridos').update(cambios).eq('id', r.id)) })
   const marcarHecha = (v, si) => accion(() => q(sb.from('vueltas').update(si ? { estado: 'hecha', hecha_en: new Date().toISOString() } : { estado: 'pendiente', hecha_en: null }).eq('id', v.id)), si ? `${v.destino}: hecha.` : '')
@@ -561,6 +582,13 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                   {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar</button>}
                   {!conf && ps.some((x) => x.estado === 'pendiente') && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => sacarTodas(veh)} title="Pasa a Sin asignar todas las vueltas pendientes de esta ruta, para reorganizar">Sacar todas</button>}
                   {conf && <span className="tenue pequeño">Para sacar o mover vueltas, vuelve la ruta a borrador.</span>}
+                  {!conf && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => sugerirRuta(veh)} title={contratada ? 'Llena esta ruta con vueltas de Sin asignar de la misma zona y la ordena' : 'Llena esta ruta con las vueltas de Sin asignar que alcanzan a cumplir horarios y la ordena'}>✨ Sugerir esta ruta</button>}
+                  {contratada && ps.some((x) => x.estado === 'pendiente') && <button className="btn btn-sec btn-sm" onClick={() => {
+                    const pend = ps.filter((x) => x.estado === 'pendiente')
+                    const sim = estimar(pend, planta, cr, fecha).sim
+                    const t = transps.find((x) => x.id === r?.transportador_id)
+                    setCotizar({ titulo: nombreRuta(veh), transportadorId: t?.id || '', armar: (nombre) => mensajeCotizacion(pend, { fecha, salida: cr.salida, planta: aj ? { ...planta, direccion: aj.direccion } : planta, sim, nombre }) })
+                  }} title="Manda por WhatsApp todo el recorrido con direcciones para que te coticen">💲 Cotizar por WhatsApp</button>}
                   {ps.length > 0 && <button className="btn btn-sec btn-sm" onClick={() => {
                     const tel = contratada ? transps.find((x) => x.id === r?.transportador_id)?.telefono
                       : telConductor(r?.conductor || condPred)
@@ -583,6 +611,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
       {form && <FormVuelta inicial={form} lugares={lugares} perfil={perfil} gestor
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); cargar(); onLugares() }} />}
       {wa && <EnviarWhatsApp {...wa} onClose={() => setWa(null)} />}
+      {cotizar && <CotizarWa {...cotizar} transps={transps} onClose={() => setCotizar(null)} />}
       {didi && <PedirDidi v={didi} planta={planta} plantaDir={aj?.direccion} onClose={() => setDidi(null)} />}
       {verEnPlanta && <CamionEnPlanta cfg={cfg} fecha={fecha} hechas={cols.filter((c) => vehDe(c) === 'camion').reduce((n, k) => n + fijasDe(k).length, 0)}
         pendientes={cols.filter((c) => vehDe(c) === 'camion').reduce((n, k) => n + pendDe(k).length, 0) + sinAsignar.length} ocupado={ocupado}
@@ -654,6 +683,36 @@ function EnviarWhatsApp({ titulo, tel: tel0, nombre, resumen, mensajes, onClose 
           {mensajes.map((m, i) => fila(m.id, `${i + 1}. ${m.destino}`, m.texto))}
         </>}
         <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cerrar</button></div>
+      </div>
+    </Modal>
+  )
+}
+
+// Pedir cotización de una ruta contratada por WhatsApp (se puede mandar a varios transportadores para comparar)
+function CotizarWa({ titulo, transportadorId, armar, transps, onClose }) {
+  const lista = transps.filter((t) => t.activo !== false && !esConductor(t.tipo))
+  const [id, setId] = useState(transportadorId)
+  const t = lista.find((x) => x.id === id)
+  const [texto, setTexto] = useState(() => armar(t?.contacto || t?.nombre || ''))
+  const [tel, setTel] = useState(t?.telefono || '')
+  const [enviados, setEnviados] = useState([])
+  const elegir = (nid) => { setId(nid); const x = lista.find((y) => y.id === nid); setTel(x?.telefono || ''); setTexto(armar(x?.contacto || x?.nombre || '')) }
+  return (
+    <Modal titulo={`Cotizar por WhatsApp · ${titulo}`} onClose={onClose} ancho={640}>
+      <div className="form">
+        <div className="fila-form">
+          <label className="crece">A quién<select value={id} onChange={(e) => elegir(e.target.value)}>
+            <option value="">Elegir el contacto en WhatsApp</option>
+            {lista.map((x) => <option key={x.id} value={x.id}>{x.nombre}{x.tipo ? ` (${TIPOS_TRANSPORTE[x.tipo] || x.tipo}${x.tamano ? ` ${x.tamano}` : ''})` : ''}</option>)}
+          </select></label>
+          <label>Celular<input value={tel} onChange={(e) => setTel(e.target.value)} inputMode="tel" placeholder="Opcional" /></label>
+        </div>
+        <label>Mensaje (lo puedes ajustar antes de enviarlo)<textarea rows={14} value={texto} onChange={(e) => setTexto(e.target.value)} /></label>
+        {enviados.length > 0 && <div className="tenue pequeño">Enviado a: {enviados.join(', ')}. Puedes elegir otro transportador para comparar precios.</div>}
+        <div className="acciones">
+          <button type="button" className="btn btn-sec" onClick={onClose}>Cerrar</button>
+          <a className="btn" href={linkWhatsApp(tel, texto)} target="_blank" rel="noreferrer" onClick={() => setEnviados((e) => [...new Set([...e, t?.nombre || 'contacto elegido'])])}>📲 Enviar por WhatsApp</a>
+        </div>
       </div>
     </Modal>
   )

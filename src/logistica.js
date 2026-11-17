@@ -486,3 +486,37 @@ export function linkUber(v, planta) {
   poner('dropoff', b)
   return `https://m.uber.com/ul/?${p.toString()}`
 }
+
+// Mensaje para pedir cotización de una ruta contratada: todo el recorrido con direcciones y lo que hay que hacer
+export function mensajeCotizacion(paradas, { fecha, salida, planta, sim, nombre } = {}) {
+  const plDir = planta?.direccion || ''
+  const plMapa = tieneUbic(planta) ? `https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}` : ''
+  const dia = fecha ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) : ''
+  const l = [`Hola${nombre ? ` ${nombre}` : ''}, le escribimos de *MQI (Más Que Impresos)*. Queremos cotizar un servicio de transporte${dia ? ` para el *${dia}*` : ''}.`, '']
+  l.push(`🏭 *Inicio:* Planta MQI${plDir ? ` · ${plDir}` : ''}${salida ? ` · desde las ${h12(salida)}` : ''}`)
+  const alSalir = (sim?.alSalir || []).map((id) => paradas.find((v) => v.id === id)?.destino).filter(Boolean)
+  if (alSalir.length) l.push(`📦 Allí se carga la mercancía para: ${alSalir.join(', ')}`)
+  if (plMapa) l.push(`🗺️ ${plMapa}`)
+  l.push('', `*Recorrido (${paradas.length} ${paradas.length === 1 ? 'vuelta' : 'vueltas'}):*`)
+  let n = 0
+  const planta1 = (txt) => { n++; l.push(`${n}. *PLANTA MQI* · ${txt}${plDir ? `\n   📍 ${plDir}` : ''}`) }
+  paradas.forEach((v, i) => {
+    const paso = sim?.pasos?.[i]
+    if (v.recoger_planta && (!sim || paso?.carga)) planta1(`cargar la mercancía para ${v.destino}${v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}`)
+    n++
+    const dir = [v.direccion, v.municipio].filter(Boolean).join(', ')
+    const cu = cuandoTxt(v)
+    l.push(`${n}. *${TIPO_TXT[v.tipo] || 'VUELTA'}* · ${v.destino}`)
+    if (dir) l.push(`   📍 ${dir}`)
+    if (tieneUbic(v) || dir) l.push(`   🗺️ ${linkMaps(v)}`)
+    if (v.descripcion) l.push(`   📦 ${v.descripcion}`)
+    if (cu) l.push(`   ⏰ ${cu}`)
+    const rc = recepcionTxt(v.recepcion)
+    if (rc) l.push(`   🕒 Reciben ${rc}`)
+    if (v.volver_planta) planta1(`descargar lo que trae de ${v.destino}${v.volver_antes ? ` (antes de las ${h12(v.volver_antes)})` : ''}`)
+  })
+  const links = linksRecorrido(paradas, planta)
+  if (links.length) l.push('', `🗺️ Recorrido completo: ${links.join(' ')}`)
+  l.push('', '¿Cuánto nos cobraría y qué vehículo tiene disponible? Muchas gracias.')
+  return l.join('\n')
+}
