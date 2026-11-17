@@ -474,7 +474,7 @@ export function mensajeResumen(paradas, { titulo, salida, planta }, tpl) {
 export function linkUber(v, planta) {
   const pl = tieneUbic(planta) ? planta : null
   const sitio = { lat: tieneUbic(v) ? v.lat : null, lng: tieneUbic(v) ? v.lng : null, nombre: v.destino, dir: [v.direccion, v.municipio].filter(Boolean).join(', ') }
-  const plantaP = { lat: pl?.lat, lng: pl?.lng, nombre: 'Planta MQI', dir: '' }
+  const plantaP = { lat: pl?.lat, lng: pl?.lng, nombre: 'Planta MQI', dir: planta?.direccion || '' }
   const [a, b] = v.tipo === 'recogida' ? [sitio, plantaP] : [plantaP, sitio]
   const p = new URLSearchParams({ action: 'setPickup' })
   const poner = (pre, x) => {

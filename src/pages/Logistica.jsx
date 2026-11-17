@@ -363,6 +363,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   // El camión está en la planta a cierta hora: lo hecho queda en su ruta y lo pendiente se vuelve a programar desde la hora en que puede volver a salir
   const [verEnPlanta, setVerEnPlanta] = useState(false)
   const [wa, setWa] = useState(null) // ruta (o vuelta) para mandar por WhatsApp
+  const [didi, setDidi] = useState(null) // vuelta para pedir por DiDi
   const [tplWa] = usePlantillasWa()
   const replanificar = ({ enPlanta, sale, almorzo }) => accion(async () => {
     const rutas = cols.filter((c) => vehDe(c) === 'camion' && rec(c))
@@ -488,7 +489,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
           </div>
           {cols.map((veh) => {
             if (vehDe(veh) === 'mensajero') return (
-              <ColContratados key={veh} tplWa={tplWa} planta={planta} titulo={nombreRuta(veh)} ps={deVeh(veh)} fecha={fecha} cfg={cfg} transps={transps} ocupado={ocupado}
+              <ColContratados key={veh} onDidi={setDidi} tplWa={tplWa} planta={planta} titulo={nombreRuta(veh)} ps={deVeh(veh)} fecha={fecha} cfg={cfg} transps={transps} ocupado={ocupado}
                 onAbrir={setForm} onAccion={accion} onSacar={(v, destino) => mover(v, destino)} destinos={cols.filter((c) => c !== veh && !bloqueado(c)).map((c) => [c, nombreRuta(c)])} />
             )
             const ps = deVeh(veh), r = rec(veh), conf = r?.estado === 'confirmada', contratada = vehDe(veh) === 'externo'
@@ -543,6 +544,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                         : v.estado === 'hecha' && <button className="btn-link" disabled={ocupado} onClick={() => marcarHecha(v, false)}>Deshacer</button>}
                       {!conf && <>
                       {contratada && v.estado === 'pendiente' && <a className="btn btn-sec btn-sm" href={linkUber(v, planta)} target="_blank" rel="noreferrer" title="Abre Uber con la recogida y el destino de esta vuelta">🚗 Uber</a>}
+                      {contratada && v.estado === 'pendiente' && <button className="btn btn-sec btn-sm" onClick={() => setDidi(v)} title="Pedir esta vuelta por DiDi">🟠 DiDi</button>}
                       <button className="btn-icono" disabled={ocupado || i === 0} onClick={() => subir(veh, i, -1)} title="Subir">↑</button>
                       <button className="btn-icono" disabled={ocupado || i === ps.length - 1} onClick={() => subir(veh, i, 1)} title="Bajar">↓</button>
                       <select value={veh} disabled={ocupado} onChange={(e) => mover(v, e.target.value)}>
@@ -581,6 +583,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
       {form && <FormVuelta inicial={form} lugares={lugares} perfil={perfil} gestor
         onClose={() => setForm(null)} onGuardado={() => { setForm(null); cargar(); onLugares() }} />}
       {wa && <EnviarWhatsApp {...wa} onClose={() => setWa(null)} />}
+      {didi && <PedirDidi v={didi} planta={planta} plantaDir={aj?.direccion} onClose={() => setDidi(null)} />}
       {verEnPlanta && <CamionEnPlanta cfg={cfg} fecha={fecha} hechas={cols.filter((c) => vehDe(c) === 'camion').reduce((n, k) => n + fijasDe(k).length, 0)}
         pendientes={cols.filter((c) => vehDe(c) === 'camion').reduce((n, k) => n + pendDe(k).length, 0) + sinAsignar.length} ocupado={ocupado}
         onClose={() => setVerEnPlanta(false)} onAceptar={replanificar} />}
@@ -590,7 +593,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
 }
 
 // Servicios contratados: cada vuelta se pide por aparte al transportador, cuando se necesite (sin ruta ni horario del camión)
-function ColContratados({ tplWa, planta, titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onAccion, onSacar, destinos }) {
+function ColContratados({ onDidi, tplWa, planta, titulo, ps, fecha, cfg, transps, ocupado, onAbrir, onAccion, onSacar, destinos }) {
   const activos = transps.filter((t) => t.activo !== false && !esConductor(t.tipo))
   const asignar = (v, id) => onAccion(() => q(sb.from('vueltas').update({ transportador_id: id || null }).eq('id', v.id)))
   const hecha = (v, si) => onAccion(() => q(sb.from('vueltas').update(si ? { estado: 'hecha', hecha_en: new Date().toISOString() } : { estado: 'pendiente', hecha_en: null }).eq('id', v.id)), si ? `${v.destino}: hecha.` : '')
@@ -611,6 +614,7 @@ function ColContratados({ tplWa, planta, titulo, ps, fecha, cfg, transps, ocupad
               {t?.telefono && <a className="btn btn-sec btn-sm" href={telLink(t.telefono)}>Llamar</a>}
               {v.estado === 'pendiente' && <a className="btn btn-sec btn-sm" href={linkWhatsApp(t?.telefono, mensajeVuelta(v, { titulo: 'Servicio contratado' }, tplWa.vuelta))} target="_blank" rel="noreferrer" title="Manda esta vuelta por WhatsApp al transportador">📲 WhatsApp</a>}
               {v.estado === 'pendiente' && <a className="btn btn-sec btn-sm" href={linkUber(v, planta)} target="_blank" rel="noreferrer" title="Abre Uber con la recogida y el destino puestos; eliges el servicio (Envíos, moto, carro) y confirmas allá">🚗 Uber</a>}
+              {v.estado === 'pendiente' && <button className="btn btn-sec btn-sm" onClick={() => onDidi(v)} title="Pedir esta vuelta por DiDi">🟠 DiDi</button>}
               <CampoValor valor={v.valor} disabled={ocupado} onGuardar={(n) => onAccion(() => q(sb.from('vueltas').update({ valor: n }).eq('id', v.id)))} />
               {v.estado === 'pendiente'
                 ? <button className="btn btn-ok btn-sm" disabled={ocupado} onClick={() => hecha(v, true)}>Hecha</button>
@@ -650,6 +654,41 @@ function EnviarWhatsApp({ titulo, tel: tel0, nombre, resumen, mensajes, onClose 
           {mensajes.map((m, i) => fila(m.id, `${i + 1}. ${m.destino}`, m.texto))}
         </>}
         <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cerrar</button></div>
+      </div>
+    </Modal>
+  )
+}
+
+// Pedir por DiDi: DiDi no permite abrir su app con las direcciones puestas, así que se copian y se pegan allá
+const ANDROID = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent)
+const IOS = typeof navigator !== 'undefined' && /iphone|ipad/i.test(navigator.userAgent)
+function PedirDidi({ v, planta, plantaDir, onClose }) {
+  const [copiado, setCopiado] = useState('')
+  const sitioDir = [v.direccion, v.municipio].filter(Boolean).join(', ')
+  const pl = { nombre: 'Planta MQI', dir: plantaDir || (tieneUbic(planta) ? `${planta.lat}, ${planta.lng}` : ''), mapa: tieneUbic(planta) ? linkMaps(planta) : '' }
+  const sitio = { nombre: v.destino, dir: sitioDir || (tieneUbic(v) ? `${v.lat}, ${v.lng}` : ''), mapa: tieneUbic(v) || sitioDir ? linkMaps(v) : '' }
+  const [rec, ent] = v.tipo === 'recogida' ? [sitio, pl] : [pl, sitio]
+  const nota = [v.descripcion, v.op ? `OP ${v.op}` : '', v.contacto || v.telefono ? `Contacto: ${[v.contacto, v.telefono].filter(Boolean).join(' ')}` : ''].filter(Boolean).join(' · ')
+  const copiar = async (k, t) => { try { await navigator.clipboard.writeText(t); setCopiado(k) } catch { setCopiado('') } }
+  const abrir = ANDROID ? 'intent://#Intent;package=com.didiglobal.passenger;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.didiglobal.passenger;end'
+    : IOS ? 'https://apps.apple.com/app/id1362398401' : 'https://web.didiglobal.com/co/'
+  const fila = (k, et, x) => (
+    <div className="wa-fila"><div className="crece"><b>{et}</b><div>{x.nombre}</div><div className="tenue pequeño">{x.dir || 'Sin dirección guardada'}</div>
+      {x.mapa && <a className="pequeño" href={x.mapa} target="_blank" rel="noreferrer">Ver en Maps</a>}</div>
+      {x.dir && <button className="btn btn-sec btn-sm" onClick={() => copiar(k, x.dir)}>{copiado === k ? '✓ Copiada' : 'Copiar dirección'}</button>}</div>
+  )
+  return (
+    <Modal titulo={`Pedir por DiDi · ${v.destino}`} onClose={onClose} ancho={560}>
+      <div className="form">
+        <p className="tenue pequeño">DiDi no deja que otra aplicación le pase las direcciones. Copia cada dirección y pégala en DiDi (en DiDi Entrega o en el servicio que vayas a pedir). Al final anota en la vuelta cuánto valió.</p>
+        {fila('rec', '1. Recoger en', rec)}
+        {fila('ent', '2. Entregar en', ent)}
+        {nota && <div className="wa-fila"><div className="crece"><b>Nota para el conductor</b><div className="pequeño">{nota}</div></div><button className="btn btn-sec btn-sm" onClick={() => copiar('nota', nota)}>{copiado === 'nota' ? '✓ Copiada' : 'Copiar nota'}</button></div>}
+        {!plantaDir && <Aviso tipo="warn">Falta la dirección de la planta: ponla en "Punto de salida y horarios" para no tener que escribirla.</Aviso>}
+        <div className="acciones">
+          <button type="button" className="btn btn-sec" onClick={onClose}>Cerrar</button>
+          <a className="btn" href={abrir} target="_blank" rel="noreferrer">Abrir DiDi</a>
+        </div>
       </div>
     </Modal>
   )
@@ -918,6 +957,7 @@ function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
 function AjustesLogistica({ aj, onClose, onGuardado }) {
   const c0 = cfgDe(aj)
   const [ubic, setUbic] = useState(tieneUbic(aj) ? `${aj.lat}, ${aj.lng}` : '')
+  const [dirPlanta, setDirPlanta] = useState(aj.direccion || '')
   const [c, setC] = useState({ salida: c0.salida, fin: c0.fin, almuerzo_desde: c0.almuerzo_desde, almuerzo_min: c0.almuerzo_min, min_parada: c0.min_parada, tolerancia: c0.tolerancia, min_descargue: c0.min_descargue, conductor: aj.conductor || '', conductor_tel: aj.conductor_tel || '' })
   const [error, setError] = useState('')
   const set = (k) => (e) => setC({ ...c, [k]: e.target.value })
@@ -929,13 +969,15 @@ function AjustesLogistica({ aj, onClose, onGuardado }) {
     const { jornada_camion, ...resto } = aj // eslint-disable-line no-unused-vars
     try {
       await q(sb.from('ajustes').upsert({ clave: 'logistica', valor: { ...resto, lat: u.lat, lng: u.lng, salida: c.salida, fin: c.fin, almuerzo_desde: c.almuerzo_desde,
-        almuerzo_min: Number(c.almuerzo_min) || 0, min_parada: Number(c.min_parada) || 20, tolerancia: Number(c.tolerancia) || 0, min_descargue: Number(c.min_descargue) || 15, conductor: c.conductor.trim() || null, conductor_tel: c.conductor_tel.trim() || null } }))
+        almuerzo_min: Number(c.almuerzo_min) || 0, min_parada: Number(c.min_parada) || 20, tolerancia: Number(c.tolerancia) || 0, min_descargue: Number(c.min_descargue) || 15, conductor: c.conductor.trim() || null, conductor_tel: c.conductor_tel.trim() || null, direccion: dirPlanta.trim() || null } }))
       onGuardado()
     } catch (err) { setError(err.message) }
   }
   return (
     <Modal titulo="Punto de salida y horarios" onClose={onClose} ancho={620}>
       <form className="form" onSubmit={guardar}>
+        <label>Dirección de la planta<input value={dirPlanta} onChange={(e) => setDirPlanta(e.target.value)} placeholder="Ej.: Cra 50 # 10-20, Itagüí" />
+          <span className="tenue pequeño">Se usa al pedir servicios por DiDi o Uber (la recogida o entrega en la planta).</span></label>
         <label>Ubicación de la planta (link de Google Maps o coordenadas)<input value={ubic} onChange={(e) => setUbic(e.target.value)} placeholder="6.2442, -75.5812" />
           <span className="tenue pequeño">{u ? `✓ ${u.lat}, ${u.lng}` : 'En Google Maps, mantén presionado el punto de la planta y copia las coordenadas que aparecen.'}</span></label>
         <h4 className="subt">Conductor del camión de la empresa</h4>
