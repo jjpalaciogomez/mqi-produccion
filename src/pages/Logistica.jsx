@@ -5,7 +5,7 @@ import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, esConductor, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, linkUber, mensajeCotizacion, PLANTILLA_VUELTA, PLANTILLA_RESUMEN, CAMPOS_VUELTA, CAMPOS_RESUMEN, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, esConductor, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, linkUber, mensajeCotizacion, PLANTILLA_VUELTA, PLANTILLA_RESUMEN, PLANTILLA_COTIZACION, CAMPOS_VUELTA, CAMPOS_RESUMEN, CAMPOS_COTIZACION, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
   linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
@@ -587,7 +587,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                     const pend = ps.filter((x) => x.estado === 'pendiente')
                     const sim = estimar(pend, planta, cr, fecha).sim
                     const t = transps.find((x) => x.id === r?.transportador_id)
-                    setCotizar({ titulo: nombreRuta(veh), transportadorId: t?.id || '', armar: (nombre) => mensajeCotizacion(pend, { fecha, salida: cr.salida, planta: aj ? { ...planta, direccion: aj.direccion } : planta, sim, nombre }) })
+                    setCotizar({ titulo: nombreRuta(veh), transportadorId: t?.id || '', armar: (nombre) => mensajeCotizacion(pend, { fecha, salida: cr.salida, planta: aj ? { ...planta, direccion: aj.direccion } : planta, sim, nombre }, tplWa.cotizacion) })
                   }} title="Manda por WhatsApp todo el recorrido con direcciones para que te coticen">💲 Cotizar por WhatsApp</button>}
                   {ps.length > 0 && <button className="btn btn-sec btn-sm" onClick={() => {
                     const tel = contratada ? transps.find((x) => x.id === r?.transportador_id)?.telefono
@@ -818,10 +818,11 @@ function EditorMensajesWa({ onClose }) {
   const [cual, setCual] = useState('vuelta')
   const [error, setError] = useState('')
   const [ok, setOk] = useState(false)
-  useEffect(() => { if (!f) setF({ vuelta: tpl.vuelta || PLANTILLA_VUELTA, resumen: tpl.resumen || PLANTILLA_RESUMEN }) }, [tpl]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!f) setF({ vuelta: tpl.vuelta || PLANTILLA_VUELTA, resumen: tpl.resumen || PLANTILLA_RESUMEN, cotizacion: tpl.cotizacion || PLANTILLA_COTIZACION }) }, [tpl]) // eslint-disable-line react-hooks/exhaustive-deps
   const ref = useRef(null)
   if (!f) return null
-  const campos = cual === 'vuelta' ? CAMPOS_VUELTA : CAMPOS_RESUMEN
+  const campos = cual === 'vuelta' ? CAMPOS_VUELTA : cual === 'resumen' ? CAMPOS_RESUMEN : CAMPOS_COTIZACION
+  const PRED = { vuelta: PLANTILLA_VUELTA, resumen: PLANTILLA_RESUMEN, cotizacion: PLANTILLA_COTIZACION }
   const insertar = (c) => {
     const el = ref.current, t = f[cual], i = el ? el.selectionStart : t.length, j = el ? el.selectionEnd : t.length
     setF({ ...f, [cual]: t.slice(0, i) + `{${c}}` + t.slice(j) })
@@ -830,19 +831,22 @@ function EditorMensajesWa({ onClose }) {
   const guardar = async () => {
     setError(''); setOk(false)
     try {
-      await q(sb.from('ajustes').upsert({ clave: 'whatsapp', valor: { vuelta: f.vuelta.trim() === PLANTILLA_VUELTA ? null : f.vuelta, resumen: f.resumen.trim() === PLANTILLA_RESUMEN ? null : f.resumen } }))
+      await q(sb.from('ajustes').upsert({ clave: 'whatsapp', valor: { vuelta: f.vuelta.trim() === PLANTILLA_VUELTA ? null : f.vuelta, resumen: f.resumen.trim() === PLANTILLA_RESUMEN ? null : f.resumen, cotizacion: f.cotizacion.trim() === PLANTILLA_COTIZACION ? null : f.cotizacion } }))
       await cargar(); setOk(true)
     } catch (e) { setError(e.message) }
   }
   const vista = cual === 'vuelta'
     ? mensajeVuelta(EJEMPLO_WA, { n: 1, total: 3, titulo: 'Ruta contratada 1', paso: { llega: 7 * 60 + 29 } }, f.vuelta)
-    : mensajeResumen([EJEMPLO_WA, { ...EJEMPLO_WA, destino: 'PVZ SAS Carolina', municipio: 'Medellín' }], { titulo: 'Ruta contratada 1', salida: '11:30' }, f.resumen)
+    : cual === 'resumen' ? mensajeResumen([EJEMPLO_WA, { ...EJEMPLO_WA, destino: 'PVZ SAS Carolina', municipio: 'Medellín' }], { titulo: 'Ruta contratada 1', salida: '11:30' }, f.resumen)
+    : mensajeCotizacion([{ ...EJEMPLO_WA, recoger_planta: false }, { ...EJEMPLO_WA, id: 'x2', tipo: 'recogida', destino: 'Infinitum', direccion: 'Cl 10 # 43-12', municipio: 'Medellín', descripcion: 'Recoger corte en madera', recepcion: null, volver_planta: true, recoger_planta: false }],
+      { fecha: '2026-11-18', salida: '14:00', planta: { lat: 6.17, lng: -75.6, direccion: 'Cra 50 # 10-20, Itagüí' }, nombre: 'Héctor' }, f.cotizacion)
   return (
     <Modal titulo="Mensajes de WhatsApp" onClose={onClose} ancho={860}>
       <div className="form">
         <div className="segmentado">
           <button className={cual === 'vuelta' ? 'sel' : ''} onClick={() => setCual('vuelta')}>Mensaje de cada vuelta</button>
           <button className={cual === 'resumen' ? 'sel' : ''} onClick={() => setCual('resumen')}>Resumen de la ruta</button>
+          <button className={cual === 'cotizacion' ? 'sel' : ''} onClick={() => setCual('cotizacion')}>Cotización de ruta contratada</button>
         </div>
         <p className="tenue pequeño">Escribe el mensaje como quieres que le llegue al conductor. Los datos de cada vuelta se ponen con los campos entre llaves (toca uno para insertarlo donde está el cursor). Si un renglón tiene campos y todos quedan vacíos, ese renglón no se envía. *texto* sale en negrilla en WhatsApp.</p>
         <div className="wa-campos">{campos.map(([c, d]) => <button key={c} type="button" className="chip" title={d} onClick={() => insertar(c)}>{`{${c}}`} <span className="tenue">{d}</span></button>)}</div>
@@ -852,7 +856,7 @@ function EditorMensajesWa({ onClose }) {
         </div>
         <Aviso>{error}</Aviso>{ok && <Aviso tipo="ok">Mensajes guardados. Se usan desde ya en todas las rutas.</Aviso>}
         <div className="acciones">
-          <button type="button" className="btn-link" onClick={() => setF({ ...f, [cual]: cual === 'vuelta' ? PLANTILLA_VUELTA : PLANTILLA_RESUMEN })}>Restaurar el predeterminado</button>
+          <button type="button" className="btn-link" onClick={() => setF({ ...f, [cual]: PRED[cual] })}>Restaurar el predeterminado</button>
           <button type="button" className="btn btn-sec" onClick={onClose}>Cerrar</button>
           <button type="button" className="btn" onClick={guardar}>Guardar</button>
         </div>

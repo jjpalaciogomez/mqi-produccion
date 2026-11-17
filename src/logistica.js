@@ -446,7 +446,19 @@ export function llenarPlantilla(tpl, datos) {
   return String(tpl || '').split('\n').map((linea) => {
     const campos = [...linea.matchAll(/\{(\w+)\}/g)].map((m) => m[1])
     if (campos.length && campos.every((c) => !datos[c])) return null
-    return linea.replace(/\{(\w+)\}/g, (_, c) => datos[c] ?? '').replace(/ · (?=\*|$)/g, '').replace(/ {2,}/g, ' ')
+    // Un campo vacío se quita junto con el separador " · " que lo acompaña (los espacios de los datos se respetan)
+    const partes = linea.split(/(\{\w+\})/)
+    let res = ''
+    for (let i = 0; i < partes.length; i++) {
+      const m = partes[i].match(/^\{(\w+)\}$/)
+      if (!m) { res += partes[i]; continue }
+      const val = datos[m[1]] ?? ''
+      if (val) { res += val; continue }
+      if (res.endsWith(' · ')) res = res.slice(0, -3)
+      else if (/^ · /.test(partes[i + 1] || '') && !res.trim()) partes[i + 1] = partes[i + 1].slice(3)
+      else if (res.endsWith(' ') && /^[ ,]/.test(partes[i + 1] || '')) res = res.slice(0, -1)
+    }
+    return res.replace(/ · (?=\*|$)/g, '')
   }).filter((l) => l !== null).join('\n').trim()
 }
 export function datosVuelta(v, { n, total, titulo, paso } = {}) {
@@ -488,35 +500,50 @@ export function linkUber(v, planta) {
 }
 
 // Mensaje para pedir cotización de una ruta contratada: todo el recorrido con direcciones y lo que hay que hacer
-export function mensajeCotizacion(paradas, { fecha, salida, planta, sim, nombre } = {}) {
+export const PLANTILLA_COTIZACION = `{saludo} le escribimos de *MQI (Más Que Impresos)*. Queremos cotizar un servicio de transporte para el *{fecha}*.
+
+🏭 *Inicio:* {inicio}
+📦 Allí se carga la mercancía para: {carga_inicio}
+🗺️ {mapa_planta}
+
+*Recorrido ({cantidad}):*
+{paradas}
+
+🗺️ Recorrido completo: {recorrido}
+
+¿Cuánto nos cobraría y qué vehículo tiene disponible? Muchas gracias.`
+export const CAMPOS_COTIZACION = [
+  ['saludo', '"Hola Héctor," o "Hola,"'], ['nombre', 'Nombre del transportador'], ['inicio', 'Planta MQI · dirección · hora de salida'], ['fecha', 'Día del servicio'], ['direccion_planta', 'Dirección de la planta'],
+  ['salida', 'Hora de salida'], ['carga_inicio', 'Lo que se carga al salir'], ['mapa_planta', 'Ubicación de la planta'], ['cantidad', '3 vueltas'],
+  ['paradas', 'Lista numerada de paradas con direcciones'], ['recorrido', 'Link del recorrido completo'],
+]
+export function mensajeCotizacion(paradas, { fecha, salida, planta, sim, nombre } = {}, tpl) {
   const plDir = planta?.direccion || ''
-  const plMapa = tieneUbic(planta) ? `https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}` : ''
-  const dia = fecha ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) : ''
-  const l = [`Hola${nombre ? ` ${nombre}` : ''}, le escribimos de *MQI (Más Que Impresos)*. Queremos cotizar un servicio de transporte${dia ? ` para el *${dia}*` : ''}.`, '']
-  l.push(`🏭 *Inicio:* Planta MQI${plDir ? ` · ${plDir}` : ''}${salida ? ` · desde las ${h12(salida)}` : ''}`)
-  const alSalir = (sim?.alSalir || []).map((id) => paradas.find((v) => v.id === id)?.destino).filter(Boolean)
-  if (alSalir.length) l.push(`📦 Allí se carga la mercancía para: ${alSalir.join(', ')}`)
-  if (plMapa) l.push(`🗺️ ${plMapa}`)
-  l.push('', `*Recorrido (${paradas.length} ${paradas.length === 1 ? 'vuelta' : 'vueltas'}):*`)
+  const lp = []
   let n = 0
-  const planta1 = (txt) => { n++; l.push(`${n}. *PLANTA MQI* · ${txt}${plDir ? `\n   📍 ${plDir}` : ''}`) }
+  const planta1 = (txt) => { n++; lp.push(`${n}. *PLANTA MQI* · ${txt}${plDir ? `\n   📍 ${plDir}` : ''}`) }
   paradas.forEach((v, i) => {
     const paso = sim?.pasos?.[i]
     if (v.recoger_planta && (!sim || paso?.carga)) planta1(`cargar la mercancía para ${v.destino}${v.lista_desde ? ` (lista desde las ${h12(v.lista_desde)})` : ''}`)
     n++
     const dir = [v.direccion, v.municipio].filter(Boolean).join(', ')
     const cu = cuandoTxt(v)
-    l.push(`${n}. *${TIPO_TXT[v.tipo] || 'VUELTA'}* · ${v.destino}`)
-    if (dir) l.push(`   📍 ${dir}`)
-    if (tieneUbic(v) || dir) l.push(`   🗺️ ${linkMaps(v)}`)
-    if (v.descripcion) l.push(`   📦 ${v.descripcion}`)
-    if (cu) l.push(`   ⏰ ${cu}`)
+    lp.push(`${n}. *${TIPO_TXT[v.tipo] || 'VUELTA'}* · ${v.destino}`)
+    if (dir) lp.push(`   📍 ${dir}`)
+    if (tieneUbic(v) || dir) lp.push(`   🗺️ ${linkMaps(v)}`)
+    if (v.descripcion) lp.push(`   📦 ${v.descripcion}`)
+    if (cu) lp.push(`   ⏰ ${cu}`)
     const rc = recepcionTxt(v.recepcion)
-    if (rc) l.push(`   🕒 Reciben ${rc}`)
+    if (rc) lp.push(`   🕒 Reciben ${rc}`)
     if (v.volver_planta) planta1(`descargar lo que trae de ${v.destino}${v.volver_antes ? ` (antes de las ${h12(v.volver_antes)})` : ''}`)
   })
-  const links = linksRecorrido(paradas, planta)
-  if (links.length) l.push('', `🗺️ Recorrido completo: ${links.join(' ')}`)
-  l.push('', '¿Cuánto nos cobraría y qué vehículo tiene disponible? Muchas gracias.')
-  return l.join('\n')
+  const alSalir = (sim?.alSalir || []).map((id) => paradas.find((v) => v.id === id)?.destino).filter(Boolean)
+  return llenarPlantilla(tpl || PLANTILLA_COTIZACION, {
+    saludo: nombre ? `Hola ${nombre},` : 'Hola,', nombre: nombre || '',
+    inicio: ['Planta MQI', plDir, salida ? `desde las ${h12(salida)}` : ''].filter(Boolean).join(' · '),
+    fecha: fecha ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) : '',
+    direccion_planta: plDir, salida: salida ? h12(salida) : '', carga_inicio: alSalir.join(', '),
+    mapa_planta: tieneUbic(planta) ? `https://www.google.com/maps/search/?api=1&query=${planta.lat},${planta.lng}` : '',
+    cantidad: `${paradas.length} ${paradas.length === 1 ? 'vuelta' : 'vueltas'}`, paradas: lp.join('\n'), recorrido: linksRecorrido(paradas, planta).join(' '),
+  })
 }
