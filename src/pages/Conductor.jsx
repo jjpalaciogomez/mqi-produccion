@@ -53,7 +53,7 @@ export default function Conductor({ perfil }) {
   const vs = rec?.vueltas || []
   const faltan = vs.filter((v) => v.estado === 'pendiente')
   // Igual que en la ruta: un paso por la planta carga toda la mercancía que ya esté lista
-  const sim = d?.planta && tieneUbic(d.planta) && vs.length ? simular(vs, d.planta, { ...cfgDe(d.planta), ...(rec?.salida ? { salida: String(rec.salida).slice(0, 5) } : {}) }, hoy) : null
+  const sim = d?.planta && tieneUbic(d.planta) && vs.length ? simular(vs, d.planta, { ...cfgDe(d.planta), ...(rec?.salida ? { salida: String(rec.salida).slice(0, 5) } : {}), sinCargarSalida: !!rec?.sin_cargar_salida }, hoy) : null
   const nombresDe = (ids) => ids.map((id) => vs.find((x) => x.id === id)?.destino).filter(Boolean).join(', ')
   const planta = d?.planta && tieneUbic(d.planta) ? d.planta : null
   // Número de cada parada, contando los pasos por la planta como paradas

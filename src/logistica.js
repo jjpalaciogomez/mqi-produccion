@@ -203,7 +203,8 @@ export function simular(paradas, planta, cfg, fecha) {
   // Ruta contratada (inicioLibre): si la primera parada no necesita mercancía de la planta, el servicio empieza allá, no en la planta
   const inicioPlanta = !(cfg.inicioLibre && paradas.length && !paradas[0].recoger_planta)
   if (!inicioPlanta) p = null
-  const alSalir = inicioPlanta ? cargar() : [] // lo que ya está listo a la hora de salida va desde el principio
+  // Lo que ya está listo a la hora de salida va desde el principio (salvo que la ruta salga sin cargar)
+  const alSalir = inicioPlanta && !cfg.sinCargarSalida ? cargar() : []
   // Si el conductor ya marcó el cargue de la salida, el recorrido arranca a esa hora real
   const salioReal = realDeTodos(alSalir, 'cargado_en', fecha)
   if (salioReal !== null) t = salioReal

@@ -463,7 +463,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
     cfgRuta[k] = vehDe(k) === 'externo'
       // Ruta con un transportador contratado: sin almuerzo ni hora de fin del camión
       ? { ...cfg, salida: r?.salida ? String(r.salida).slice(0, 5) : cfg.salida, almuerzo_min: 0, fin: '23:59', inicioLibre: true, sinRegreso: true }
-      : { ...cfg, salida, ...(yaAlmorzo || r?.ya_almorzo ? { almuerzo_min: 0 } : {}) }
+      : { ...cfg, salida, ...(yaAlmorzo || r?.ya_almorzo ? { almuerzo_min: 0 } : {}), sinCargarSalida: !!r?.sin_cargar_salida }
     const arrancada = rec(k)?.estado === 'confirmada' || deVeh(k).some((v) => v.estado !== 'pendiente')
     if (ahoraMin !== null && !arrancada && aMin(cfgRuta[k].salida) < ahoraMin) cfgRuta[k] = { ...cfgRuta[k], salida: hm(ahoraMin), desdeAhora: true }
     estRuta[k] = d ? estimar(deVeh(k), planta, cfgRuta[k], fecha) : null
@@ -554,6 +554,8 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                   <label className="pequeño" title="Si no se pone, la ruta 1 sale a la hora de salida y las siguientes cuando regresa la anterior">Sale<SelectorHora value={r?.salida ? String(r.salida).slice(0, 5) : ''} vacio={contratada ? `(${h12(cr.salida)})` : `Auto (${h12(cr.salida)})`} onChange={(h) => !conf && guardarSalida(veh, h)} /></label>
                 </div>
                 {ps.length > 0 && contratada && est.sim.inicioPlanta === false && <div className="log-planta-punto sale"><span className="ico">📍</span><div className="crece"><b>Empieza en {ps[0].destino}</b> <span>{h12(cr.salida)}</span><div className="pequeño">La primera vuelta no necesita nada de la planta: el servicio arranca allá.</div></div></div>}
+                {!contratada && ps.some((x) => x.recoger_planta) && <label className="check pequeño" title="Si está marcado, el camión sale sin cargar y recoge la mercancía la próxima vez que pase por la planta">
+                  <input type="checkbox" checked={!!r?.sin_cargar_salida} disabled={ocupado} onChange={(e) => guardarRec(veh, { sin_cargar_salida: e.target.checked })} /> Salir sin cargar (cargar en el siguiente paso por la planta)</label>}
                 {ps.length > 0 && est.sim.inicioPlanta !== false && <PuntoPlanta tipo="sale" hora={aMin(cr.salida)} lleva={nombresDe(est.sim.alSalir)} sinPlanta={!planta}
                   cargado={est.sim.alSalir.length > 0 && est.sim.alSalir.every((id) => ps.find((x) => x.id === id)?.cargado_en)}
                   onCargado={est.sim.alSalir.length ? (si) => marcarPlanta(est.sim.alSalir, 'cargado', si) : null} ocupado={ocupado} />}
