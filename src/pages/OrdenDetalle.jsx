@@ -30,6 +30,9 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
       // Datos del cierre manual (no están en la vista)
       const cierre = orden ? await q(sb.from('ordenes').select('cierre_manual, cierre_nota').eq('id', id).maybeSingle()).catch(() => null) : null
       if (orden && cierre) Object.assign(orden, cierre)
+      // Áreas que se terminaron a mano (sus pasos quedaron omitidos por cierre)
+      const cerr = orden ? await q(sb.from('tareas').select('area').eq('orden_id', id).eq('omitida_por_cierre', true)).catch(() => []) : []
+      if (orden) orden.areas_cerradas = [...new Set(cerr.map((x) => x.area))].sort()
       if (!orden) { setError('No se encontró la OP.'); return }
       const ids = tareas.map((t) => t.id)
       const registros = ids.length ? await q(sb.from('registros')
@@ -82,7 +85,18 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
           {gestor && <button className="btn btn-sm" onClick={async () => { const { error } = await sb.from('ordenes').update({ oculta_hasta: null }).eq('id', orden.id); if (error) setError(error.message); else cargar() }}>Mostrar ahora</button>}
         </div>
       )}
-      {orden.cierre_manual && (
+      {orden.areas_cerradas?.length > 0 && orden.estado !== 'terminada' && (
+        <div className="aviso-oculta">
+          <span>✓ Áreas terminadas a mano: {orden.areas_cerradas.map((a) => (
+            <span key={a} className="area-cerrada"><b>{a.toLowerCase()}</b>{gestor && <button className="btn-link pequeño" onClick={async () => {
+              if (!window.confirm(`¿Reabrir ${a.toLowerCase()} en la OP ${orden.numero}? Vuelven sus pasos pendientes.`)) return
+              const { data, error } = await sb.rpc('reabrir_op', { p_orden: orden.id, p_area: a })
+              if (error || data !== 'ok') setError(error?.message || data); else cargar()
+            }}>reabrir</button>}</span>
+          ))}{orden.cierre_nota ? <span className="tenue pequeño"> · {orden.cierre_nota}</span> : null}</span>
+        </div>
+      )}
+      {orden.cierre_manual && orden.estado === 'terminada' && (
         <div className="aviso-oculta">
           <span>✓ Esta OP se <b>terminó a mano</b>{orden.cierre_nota ? `: ${orden.cierre_nota}` : ''}. Los pasos que no se registraron quedaron omitidos.</span>
           {gestor && <button className="btn btn-sm" onClick={async () => {
@@ -108,7 +122,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
 
       {modal === 'editar' && <EditarOP orden={orden} onClose={() => setModal(null)} onSaved={() => { setModal(null); cargar() }} />}
       {modal === 'ocultar' && <OcultarOP orden={orden} nBloques={d.prog.length} onClose={() => setModal(null)} onSaved={() => { setModal(null); cargar() }} />}
-      {modal === 'terminar' && <TerminarOP o={orden} onClose={() => setModal(null)} onListo={() => { setModal(null); cargar() }} />}
+      {modal === 'terminar' && <TerminarOP o={orden} tareas={d.tareas} onClose={() => setModal(null)} onListo={() => { setModal(null); cargar() }} />}
       {modal === 'eliminar' && <EliminarOP orden={orden} nRegistros={d.registros.length} onClose={() => setModal(null)} />}
     </div>
   )
@@ -695,32 +709,47 @@ function EditarOP({ orden, onClose, onSaved }) {
 }
 
 // Terminar una OP a mano: los pasos sin terminar quedan omitidos (no cuentan en indicadores) y se borra lo programado de hoy en adelante
-function TerminarOP({ o, onClose, onListo }) {
+function TerminarOP({ o, tareas, onClose, onListo }) {
   const [nota, setNota] = useState('')
+  const [area, setArea] = useState('') // '' = OP completa
   const [error, setError] = useState('')
   const [ocupado, setOcupado] = useState(false)
-  const faltan = (Number(o.tareas_total) || 0) - (Number(o.tareas_terminadas) || 0)
+  // Pasos sin terminar por área
+  const pend = {}
+  for (const t of tareas) if (['pendiente', 'en_curso', 'pausada'].includes(t.estado)) pend[t.area] = (pend[t.area] || 0) + 1
+  const areas = Object.keys(pend).sort()
+  const faltan = area ? pend[area] || 0 : Object.values(pend).reduce((s, n) => s + n, 0)
+  const ultima = area && areas.length === 1
   const terminar = async () => {
     setOcupado(true); setError('')
     try {
-      const r = await q(sb.rpc('terminar_op', { p_orden: o.id, p_nota: nota || null }))
+      const r = await q(sb.rpc('terminar_op', { p_orden: o.id, p_nota: nota || null, p_area: area || null }))
       if (r !== 'ok') throw new Error(r)
       onListo()
     } catch (e) { setError(e.message); setOcupado(false) }
   }
   return (
-    <Modal titulo={`Terminar OP ${o.numero}`} onClose={onClose} ancho={520}>
+    <Modal titulo={`Terminar OP ${o.numero}`} onClose={onClose} ancho={560}>
       <div className="form">
         <p><b>{o.proyecto}</b>{o.cliente ? ` · ${o.cliente}` : ''}</p>
+        <label>Qué se termina
+          <select value={area} onChange={(e) => setArea(e.target.value)}>
+            <option value="">La OP completa (todas las áreas)</option>
+            {areas.map((a) => <option key={a} value={a}>Solo {a.toLowerCase()} ({pend[a]} {pend[a] === 1 ? 'paso pendiente' : 'pasos pendientes'})</option>)}
+          </select>
+        </label>
         <p className="tenue pequeño">
-          {faltan > 0 ? `Tiene ${faltan} ${faltan === 1 ? 'paso' : 'pasos'} sin terminar en el sistema. ` : ''}
-          Al terminarla: sale del tablero, de la tablet y de la programación (se borra lo programado de hoy en adelante); los pasos sin terminar quedan como omitidos y no cuentan en los indicadores; si hay un tiempo corriendo, se detiene. Se puede reabrir desde esta misma pantalla.
+          {faltan > 0 ? `${faltan} ${faltan === 1 ? 'paso queda' : 'pasos quedan'} como terminados sin registro (omitidos: no cuentan en los indicadores). ` : ''}
+          {area
+            ? `Se borra lo programado de ${area.toLowerCase()} para esta OP de hoy en adelante, sale de la tablet de esa área y se detiene cualquier tiempo corriendo en ella. Las demás áreas siguen igual${ultima ? '; como es la última área con trabajo pendiente, la OP queda terminada' : ''}.`
+            : 'La OP sale del tablero, de la tablet y de la programación (se borra lo programado de hoy en adelante) y se detiene cualquier tiempo corriendo.'}
+          {' '}Se puede reabrir desde esta misma pantalla.
         </p>
         <label>Nota (opcional)<input value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej.: se entregó el 20/11, no se registraron los tiempos" /></label>
         <Aviso>{error}</Aviso>
         <div className="acciones">
           <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button>
-          <button type="button" className="btn" disabled={ocupado} onClick={terminar}>Terminar OP</button>
+          <button type="button" className="btn" disabled={ocupado} onClick={terminar}>{area ? `Terminar ${area.toLowerCase()}` : 'Terminar OP'}</button>
         </div>
       </div>
     </Modal>
