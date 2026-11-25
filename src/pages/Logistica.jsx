@@ -5,7 +5,7 @@ import { Aviso, Cargando, Modal, fmtFecha, fmtNum } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { hoyCO } from '../cumplimiento.js'
 import {
-  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, esConductor, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, linkUber, mensajeCotizacion, PLANTILLA_VUELTA, PLANTILLA_RESUMEN, PLANTILLA_COTIZACION, CAMPOS_VUELTA, CAMPOS_RESUMEN, CAMPOS_COTIZACION, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, hm, leerUbicacion, linkMaps,
+  DIAS_SEM, ESTADOS_VUELTA, TIPOS_LUGAR, TIPOS_TRANSPORTE, TIPOS_VUELTA, VEHICULOS, aMin, esContratado, esConductor, telLink, linkWhatsApp, mensajeVuelta, mensajeResumen, linkUber, mensajeCotizacion, PLANTILLA_VUELTA, PLANTILLA_RESUMEN, PLANTILLA_COTIZACION, CAMPOS_VUELTA, CAMPOS_RESUMEN, CAMPOS_COTIZACION, cfgDe, zonaDe, zonaTxt, cuandoTxt, h12, esLinkCorto, estimar, insertarEnRuta, hm, leerUbicacion, linkMaps,
   linksRecorrido, ordenarParadas, proponerAsignacion, recepcionTxt, tieneUbic, ventanasParada,
 } from '../logistica.js'
 
@@ -339,7 +339,11 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
     if (!destino || destino === 'pospuesta' || destino === 'retomar') {
       await q(sb.from('vueltas').update({ recorrido_id: null, orden: null, pospuesta: destino === 'pospuesta' }).eq('id', v.id)); return
     }
-    await guardarOrden(destino, [...deVeh(destino).filter((x) => x.id !== v.id), v])
+    if (vehDe(destino) === 'mensajero') { await guardarOrden(destino, [...deVeh(destino).filter((x) => x.id !== v.id), v]); return }
+    // La vuelta entra en el mejor lugar de lo que falta; lo ya hecho no se mueve (sirve también con la ruta en curso)
+    const nueva = insertarEnRuta(fijasDe(destino), pendDe(destino).filter((x) => x.id !== v.id), v, planta, cfgRuta[destino] || cfg, fecha)
+    await guardarOrden(destino, nueva)
+    if (rec(destino)?.estado === 'confirmada') setOk(`${v.destino} se agregó a ${nombreRuta(destino)} (ya en curso), en la posición ${nueva.indexOf(v) + 1}. El conductor la ve de una vez en su celular.`)
   })
   const subir = (veh, i, dir) => accion(async () => {
     const l = [...deVeh(veh)]; const j = i + dir
@@ -349,7 +353,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   })
   const pendDe = (k) => deVeh(k).filter((v) => v.estado === 'pendiente'), fijasDe = (k) => deVeh(k).filter((v) => v.estado !== 'pendiente')
   // Las vueltas ya hechas (o que no se pudieron) no se reordenan: quedan de primeras, como pasaron
-  const ordenar = (veh) => accion(() => guardarOrden(veh, [...fijasDe(veh), ...ordenarParadas(pendDe(veh), planta, cfgRuta[veh] || cfg, fecha)]), 'Paradas ordenadas según la hora pedida, el horario de recepción de cada sitio, el almuerzo y la cercanía.')
+  const ordenar = (veh) => accion(() => guardarOrden(veh, [...fijasDe(veh), ...ordenarParadas(pendDe(veh), planta, cfgRuta[veh] || cfg, fecha, fijasDe(veh))]), 'Paradas ordenadas según la hora pedida, el horario de recepción de cada sitio, el almuerzo y la cercanía.')
   // La propuesta usa la última ruta abierta (sin confirmar) del camión y del mensajero
   const abierta = (veh) => { const ks = cols.filter((c) => vehDe(c) === veh && !bloqueado(c)); return ks[ks.length - 1] || null }
   const proponer = () => accion(async () => {
@@ -466,6 +470,8 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
       : { ...cfg, salida, ...(yaAlmorzo || r?.ya_almorzo ? { almuerzo_min: 0 } : {}), sinCargarSalida: !!r?.sin_cargar_salida }
     const arrancada = rec(k)?.estado === 'confirmada' || deVeh(k).some((v) => v.estado !== 'pendiente')
     if (ahoraMin !== null && !arrancada && aMin(cfgRuta[k].salida) < ahoraMin) cfgRuta[k] = { ...cfgRuta[k], salida: hm(ahoraMin), desdeAhora: true }
+    // Ruta en curso: lo que falta se calcula desde ahora (no puede quedar en una hora que ya pasó)
+    if (ahoraMin !== null && arrancada) cfgRuta[k] = { ...cfgRuta[k], ahoraMin }
     estRuta[k] = d ? estimar(deVeh(k), planta, cfgRuta[k], fecha) : null
     // Si se indicó la hora real en que el camión quedó en la planta, esa manda
     if (estRuta[k] && r?.en_planta) estRuta[k] = { ...estRuta[k], regreso: aMin(String(r.en_planta).slice(0, 5)), real: true }
@@ -496,14 +502,14 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
             <div className="log-col-cab"><b>Sin asignar</b><span className="tenue pequeño">{sinAsignar.length} {sinAsignar.length === 1 ? 'vuelta' : 'vueltas'}</span></div>
             {sinAsignar.length === 0 ? <div className="vacio pequeño">Nada pendiente.</div> : sinAsignar.map((v) => (
               <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => setForm(v)}
-                acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Asignar a…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{nombreRuta(c)}</option>)}<option value="pospuesta">No programar por ahora</option></select>} />
+                acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Asignar a…</option>{cols.map((c) => <option key={c} value={c}>{nombreRuta(c)}{bloqueado(c) ? ' (en curso)' : ''}</option>)}<option value="pospuesta">No programar por ahora</option></select>} />
             ))}
             {pospuestas.length > 0 && (
               <div className="log-pospuestas">
                 <button className="btn-link" onClick={() => setVerPosp(!verPosp)}>{verPosp ? '▾' : '▸'} No programar por ahora ({pospuestas.length})</button>
                 {verPosp && pospuestas.map((v) => (
                   <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => setForm(v)}
-                    acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Programar en…</option>{cols.filter((c) => !bloqueado(c)).map((c) => <option key={c} value={c}>{nombreRuta(c)}</option>)}<option value="retomar">Volver a Sin asignar</option></select>} />
+                    acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Programar en…</option>{cols.map((c) => <option key={c} value={c}>{nombreRuta(c)}{bloqueado(c) ? ' (en curso)' : ''}</option>)}<option value="retomar">Volver a Sin asignar</option></select>} />
                 ))}
               </div>
             )}
@@ -582,7 +588,7 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
                 {!contratada && ps.length > 0 && <PuntoPlanta tipo="regresa" hora={est.regreso} real={est.real} tarde={pasa} fin={cfg.fin} sinPlanta={!planta} />}
                 <div className="log-col-pie">
                   {ps.length === 0 && (numDe(veh) > 1 || contratada || rec(veh)) && !(veh === 'camion:1' && !rec(veh)) && <button className="btn-link peligro" disabled={ocupado} onClick={() => eliminarRuta(veh)} title="Quita esta ruta vacía">Eliminar ruta</button>}
-                  {!conf && ps.length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)}>Ordenar</button>}
+                  {ps.filter((x) => x.estado === 'pendiente').length > 1 && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => ordenar(veh)} title="Ordena lo que falta; lo ya hecho no se mueve">Ordenar</button>}
                   {!conf && ps.some((x) => x.estado === 'pendiente') && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => sacarTodas(veh)} title="Pasa a Sin asignar todas las vueltas pendientes de esta ruta, para reorganizar">Sacar todas</button>}
                   {conf && <span className="tenue pequeño">Para sacar o mover vueltas, vuelve la ruta a borrador.</span>}
                   {!conf && <button className="btn btn-sec btn-sm" disabled={ocupado} onClick={() => sugerirRuta(veh)} title={contratada ? 'Llena esta ruta con vueltas de Sin asignar de la misma zona y la ordena' : 'Llena esta ruta con las vueltas de Sin asignar que alcanzan a cumplir horarios y la ordena'}>✨ Sugerir esta ruta</button>}

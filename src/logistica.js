@@ -209,6 +209,8 @@ export function simular(paradas, planta, cfg, fecha) {
   const salioReal = realDeTodos(alSalir, 'cargado_en', fecha)
   if (salioReal !== null) t = salioReal
   const pasos = paradas.map((v) => {
+    // Ruta en curso: lo que falta no puede empezar antes de la hora actual
+    if (cfg.ahoraMin != null && v.estado === 'pendiente' && t < cfg.ahoraMin) t = cfg.ahoraMin
     const almuerzoAntes = tomarAlmuerzo()
     // Si la mercancía de esta parada aún no va en el camión, pasa por la planta (espera a que esté lista) y carga todo lo listo
     let carga = null
@@ -283,13 +285,14 @@ function costo(paradas, sim, cfg) {
  * Ordena las paradas respetando horarios: primero mete las que tienen la ventana más corta o temprana,
  * cada una en el lugar donde la ruta queda mejor; luego prueba mover cada parada a otro lugar.
  */
-export function ordenarParadas(vueltas, planta, cfg, fecha) {
+// fijas: vueltas ya hechas que van primero y no se mueven (la ruta ya empezó); solo se ordenan las pendientes
+export function ordenarParadas(vueltas, planta, cfg, fecha, fijas = []) {
   // Las que no se pueden atender ese día (sitio cerrado, o lo pedido no cae en su horario) van al final
   const imposible = (v) => { const x = ventanasParada(v, fecha, cfg); return x.cerrado || x.choque }
   const malas = vueltas.filter(imposible)
   vueltas = vueltas.filter((v) => !imposible(v))
   if (vueltas.length < 2) return [...vueltas, ...malas]
-  const evalua = (r) => costo(r, simular(r, planta, cfg, fecha), cfg)
+  const evalua = (r) => { const todo = [...fijas, ...r]; return costo(todo, simular(todo, planta, cfg, fecha), cfg) }
   const fin = (v) => { const w = ventanasParada(v, fecha, cfg).ventanas; return w.length ? w[w.length - 1][1] : DIA }
   const ancho = (v) => ventanasParada(v, fecha, cfg).ventanas.reduce((s, [a, b]) => s + b - a, 0)
   const insertar = (lista) => {
@@ -326,6 +329,17 @@ export function ordenarParadas(vueltas, planta, cfg, fecha) {
 }
 
 // Mejora una ruta: mover una parada o un tramo de 2-3 paradas a otro lugar, e invertir tramos (2-opt)
+// Mete una vuelta nueva en el mejor lugar de una ruta, sin mover lo ya hecho ni el orden de lo pendiente
+export function insertarEnRuta(fijas, pendientes, v, planta, cfg, fecha) {
+  const evalua = (r) => { const todo = [...fijas, ...r]; return costo(todo, simular(todo, planta, cfg, fecha), cfg) }
+  let mejor = null
+  for (let i = 0; i <= pendientes.length; i++) {
+    const cand = [...pendientes.slice(0, i), v, ...pendientes.slice(i)]
+    const c = evalua(cand)
+    if (!mejor || c < mejor.c) mejor = { cand, c }
+  }
+  return [...fijas, ...mejor.cand]
+}
 function mejorar(ruta, evalua) {
   let actual = evalua(ruta)
   for (let pasada = 0; pasada < 6; pasada++) {
