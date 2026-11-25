@@ -11,7 +11,10 @@ import {
 
 const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA') }
 const diaTxt = (f) => new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
+// Sábado de la semana de una fecha (fecha límite por defecto de una vuelta "para esta semana")
+const finSemana = (f) => { const d = new Date(f + 'T12:00:00'); const dia = d.getDay(); return sumarDias(f, dia === 0 ? 6 : 6 - dia || 7) }
 const AJ_DEF = { lat: null, lng: null }
+const diaCorto = (f) => new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'numeric' })
 const horaTxt = (h) => (h ? String(h).slice(0, 5) : '')
 
 function useAjustesLog() {
@@ -103,7 +106,7 @@ function Vueltas({ perfil, gestor, lugares, onLugares }) {
             <tbody>{vs.map((v) => (
               <tr key={v.id} onClick={() => setForm(v)} className={v.estado === 'cancelada' ? 'omitida' : ''}>
                 <td><span className={`etq-vuelta ${v.tipo}`}>{TIPOS_VUELTA[v.tipo]}</span>{v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}</td>
-                <td><b>{v.destino}</b>{zonaTxt(v) && <span className={`zona z-${zonaDe(v)}`}>{zonaTxt(v)}</span>}<div className="tenue pequeño">{[v.direccion, v.municipio].filter(Boolean).join(', ')}</div></td>
+                <td><b>{v.destino}</b>{v.hasta && <span className="badge badge-info">semana · hasta {diaCorto(v.hasta)}</span>}{zonaTxt(v) && <span className={`zona z-${zonaDe(v)}`}>{zonaTxt(v)}</span>}<div className="tenue pequeño">{[v.direccion, v.municipio].filter(Boolean).join(', ')}</div></td>
                 <td>{v.descripcion}{v.op && <span className="tenue"> · OP {v.op}</span>}{v.necesita_camion && <span className="etq">camión</span>}</td>
                 <td>{v.hora ? <b className="hora-exacta">⏰ {cuandoTxt(v)}</b> : cuandoTxt(v) || 'Cualquier hora'}{recepcionTxt(v.recepcion) && <div className="tenue pequeño">recibe {recepcionTxt(v.recepcion)}</div>}</td>
                 <td className="tenue pequeño">{v.solicitante_nombre || '—'}</td>
@@ -134,7 +137,7 @@ const VACIA = { tipo: 'entrega', lugar_id: '', destino: '', direccion: '', munic
 
 function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, onGuardado }) {
   const hoy = hoyCO()
-  const [f, setF] = useState(() => ({ ...VACIA, fecha: hoy, ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)),
+  const [f, setF] = useState(() => ({ ...VACIA, fecha: hoy, semana: !!inicial.hasta, ...Object.fromEntries(Object.entries(inicial).filter(([, v]) => v !== null)),
     ubic: tieneUbic(inicial) ? `${inicial.lat}, ${inicial.lng}` : '', lugar_id: inicial.lugar_id || '', hora: horaTxt(inicial.hora), hora_hasta: horaTxt(inicial.hora_hasta),
     cuando: inicial.cuando || (inicial.hora && inicial.hora_hasta ? 'rango' : inicial.hora ? 'exacta' : inicial.hora_hasta ? 'antes' : inicial.franja || 'todo'),
     recepcion: inicial.recepcion || [], min_parada: inicial.min_parada ?? '', volver_antes: horaTxt(inicial.volver_antes), lista_desde: horaTxt(inicial.lista_desde) }))
@@ -170,7 +173,7 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
       const fila = { tipo: f.tipo, lugar_id: lugarId, destino: f.destino.trim(), direccion: f.direccion.trim() || null, municipio: f.municipio.trim() || null,
         contacto: f.contacto.trim() || null, telefono: f.telefono.trim() || null, horario: f.horario.trim() || null, lat: ubic?.lat ?? null, lng: ubic?.lng ?? null,
         recepcion: regreso ? [] : f.recepcion, min_parada: Number(f.min_parada) || null,
-        fecha: f.fecha, cuando: f.cuando, hora: ['exacta', 'rango', 'desde'].includes(f.cuando) ? f.hora : null, hora_hasta: ['rango', 'antes'].includes(f.cuando) ? f.hora_hasta : null,
+        fecha: f.fecha, hasta: f.semana && f.hasta && f.hasta > f.fecha ? f.hasta : null, cuando: f.cuando, hora: ['exacta', 'rango', 'desde'].includes(f.cuando) ? f.hora : null, hora_hasta: ['rango', 'antes'].includes(f.cuando) ? f.hora_hasta : null,
         franja: f.cuando === 'desde' ? (f.hora >= '12:00' ? 'tarde' : 'todo') : ['exacta', 'rango'].includes(f.cuando) ? (f.hora < '12:00' ? 'manana' : 'tarde') : f.cuando === 'antes' ? (f.hora_hasta <= '12:00' ? 'manana' : 'todo') : f.cuando,
         volver_planta: !regreso && !!f.volver_planta, volver_antes: !regreso && f.volver_planta && f.volver_antes ? f.volver_antes : null,
         recoger_planta: !regreso && !!f.recoger_planta, lista_desde: !regreso && f.recoger_planta && f.lista_desde ? f.lista_desde : null, descripcion: f.descripcion.trim(), op: String(f.op || '').trim() || null, necesita_camion: !!f.necesita_camion, prioridad: Number(f.prioridad) }
@@ -226,7 +229,10 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
           )}
           </>}
           <div className="fila-form">
-            <label>Día<input type="date" value={f.fecha} min={f.id ? undefined : hoy} onChange={set('fecha')} required /></label>
+            <label>{f.semana ? 'Desde' : 'Día'}<input type="date" value={f.fecha} min={f.id ? undefined : hoy} onChange={set('fecha')} required /></label>
+            <label className="check" title="No tiene que hacerse ese día: sale en Sin asignar, más abajo, hasta la fecha límite">
+              <input type="checkbox" checked={!!f.semana} onChange={(e) => setF({ ...f, semana: e.target.checked, hasta: f.hasta || finSemana(f.fecha) })} /> Para esta semana</label>
+            {f.semana && <label>Hasta<input type="date" value={f.hasta || ''} min={sumarDias(f.fecha, 1)} onChange={set('hasta')} required /></label>}
             <label>Cuándo<select value={f.cuando} onChange={set('cuando')}>{Object.entries(CUANDO).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
             {['exacta', 'rango', 'desde'].includes(f.cuando) && <label>{f.cuando === 'exacta' ? 'Hora' : 'Desde'}<SelectorHora value={f.hora} onChange={(v) => setF({ ...f, hora: v })} /></label>}
             {['rango', 'antes'].includes(f.cuando) && <label>{f.cuando === 'antes' ? 'Antes de' : 'Hasta'}<SelectorHora value={f.hora_hasta} onChange={(v) => setF({ ...f, hora_hasta: v })} /></label>}
@@ -234,7 +240,7 @@ function FormVuelta({ inicial, lugares, perfil, soloLectura, gestor, onClose, on
             <label>OP (opcional)<input value={f.op || ''} onChange={set('op')} style={{ width: 100 }} /></label>
           </div>
           {!regreso && <AvisoHorario v={{ ...f, hora: ['exacta', 'rango', 'desde'].includes(f.cuando) ? f.hora : null, hora_hasta: ['rango', 'antes'].includes(f.cuando) ? f.hora_hasta : null, franja: f.cuando }} />}
-          <label>Qué se lleva o se recoge<textarea rows={2} value={f.descripcion} onChange={set('descripcion')} required placeholder="p. ej. 3 avisos en acrílico, 2 cajas" /></label>
+          <label>Qué se lleva o se recoge<textarea rows={2} value={f.descripcion} onChange={set('descripcion')} required placeholder={f.tipo === 'entrega_recogida' ? 'Entregar: 3 avisos en acrílico · Recoger: 2 estructuras para pintar' : 'p. ej. 3 avisos en acrílico, 2 cajas'} /></label>
           <div className="fila-form">
             <label className="check"><input type="checkbox" checked={!!f.necesita_camion} onChange={set('necesita_camion')} /> Necesita camión (grande o pesado)</label>
             <label className="check"><input type="checkbox" checked={Number(f.prioridad) === 1} onChange={(e) => setF({ ...f, prioridad: e.target.checked ? 1 : 2 })} /> Urgente</label>
@@ -310,7 +316,11 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
   const rec = (k) => d?.recs.find((r) => r.vehiculo === vehDe(k) && (r.numero || 1) === numDe(k))
   const deVeh = (k) => { const r = rec(k); return r ? d.vs.filter((v) => v.recorrido_id === r.id).sort((a, b) => (a.orden ?? 99) - (b.orden ?? 99)) : [] }
   const libresDia = d ? d.vs.filter((v) => !d.recs.some((r) => r.id === v.recorrido_id) && v.estado !== 'hecha') : []
-  const sinAsignar = libresDia.filter((v) => !v.pospuesta)
+  // "Para esta semana": aún no es su último día, así que no entra en la propuesta del día; se muestra aparte, más abajo
+  const flexible = (v) => v.hasta && v.hasta > fecha
+  const deSemana = libresDia.filter((v) => !v.pospuesta && flexible(v)).sort((a, b) => a.hasta.localeCompare(b.hasta))
+  const [verSemana, setVerSemana] = useState(true)
+  const sinAsignar = libresDia.filter((v) => !v.pospuesta && !flexible(v))
   const pospuestas = libresDia.filter((v) => v.pospuesta) // "No programar por ahora": no entran en la ruta ni en la propuesta
   const [verPosp, setVerPosp] = useState(false)
   const bloqueado = (veh) => rec(veh)?.estado === 'confirmada'
@@ -504,6 +514,16 @@ function RutaDelDia({ lugares, transps, perfil, onLugares }) {
               <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => setForm(v)}
                 acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Asignar a…</option>{cols.map((c) => <option key={c} value={c}>{nombreRuta(c)}{bloqueado(c) ? ' (en curso)' : ''}</option>)}<option value="pospuesta">No programar por ahora</option></select>} />
             ))}
+            {deSemana.length > 0 && (
+              <div className="log-pospuestas log-semana">
+                <button className="btn-link" onClick={() => setVerSemana(!verSemana)}>{verSemana ? '▾' : '▸'} Para esta semana ({deSemana.length})</button>
+                {verSemana && <div className="tenue pequeño">No tienen que hacerse hoy. Asígnalas cuando haya espacio; el último día pasan arriba, con las del día.</div>}
+                {verSemana && deSemana.map((v) => (
+                  <Parada key={v.id} v={v} fecha={fecha} cfg={cfg} onAbrir={() => setForm(v)}
+                    acciones={<select value="" disabled={ocupado} onChange={(e) => mover(v, e.target.value)}><option value="">Asignar a…</option>{cols.map((c) => <option key={c} value={c}>{nombreRuta(c)}{bloqueado(c) ? ' (en curso)' : ''}</option>)}<option value="pospuesta">No programar por ahora</option></select>} />
+                ))}
+              </div>
+            )}
             {pospuestas.length > 0 && (
               <div className="log-pospuestas">
                 <button className="btn-link" onClick={() => setVerPosp(!verPosp)}>{verPosp ? '▾' : '▸'} No programar por ahora ({pospuestas.length})</button>
@@ -1004,7 +1024,8 @@ function Parada({ v, n, fecha, paso, cfg, acciones, onAbrir }) {
             {v.hora ? <b className="hora-exacta">⏰ {cuandoTxt(v)}</b> : cuandoTxt(v) && <span className="etq">{cuandoTxt(v)}</span>}
             {v.necesita_camion && <span className="etq">camión</span>}
             {v.prioridad === 1 && <span className="badge badge-bad">urgente</span>}
-            {v.fecha < fecha && <span className="badge badge-warn">de {fmtFecha(v.fecha).slice(0, 5)}</span>}
+            {v.hasta && v.hasta >= fecha ? <span className={`badge ${v.hasta === fecha ? 'badge-warn' : 'badge-info'}`}>{v.hasta === fecha ? 'último día (era para la semana)' : `semana · hasta ${diaCorto(v.hasta)}`}</span>
+              : v.fecha < fecha && <span className="badge badge-warn">de {fmtFecha(v.fecha).slice(0, 5)}</span>}
             {v.estado === 'no_hecha' && <span className="badge badge-bad" title={v.resultado || ''}>no se pudo{v.resultado ? `: ${v.resultado}` : ''}</span>}
             {v.estado === 'hecha' && <span className="badge badge-ok">hecha</span>}
           </div>

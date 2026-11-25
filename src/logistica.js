@@ -6,7 +6,7 @@ export const esConductor = (tipo) => tipo === 'conductor' || tipo === 'conductor
 export const esContratado = (veh) => veh !== 'camion'
 // conductor: persona que puede manejar el camión de la empresa (reemplazos)
 export const TIPOS_TRANSPORTE = { conductor_empresa: 'Conductor de la empresa (predeterminado)', conductor: 'Conductor de reemplazo (maneja nuestro camión)', moto: 'Moto', carro: 'Carro', camioneta: 'Camioneta / van', camion: 'Camión', otro: 'Otro' }
-export const TIPOS_VUELTA = { entrega: 'Entrega', recogida: 'Recogida', diligencia: 'Diligencia', regreso: 'Regreso a la planta' }
+export const TIPOS_VUELTA = { entrega: 'Entrega', recogida: 'Recogida', entrega_recogida: 'Entrega y recogida', diligencia: 'Diligencia', regreso: 'Regreso a la planta' }
 export const FRANJAS = { todo: 'Cualquier hora', manana: 'Mañana', tarde: 'Tarde' }
 export const TIPOS_LUGAR = { cliente: 'Cliente', proveedor: 'Proveedor', otro: 'Otro' }
 export const ESTADOS_VUELTA = { pendiente: 'Pendiente', hecha: 'Hecha', no_hecha: 'No se pudo', cancelada: 'Cancelada' }
@@ -438,7 +438,7 @@ export function waNumero(tel) {
   return d
 }
 export const linkWhatsApp = (tel, texto) => `https://wa.me/${waNumero(tel)}?text=${encodeURIComponent(texto)}`
-const TIPO_TXT = { entrega: 'ENTREGA', recogida: 'RECOGIDA', diligencia: 'DILIGENCIA', regreso: 'REGRESO A LA PLANTA' }
+const TIPO_TXT = { entrega: 'ENTREGA', recogida: 'RECOGIDA', entrega_recogida: 'ENTREGA Y RECOGIDA', diligencia: 'DILIGENCIA', regreso: 'REGRESO A LA PLANTA' }
 
 // Plantillas de los mensajes (se pueden personalizar en Logística → Transportadores).
 // Un renglón con campos {…} que quedan todos vacíos no se envía.

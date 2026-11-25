@@ -630,3 +630,7 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .log-ruta-datos select.log-conductor { flex: 1 1 140px; min-width: 140px; }
 .area-cerrada { margin: 0 6px; }
 .area-cerrada .btn-link { margin-left: 4px; }
+.log-semana { border-top: 2px dashed #c7d2fe; padding-top: 6px; }
+.etq-vuelta.entrega_recogida { background: #e6f4f6; color: #12707f; }
+.log-parada.entrega_recogida { border-left-color: #1a9bb0; }
+.cond-parada.entrega_recogida { border-left-color: #1a9bb0; }

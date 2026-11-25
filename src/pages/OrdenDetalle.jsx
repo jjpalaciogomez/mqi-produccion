@@ -98,7 +98,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
       )}
       {orden.cierre_manual && orden.estado === 'terminada' && (
         <div className="aviso-oculta">
-          <span>✓ Esta OP se <b>terminó a mano</b>{orden.cierre_nota ? `: ${orden.cierre_nota}` : ''}. Los pasos que no se registraron quedaron omitidos.</span>
+          <span>✓ Esta OP se <b>terminó a mano</b>{orden.cierre_nota ? `: ${orden.cierre_nota}` : ''}. Los pasos que faltaban quedaron terminados.</span>
           {gestor && <button className="btn btn-sm" onClick={async () => {
             if (!window.confirm(`¿Reabrir la OP ${orden.numero}? Vuelve a planta con los pasos que quedaron sin terminar.`)) return
             const { data, error } = await sb.rpc('reabrir_op', { p_orden: orden.id })
@@ -739,7 +739,7 @@ function TerminarOP({ o, tareas, onClose, onListo }) {
           </select>
         </label>
         <p className="tenue pequeño">
-          {faltan > 0 ? `${faltan} ${faltan === 1 ? 'paso queda' : 'pasos quedan'} como terminados sin registro (omitidos: no cuentan en los indicadores). ` : ''}
+          {faltan > 0 ? `${faltan} ${faltan === 1 ? 'paso queda terminado' : 'pasos quedan terminados'} y suman al avance de la OP (como no tienen todos sus tiempos, no se usan para calcular los estándares reales). ` : ''}
           {area
             ? `Se borra lo programado de ${area.toLowerCase()} para esta OP de hoy en adelante, sale de la tablet de esa área y se detiene cualquier tiempo corriendo en ella. Las demás áreas siguen igual${ultima ? '; como es la última área con trabajo pendiente, la OP queda terminada' : ''}.`
             : 'La OP sale del tablero, de la tablet y de la programación (se borra lo programado de hoy en adelante) y se detiene cualquier tiempo corriendo.'}
