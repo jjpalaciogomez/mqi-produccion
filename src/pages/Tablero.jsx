@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useEnVivo } from '../vivo.js'
 import { sb, q } from '../supabase.js'
-import { Aviso, Barra, Cargando, ESTADO_OP, fmtFecha, fmtMin } from '../ui.jsx'
+import { Aviso, Barra, Cargando, ESTADO_OP, Modal, fmtFecha, fmtMin } from '../ui.jsx'
 import { BotonAyuda } from '../ayuda.jsx'
 import { SIN_FECHA, estaOculta, evaluarOP, hoyCO } from '../cumplimiento.js'
 
@@ -16,6 +16,9 @@ export default function Tablero({ gestor, rol }) {
   const [error, setError] = useState('')
   const [filtro, setFiltro] = useState('activas')
   const [buscar, setBuscar] = useState('')
+  const [cerrar, setCerrar] = useState(null) // OP que se va a terminar a mano
+  const [manuales, setManuales] = useState(new Set()) // OPs terminadas a mano (se pueden reabrir)
+  const [ok, setOk] = useState('')
 
   const cargar = useCallback(async () => {
     try {
@@ -30,6 +33,10 @@ export default function Tablero({ gestor, rol }) {
       ]) : [[], []]
       const ev = {}
       for (const o of ords) ev[o.id] = evaluarOP(o, ts.filter((t) => t.orden_id === o.id), bs.filter((b) => b.orden_id === o.id))
+      if (filtro === 'cerradas' || filtro === 'todas') {
+        const m = await q(sb.from('ordenes').select('id').eq('cierre_manual', true)).catch(() => [])
+        setManuales(new Set(m.map((x) => x.id)))
+      }
       setEval(ev); setOrdenes(ords); setError('')
     } catch (e) { setError(e.message) }
   }, [filtro])
@@ -62,6 +69,11 @@ export default function Tablero({ gestor, rol }) {
     return r
   }, [ordenes, eval_])
 
+  const reabrir = async (o) => {
+    if (!window.confirm(`¿Reabrir la OP ${o.numero}? Vuelve a planta con los pasos que quedaron sin terminar.`)) return
+    try { const r = await q(sb.rpc('reabrir_op', { p_orden: o.id })); if (r !== 'ok') throw new Error(r); setOk(`OP ${o.numero} reabierta.`); cargar() } catch (e) { setError(e.message) }
+  }
+
   return (
     <div>
       <div className="titulo-pagina">
@@ -93,7 +105,8 @@ export default function Tablero({ gestor, rol }) {
         <button className="btn btn-sec btn-sm" onClick={cargar}>Actualizar</button>
       </div>
 
-      <Aviso>{error}</Aviso>
+      <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
+      {cerrar && <TerminarOP o={cerrar} onClose={() => setCerrar(null)} onListo={(msg) => { setCerrar(null); setOk(msg); cargar() }} />}
       {!ordenes ? <Cargando /> : lista.length === 0 ? (
         <div className="vacio">No hay órdenes {filtro === 'activas' ? 'activas' : filtro === 'ocultas' ? 'ocultas' : ''}. {gestor && <a href="#/nueva">Crear la primera OP</a>}</div>
       ) : (
@@ -101,7 +114,7 @@ export default function Tablero({ gestor, rol }) {
           <table className="tabla tabla-click tabla-tablero">
             <thead>
               <tr><th>OP</th><th>Proyecto / cliente</th><th>Entrega</th><th>Cumplimiento según programación</th><th style={{ width: 130 }}>Avance</th>
-                <th>Alertas y pendientes</th><th>Estado</th><th>Prior.</th></tr>
+                <th>Alertas y pendientes</th><th>Estado</th><th>Prior.</th>{gestor && <th></th>}</tr>
             </thead>
             <tbody>
               {lista.map((o) => {
@@ -122,6 +135,11 @@ export default function Tablero({ gestor, rol }) {
                     </td>
                     <td>{ESTADO_OP[o.estado]}</td>
                     <td className="centrado">{o.prioridad}</td>
+                    {gestor && <td onClick={(ev) => ev.stopPropagation()}>
+                      {['borrador', 'en_planta'].includes(o.estado)
+                        ? <button className="btn btn-sec btn-sm" onClick={() => setCerrar(o)} title="Marca la OP como terminada aunque falten tiempos por registrar">Terminar OP</button>
+                        : manuales.has(o.id) && <button className="btn-link pequeño" onClick={() => reabrir(o)} title="Vuelve a poner la OP en planta con los pasos que quedaron sin terminar">Reabrir</button>}
+                    </td>}
                   </tr>
                 )
               })}
@@ -131,5 +149,38 @@ export default function Tablero({ gestor, rol }) {
       )}
       <p className="nota">El cumplimiento compara la fecha en que termina la OP según la programación (más los días de terceros que van al final) con la fecha de entrega. Las horas por área están dentro de cada OP. Se actualiza cada minuto.</p>
     </div>
+  )
+}
+
+// Terminar una OP a mano: los pasos sin terminar quedan omitidos (no cuentan en indicadores) y se borra lo programado de hoy en adelante
+function TerminarOP({ o, onClose, onListo }) {
+  const [nota, setNota] = useState('')
+  const [error, setError] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+  const faltan = (Number(o.tareas_total) || 0) - (Number(o.tareas_terminadas) || 0)
+  const terminar = async () => {
+    setOcupado(true); setError('')
+    try {
+      const r = await q(sb.rpc('terminar_op', { p_orden: o.id, p_nota: nota || null }))
+      if (r !== 'ok') throw new Error(r)
+      onListo(`OP ${o.numero} terminada. Está en la pestaña "Terminadas" (ahí se puede reabrir).`)
+    } catch (e) { setError(e.message); setOcupado(false) }
+  }
+  return (
+    <Modal titulo={`Terminar OP ${o.numero}`} onClose={onClose} ancho={520}>
+      <div className="form">
+        <p><b>{o.proyecto}</b>{o.cliente ? ` · ${o.cliente}` : ''}</p>
+        <p className="tenue pequeño">
+          {faltan > 0 ? `Tiene ${faltan} ${faltan === 1 ? 'paso' : 'pasos'} sin terminar en el sistema. ` : ''}
+          Al terminarla: sale del tablero, de la tablet y de la programación (se borra lo programado de hoy en adelante); los pasos sin terminar quedan como omitidos y no cuentan en los indicadores; si hay un tiempo corriendo, se detiene. Se puede reabrir desde "Terminadas".
+        </p>
+        <label>Nota (opcional)<input value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej.: se entregó el 20/11, no se registraron los tiempos" /></label>
+        <Aviso>{error}</Aviso>
+        <div className="acciones">
+          <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button>
+          <button type="button" className="btn" disabled={ocupado} onClick={terminar}>Terminar OP</button>
+        </div>
+      </div>
+    </Modal>
   )
 }
