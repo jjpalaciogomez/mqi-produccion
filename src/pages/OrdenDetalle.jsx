@@ -27,6 +27,9 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         q(sb.from('dificultades').select('*').order('orden')),
         q(sb.from('programacion').select('area, fecha, hora_inicio, hora_fin, personas, min_hombre').eq('orden_id', id).gte('fecha', hoyCO()).order('fecha')),
       ])
+      // Datos del cierre manual (no están en la vista)
+      const cierre = orden ? await q(sb.from('ordenes').select('cierre_manual, cierre_nota').eq('id', id).maybeSingle()).catch(() => null) : null
+      if (orden && cierre) Object.assign(orden, cierre)
       if (!orden) { setError('No se encontró la OP.'); return }
       const ids = tareas.map((t) => t.id)
       const registros = ids.length ? await q(sb.from('registros')
@@ -61,6 +64,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
           }}>Recalcular estándares</button>}
           {gestor && <button className="btn btn-sec" onClick={() => setModal('editar')}>Editar datos</button>}
           {gestor && !estaOculta(orden) && ['borrador', 'en_planta'].includes(orden.estado) && <button className="btn btn-sec" onClick={() => setModal('ocultar')} title="La saca del tablero, la programación y las tablets por unos días">Ocultar OP</button>}
+          {gestor && ['borrador', 'en_planta'].includes(orden.estado) && <button className="btn" onClick={() => setModal('terminar')} title="Marca la OP como terminada aunque falten tiempos por registrar">Terminar OP</button>}
           {gestor && <button className="btn btn-sec peligro-txt" onClick={() => setModal('eliminar')}>Eliminar OP</button>}
         </div>
       </div>
@@ -76,6 +80,16 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
         <div className="aviso-oculta">
           <span>👁 Esta OP está <b>oculta {orden.oculta_hasta === SIN_FECHA ? 'hasta que la vuelvas a mostrar' : `hasta el ${fmtFecha(orden.oculta_hasta)}`}</b>: no sale en el tablero, la programación ni las tablets.</span>
           {gestor && <button className="btn btn-sm" onClick={async () => { const { error } = await sb.from('ordenes').update({ oculta_hasta: null }).eq('id', orden.id); if (error) setError(error.message); else cargar() }}>Mostrar ahora</button>}
+        </div>
+      )}
+      {orden.cierre_manual && (
+        <div className="aviso-oculta">
+          <span>✓ Esta OP se <b>terminó a mano</b>{orden.cierre_nota ? `: ${orden.cierre_nota}` : ''}. Los pasos que no se registraron quedaron omitidos.</span>
+          {gestor && <button className="btn btn-sm" onClick={async () => {
+            if (!window.confirm(`¿Reabrir la OP ${orden.numero}? Vuelve a planta con los pasos que quedaron sin terminar.`)) return
+            const { data, error } = await sb.rpc('reabrir_op', { p_orden: orden.id })
+            if (error || data !== 'ok') setError(error?.message || data); else cargar()
+          }}>Reabrir OP</button>}
         </div>
       )}
       {orden.notas && <p className="notas-op">{orden.notas}</p>}
@@ -94,6 +108,7 @@ export default function OrdenDetalle({ id, perfil, gestor }) {
 
       {modal === 'editar' && <EditarOP orden={orden} onClose={() => setModal(null)} onSaved={() => { setModal(null); cargar() }} />}
       {modal === 'ocultar' && <OcultarOP orden={orden} nBloques={d.prog.length} onClose={() => setModal(null)} onSaved={() => { setModal(null); cargar() }} />}
+      {modal === 'terminar' && <TerminarOP o={orden} onClose={() => setModal(null)} onListo={() => { setModal(null); cargar() }} />}
       {modal === 'eliminar' && <EliminarOP orden={orden} nRegistros={d.registros.length} onClose={() => setModal(null)} />}
     </div>
   )
@@ -675,6 +690,39 @@ function EditarOP({ orden, onClose, onSaved }) {
         <Aviso>{error}</Aviso>
         <div className="acciones"><button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button><button className="btn" disabled={!!repetida}>Guardar</button></div>
       </form>
+    </Modal>
+  )
+}
+
+// Terminar una OP a mano: los pasos sin terminar quedan omitidos (no cuentan en indicadores) y se borra lo programado de hoy en adelante
+function TerminarOP({ o, onClose, onListo }) {
+  const [nota, setNota] = useState('')
+  const [error, setError] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+  const faltan = (Number(o.tareas_total) || 0) - (Number(o.tareas_terminadas) || 0)
+  const terminar = async () => {
+    setOcupado(true); setError('')
+    try {
+      const r = await q(sb.rpc('terminar_op', { p_orden: o.id, p_nota: nota || null }))
+      if (r !== 'ok') throw new Error(r)
+      onListo()
+    } catch (e) { setError(e.message); setOcupado(false) }
+  }
+  return (
+    <Modal titulo={`Terminar OP ${o.numero}`} onClose={onClose} ancho={520}>
+      <div className="form">
+        <p><b>{o.proyecto}</b>{o.cliente ? ` · ${o.cliente}` : ''}</p>
+        <p className="tenue pequeño">
+          {faltan > 0 ? `Tiene ${faltan} ${faltan === 1 ? 'paso' : 'pasos'} sin terminar en el sistema. ` : ''}
+          Al terminarla: sale del tablero, de la tablet y de la programación (se borra lo programado de hoy en adelante); los pasos sin terminar quedan como omitidos y no cuentan en los indicadores; si hay un tiempo corriendo, se detiene. Se puede reabrir desde esta misma pantalla.
+        </p>
+        <label>Nota (opcional)<input value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej.: se entregó el 20/11, no se registraron los tiempos" /></label>
+        <Aviso>{error}</Aviso>
+        <div className="acciones">
+          <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button>
+          <button type="button" className="btn" disabled={ocupado} onClick={terminar}>Terminar OP</button>
+        </div>
+      </div>
     </Modal>
   )
 }
