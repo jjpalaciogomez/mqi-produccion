@@ -16,6 +16,13 @@ export default function Login() {
     setEnviando(false)
   }
 
+  const olvide = async () => {
+    setError('')
+    if (!email.trim()) return setError('Escribe tu correo y vuelve a tocar "¿Olvidaste tu contraseña?".')
+    const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin + window.location.pathname })
+    setError(error ? error.message : 'Te enviamos un correo con el enlace para crear una contraseña nueva.')
+  }
+
   return (
     <div className="centro login">
       <img src="./logo-mqi.png" alt="MQI Más Que Impresos" className="login-logo" />
@@ -24,8 +31,9 @@ export default function Login() {
         <p className="sub">Sistema de control de planta</p>
         <label>Correo<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" /></label>
         <label>Contraseña<input type="password" value={clave} onChange={(e) => setClave(e.target.value)} required autoComplete="current-password" /></label>
-        <Aviso>{error}</Aviso>
+        <Aviso tipo={error.startsWith('Te enviamos') ? 'ok' : 'error'}>{error}</Aviso>
         <button className="btn btn-grande" disabled={enviando}>{enviando ? 'Entrando…' : 'Entrar'}</button>
+        <button type="button" className="btn-link" onClick={olvide}>¿Olvidaste tu contraseña?</button>
         <p className="nota">Las tablets de planta entran una vez con la cuenta de su área y quedan abiertas.</p>
       </form>
     </div>

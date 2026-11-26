@@ -30,6 +30,35 @@ function useRuta() {
 
 export const ir = (ruta) => { window.location.hash = ruta }
 
+// Enlace de invitación o de recuperación de contraseña: Supabase deja "type=invite|recovery" en la dirección
+const LLEGA_CON_ENLACE = /type=(invite|recovery|signup)/.test(window.location.hash + window.location.search)
+
+function CrearClave({ onListo }) {
+  const [a, setA] = useState(''), [b, setB] = useState(''), [error, setError] = useState(''), [enviando, setEnviando] = useState(false)
+  const guardar = async (e) => {
+    e.preventDefault(); setError('')
+    if (a.length < 8) return setError('La contraseña debe tener al menos 8 caracteres.')
+    if (a !== b) return setError('Las dos contraseñas no coinciden.')
+    setEnviando(true)
+    const { error } = await sb.auth.updateUser({ password: a })
+    setEnviando(false)
+    if (error) setError(error.message); else { window.location.hash = '#/'; onListo() }
+  }
+  return (
+    <div className="centro login">
+      <img src="./logo-mqi.png" alt="MQI Más Que Impresos" className="login-logo" />
+      <form className="tarjeta login-caja" onSubmit={guardar}>
+        <h1 className="login-tit">Crea tu contraseña</h1>
+        <p className="sub">Con ella vas a entrar al programa de ahora en adelante.</p>
+        <label>Nueva contraseña<input type="password" value={a} onChange={(e) => setA(e.target.value)} required autoComplete="new-password" /></label>
+        <label>Repítela<input type="password" value={b} onChange={(e) => setB(e.target.value)} required autoComplete="new-password" /></label>
+        {error && <div className="aviso aviso-error">{error}</div>}
+        <button className="btn btn-grande" disabled={enviando}>{enviando ? 'Guardando…' : 'Guardar y entrar'}</button>
+      </form>
+    </div>
+  )
+}
+
 // Modo prueba del Administrador: ver la app como otro rol sin cambiar de usuario
 const VISTAS = [
   ['admin|', 'Administrador'], ['consulta|', 'Consulta'],
@@ -75,11 +104,12 @@ export default function App() {
   const [perfil, setPerfil] = useState(null)
   const [error, setError] = useState('')
   const [vista, setVista] = useState(leerVista)
+  const [crearClave, setCrearClave] = useState(LLEGA_CON_ENLACE)
   const cambiarVista = (v) => { setVista(v); guardarVista(v) }
 
   useEffect(() => {
     sb.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data } = sb.auth.onAuthStateChange((_e, s) => setSession(s))
+    const { data } = sb.auth.onAuthStateChange((ev, s) => { setSession(s); if (ev === 'PASSWORD_RECOVERY') setCrearClave(true) })
     return () => data.subscription.unsubscribe()
   }, [])
 
@@ -98,6 +128,7 @@ export default function App() {
 
   if (session === undefined) return <Cargando />
   if (!session) return <Login />
+  if (crearClave) return <CrearClave onListo={() => setCrearClave(false)} />
   if (error) return (
     <div className="centro">
       <div className="tarjeta"><p>{error}</p><button className="btn" onClick={() => sb.auth.signOut()}>Salir</button></div>
