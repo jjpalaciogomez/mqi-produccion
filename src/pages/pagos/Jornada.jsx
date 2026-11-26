@@ -22,17 +22,22 @@ export default function Jornada({ grupo, config, gestor }) {
   const [ok, setOk] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [sucio, setSucio] = useState(false)
+  const [conAvance, setConAvance] = useState([])
+  const [borrador, setBorrador] = useState(null) // fecha/hora del avance guardado sin terminar
   const [corrigiendo, setCorrigiendo] = useState(false) // un día ya guardado solo se consulta; Gerencia/Admin lo puede corregir
   const laboral = M.esDiaLaboralNormal(fecha, festivos)
 
   const cargar = useCallback(async () => {
     try {
       const desde = M.fechaISOMasDias(M.viernesDeSemana(hoyCO()), -7)
-      const [ps, reg, fechas] = await Promise.all([
+      const [ps, reg, fechas, borr, borrs] = await Promise.all([
         q(sb.rpc('empleados_jornada', { p_grupo: grupo })),
         q(sb.from('jornadas').select('*').eq('grupo', grupo).eq('fecha', fecha)),
         q(sb.from('jornadas').select('fecha').eq('grupo', grupo).gte('fecha', desde)),
+        q(sb.from('jornadas_borrador').select('*').eq('grupo', grupo).eq('fecha', fecha).maybeSingle()),
+        q(sb.from('jornadas_borrador').select('fecha').eq('grupo', grupo).gte('fecha', desde)),
       ])
+      setConAvance(borrs.map((b) => b.fecha))
       const lista = [...ps].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'))
       // Quien ya tiene registro ese día aunque hoy no esté en la lista (p. ej. lo retiraron después) también aparece
       reg.forEach((r) => { if (!lista.some((p) => p.id === r.empleado_id)) lista.push({ id: r.empleado_id, nombre: r.nombre, area: r.area }) })
@@ -40,8 +45,12 @@ export default function Jornada({ grupo, config, gestor }) {
       const lab = M.esDiaLaboralNormal(fecha, festivos)
       setPersonas(lista)
       setYaExiste(reg.length > 0)
+      // Avance guardado sin terminar: se retoma donde quedó (solo si el día aún no se guardó)
+      const avance = reg.length === 0 && borr ? Object.fromEntries((borr.filas || []).map((f) => [f.id, f])) : null
+      setBorrador(avance ? borr.actualizado : null)
       setGuardadas([...new Set(fechas.map((f) => f.fecha))])
       setFilas(lista.map((p) => {
+        if (avance && avance[p.id]) return { ...avance[p.id], nombre: p.nombre, area: p.area || '' }
         const r = prev[p.id]
         const estado = r ? r.estado || 'Normal' : 'Normal'
         const normal = estado === 'Normal'
@@ -62,7 +71,19 @@ export default function Jornada({ grupo, config, gestor }) {
   // Una sola tabla mientras quepa en la pantalla; si no cabe, se parte en dos columnas para no desplazarse
   const [altoVentana, setAltoVentana] = useState(() => window.innerHeight)
   useEffect(() => { const f = () => setAltoVentana(window.innerHeight); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [])
-  useEnVivo(() => { if (!sucio) cargar() }, ['jornadas'])
+  useEnVivo(() => { if (!sucio) cargar() }, ['jornadas', 'jornadas_borrador'])
+
+  // Guarda lo digitado hasta ahora, sin validar; el día sigue pendiente hasta "Guardar día"
+  const guardarAvance = async () => {
+    setError(''); setOk('')
+    try {
+      setGuardando(true)
+      const filasAv = filas.map(({ id, estado, entrada, salida, observacion, segEntrada, segSalida, segSiguiente }) => ({ id, estado, entrada, salida, observacion, segEntrada, segSalida, segSiguiente }))
+      await q(sb.from('jornadas_borrador').upsert({ grupo, fecha, filas: filasAv, actualizado: new Date().toISOString() }))
+      setOk('Avance guardado. El día sigue pendiente (aparece en las alertas) hasta que pulses "Guardar día".')
+      setSucio(false); await cargar()
+    } catch (e) { setError(e.message) } finally { setGuardando(false) }
+  }
 
   const cambiar = (i, campo, v) => {
     setSucio(true); setOk('')
@@ -121,6 +142,7 @@ export default function Jornada({ grupo, config, gestor }) {
       setGuardando(true)
       await q(sb.from('jornadas').delete().eq('grupo', grupo).eq('fecha', fecha).in('empleado_id', filas.map((f) => f.id)))
       if (filasBD.length) await q(sb.from('jornadas').insert(filasBD))
+      await q(sb.from('jornadas_borrador').delete().eq('grupo', grupo).eq('fecha', fecha))
       setOk(`Día guardado: ${filasBD.length} registro(s).`)
       setSucio(false); setCorrigiendo(false)
       await cargar()
@@ -142,9 +164,11 @@ export default function Jornada({ grupo, config, gestor }) {
           {yaExiste && <Badge tone="ok">Ya registrado</Badge>}</span>
         {personas && <span className="empuja pagos-total" title={'Hora en formato 24 h (HH:MM). ' + (laboral ? `Se descuentan ${cfg.tiempoAlmuerzo} h de almuerzo.` : 'Día no laboral: quien no digite nada no trabajó y no se guarda.') + (industrial ? ' Segunda jornada (+): toda es tiempo extra; si termina después de medianoche marca la casilla.' : '')}>Total: <b>{Math.round(total * 100) / 100} h</b> <span className="ayuda-q">?</span></span>}
         {personas && bloq && gestor && <button className="btn btn-sec btn-sm" onClick={() => setCorrigiendo(true)} title="Solo Gerencia/Administrador puede corregir un día ya guardado">Corregir día</button>}
+ {personas && !bloq && !corrigiendo && <button className="btn btn-sec btn-sm" disabled={guardando} onClick={guardarAvance} title="Guarda lo que llevas sin terminar; el día sigue pendiente hasta que pulses Guardar día">Guardar avance</button>}
         {personas && !bloq && <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : corrigiendo ? 'Guardar corrección' : 'Guardar día'}</button>}
       </div>
-      <AlertasFaltantes f={faltantes} onDia={setFecha} />
+      <AlertasFaltantes f={faltantes} onDia={setFecha} conAvance={conAvance} />
+      {borrador && !yaExiste && <div className="aviso-avance">📝 Avance guardado el {new Date(borrador).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} — el día está <b>incompleto</b> y sigue pendiente hasta que pulses "Guardar día".</div>}
       {bloq && <div className="aviso-consulta">📋 Este día ya tiene un registro guardado. Se muestra solo para consulta{gestor ? ' — para cambiarlo usa "Corregir día".' : ' — no se puede modificar desde aquí.'}</div>}
       <Aviso>{error}</Aviso>
       <Aviso tipo="ok">{ok}</Aviso>
@@ -204,8 +228,8 @@ export default function Jornada({ grupo, config, gestor }) {
 }
 
 // Alertas de días laborales sin registro (igual que la hoja: esta semana hasta ayer y la semana anterior, viernes a jueves)
-export function AlertasFaltantes({ f, onDia, soloAnterior }) {
-  const corto = (d) => fechaCorta(d).slice(0, 5)
+export function AlertasFaltantes({ f, onDia, soloAnterior, conAvance = [] }) {
+  const corto = (d) => fechaCorta(d).slice(0, 5) + (conAvance.includes(d) ? ' (incompleto)' : '')
   return (
     <div className="faltantes">
       {!soloAnterior && (f.actual.length

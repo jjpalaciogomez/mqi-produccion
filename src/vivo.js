@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react'
 import { sb } from './supabase.js'
 
 export const TABLAS_VIVO = ['ordenes', 'tareas', 'registros', 'programacion', 'paros', 'horas_extra', 'vueltas', 'recorridos', 'lugares', 'transportadores', 'ajustes',
-  'empleados', 'jornadas', 'nomina_horas_extra', 'nomina_quincenal', 'programados', 'vacaciones', 'ausentismos', 'causaciones', 'nomina_config']
+  'empleados', 'jornadas', 'jornadas_borrador', 'nomina_horas_extra', 'nomina_quincenal', 'programados', 'vacaciones', 'ausentismos', 'causaciones', 'nomina_config']
 
 let canal = null
 const pendientes = new Set()
