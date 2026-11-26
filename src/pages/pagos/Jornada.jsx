@@ -9,7 +9,7 @@ const ESTADOS = ['Normal', 'Incapacitado', 'No asistió', 'Vacaciones']
 const fmtLarga = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
 // Registro diario de entrada y salida (Litografía o Industrial)
-export default function Jornada({ grupo, config }) {
+export default function Jornada({ grupo, config, gestor }) {
   const { cfg, festivos } = config
   const industrial = grupo === 'industrial'
   const [fecha, setFecha] = useState(hoyCO())
@@ -22,6 +22,7 @@ export default function Jornada({ grupo, config }) {
   const [ok, setOk] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [sucio, setSucio] = useState(false)
+  const [corrigiendo, setCorrigiendo] = useState(false) // un día ya guardado solo se consulta; Gerencia/Admin lo puede corregir
   const laboral = M.esDiaLaboralNormal(fecha, festivos)
 
   const cargar = useCallback(async () => {
@@ -57,7 +58,7 @@ export default function Jornada({ grupo, config }) {
       setSucio(false); setError('')
     } catch (e) { setError(e.message) }
   }, [grupo, fecha, festivos, cfg])
-  useEffect(() => { setPersonas(null); setOk(''); cargar() }, [cargar])
+  useEffect(() => { setPersonas(null); setOk(''); setCorrigiendo(false); cargar() }, [cargar])
   // Una sola tabla mientras quepa en la pantalla; si no cabe, se parte en dos columnas para no desplazarse
   const [altoVentana, setAltoVentana] = useState(() => window.innerHeight)
   useEffect(() => { const f = () => setAltoVentana(window.innerHeight); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [])
@@ -71,19 +72,19 @@ export default function Jornada({ grupo, config }) {
       if (campo === 'estado' && v !== 'Normal') { n.entrada = ''; n.salida = '' }
       if (campo === 'estado' && v === 'Normal' && !f.entrada && laboral) n.entrada = cfg.inicioJornadaNormal || '07:00'
       if (campo === 'estado' && v !== 'Normal' && v !== M.ESTADO_DESCANSO_NOCTURNO) { n.segEntrada = ''; n.segSalida = ''; n.segSiguiente = false }
+      // Igual que la hoja: si la 2ª salida es menor que la 2ª entrada, se marca "Día siguiente" solo
+      if ((campo === 'segEntrada' || campo === 'segSalida') && M.esHoraValida(n.segEntrada) && M.esHoraValida(n.segSalida))
+        n.segSiguiente = M.textoAHoras(n.segSalida) <= M.textoAHoras(n.segEntrada)
       return n
     }))
   }
 
   // Días laborales de esta semana (hasta ayer) y de la anterior sin registro guardado
-  const faltantes = useMemo(() => {
-    const hoy = hoyCO(), ini = M.viernesDeSemana(hoy)
-    const entre = (a, b) => { const out = []; for (let d = a; d <= b; d = M.fechaISOMasDias(d, 1)) if (M.esDiaLaboralNormal(d, festivos) && !guardadas.includes(d)) out.push(d); return out }
-    return { actual: entre(ini, M.fechaISOMasDias(hoy, -1)), previa: entre(M.fechaISOMasDias(ini, -7), M.fechaISOMasDias(ini, -1)) }
-  }, [guardadas, festivos])
+  const faltantes = useMemo(() => calcularFaltantes(guardadas, festivos), [guardadas, festivos])
 
   const guardar = async () => {
     setError(''); setOk('')
+    if (yaExiste && !corrigiendo) { setError('Este día ya está guardado y solo se puede consultar.'); return }
     try {
       // Mismas validaciones de la hoja
       filas.forEach((f) => {
@@ -121,12 +122,13 @@ export default function Jornada({ grupo, config }) {
       await q(sb.from('jornadas').delete().eq('grupo', grupo).eq('fecha', fecha).in('empleado_id', filas.map((f) => f.id)))
       if (filasBD.length) await q(sb.from('jornadas').insert(filasBD))
       setOk(`Día guardado: ${filasBD.length} registro(s).`)
-      setSucio(false)
+      setSucio(false); setCorrigiendo(false)
       await cargar()
     } catch (e) { setError(e.message) } finally { setGuardando(false) }
   }
 
   const mover = (n) => setFecha(M.fechaISOMasDias(fecha, n))
+  const bloq = yaExiste && !corrigiendo
   const total = filas.reduce((a, f) => a + (f.estado === 'Normal' ? M.calcularHorasLaboradas(f.entrada, f.salida, cfg, laboral) || 0 : 0), 0)
 
   return (
@@ -139,25 +141,22 @@ export default function Jornada({ grupo, config }) {
         <span className="pagos-dia">{fmtLarga(fecha)} {laboral ? <Badge tone="info">Día laboral</Badge> : <Badge tone="warn">{festivos.includes(fecha) ? 'Festivo' : M.diaSemana(fecha) === 0 ? 'Domingo' : 'Sábado'}</Badge>}
           {yaExiste && <Badge tone="ok">Ya registrado</Badge>}</span>
         {personas && <span className="empuja pagos-total" title={'Hora en formato 24 h (HH:MM). ' + (laboral ? `Se descuentan ${cfg.tiempoAlmuerzo} h de almuerzo.` : 'Día no laboral: quien no digite nada no trabajó y no se guarda.') + (industrial ? ' Segunda jornada (+): toda es tiempo extra; si termina después de medianoche marca la casilla.' : '')}>Total: <b>{Math.round(total * 100) / 100} h</b> <span className="ayuda-q">?</span></span>}
-        {personas && <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar día'}</button>}
+        {personas && bloq && gestor && <button className="btn btn-sec btn-sm" onClick={() => setCorrigiendo(true)} title="Solo Gerencia/Administrador puede corregir un día ya guardado">Corregir día</button>}
+        {personas && !bloq && <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : corrigiendo ? 'Guardar corrección' : 'Guardar día'}</button>}
       </div>
-      {(faltantes.actual.length > 0 || faltantes.previa.length > 0) && (
-        <Aviso tipo="warn">
-          {faltantes.previa.length > 0 && <span><b>Semana anterior sin registrar:</b> {faltantes.previa.map((d) => <button key={d} className="btn-link" onClick={() => setFecha(d)}>{fechaCorta(d).slice(0, 5)}</button>)}</span>}
-          {faltantes.actual.length > 0 && <span><b> Esta semana sin registrar:</b> {faltantes.actual.map((d) => <button key={d} className="btn-link" onClick={() => setFecha(d)}>{fechaCorta(d).slice(0, 5)}</button>)}</span>}
-        </Aviso>
-      )}
+      <AlertasFaltantes f={faltantes} onDia={setFecha} />
+      {bloq && <div className="aviso-consulta">📋 Este día ya tiene un registro guardado. Se muestra solo para consulta{gestor ? ' — para cambiarlo usa "Corregir día".' : ' — no se puede modificar desde aquí.'}</div>}
       <Aviso>{error}</Aviso>
       <Aviso tipo="ok">{ok}</Aviso>
       {!personas ? <Cargando /> : (
         <>
           {(() => { const dos = filas.length > Math.max(8, Math.floor((altoVentana - 250) / 33)); return (
-          <div className={'jornada-paneles' + (dos ? ' dos' : '')}>
+          <fieldset disabled={bloq} className={'jornada-paneles sin-borde' + (dos ? ' dos' : '')}>
             {(dos ? [filas.slice(0, Math.ceil(filas.length / 2)), filas.slice(Math.ceil(filas.length / 2))] : [filas]).map((grupoFilas, gi) => (
             <div className="tabla-cont" key={gi}>
             <table className="tabla tabla-pagos tabla-compacta tabla-jornada">
               <thead><tr>
-                <th className="j-nombre">Nombre</th><th className="j-estado">Estado</th><th className="j-hora">Entrada</th><th className="j-hora">Salida</th><th className="j-horas">Horas</th>
+                <th className="j-nombre">Nombre</th>{!dos && <th>Área</th>}<th className="j-estado">Estado</th><th className="j-hora">Entrada</th><th className="j-hora">Salida</th><th className="j-horas">Horas</th>
                 {industrial && <th className="j-seg" title="Segunda jornada (toda es tiempo extra)">2ª jorn.</th>}
                 <th>Observación</th>
               </tr></thead>
@@ -174,12 +173,12 @@ export default function Jornada({ grupo, config }) {
                   const segAbierta = abiertas[f.id] || f.segEntrada || f.segSalida
                   return (
                     <tr key={f.id} className={!normal ? 'fila-tenue' : ''}>
-                      <td className="j-nombre-td" title={`${f.nombre} · ${f.area}`}><b>{f.nombre}</b></td>
+                      <td className="j-nombre-td" title={`${f.nombre} · ${f.area}`}><b>{f.nombre}</b></td>{!dos && <td className="tenue">{f.area}</td>}
                       <td><select value={f.estado} onChange={(e) => cambiar(i, 'estado', e.target.value)}>
                         {[...ESTADOS, ...(industrial ? [M.ESTADO_DESCANSO_NOCTURNO] : [])].map((o) => <option key={o}>{o}</option>)}
                       </select></td>
-                      <td><input className={'hora' + (malE ? ' mal' : '')} value={f.entrada} disabled={!normal} placeholder="07:00" onChange={(e) => cambiar(i, 'entrada', e.target.value.trim())} /></td>
-                      <td><input className={'hora' + (malS ? ' mal' : '')} value={f.salida} disabled={!normal} placeholder="16:00" onChange={(e) => cambiar(i, 'salida', e.target.value.trim())} /></td>
+                      <td><input className={'hora' + (malE ? ' mal' : '')} value={f.entrada} disabled={!normal} onChange={(e) => cambiar(i, 'entrada', e.target.value.trim())} /></td>
+                      <td><input className={'hora' + (malS ? ' mal' : '')} value={f.salida} disabled={!normal} onChange={(e) => cambiar(i, 'salida', e.target.value.trim())} /></td>
                       <td className="num">{normal ? (h === null ? (f.salida ? <span className="mal-txt">Revisa</span> : '') : h) : '—'}{industrial && (hs === null ? <div className="mal-txt seg-h">2ª ?</div> : hs ? <div className="seg-h" title="Horas de la segunda jornada">+{hs}</div> : null)}{tarde > M.TOLERANCIA_LLEGADA_TARDE_MIN && <div className="tarde" title={`Llegó ${tarde} minutos tarde`}>{tarde}′ tarde</div>}</td>
                       {industrial && <td className="j-seg-td">{!segAbierta
                         ? <button className="btn-mini" disabled={!permiteSeg} title="Agregar segunda jornada" onClick={() => setAbiertas((x) => ({ ...x, [f.id]: true }))}>+</button>
@@ -196,10 +195,33 @@ export default function Jornada({ grupo, config }) {
             </table>
             </div>
             ))}
-          </div>
+          </fieldset>
           ) })()}
         </>
       )}
     </div>
   )
+}
+
+// Alertas de días laborales sin registro (igual que la hoja: esta semana hasta ayer y la semana anterior, viernes a jueves)
+export function AlertasFaltantes({ f, onDia, soloAnterior }) {
+  const corto = (d) => fechaCorta(d).slice(0, 5)
+  return (
+    <div className="faltantes">
+      {!soloAnterior && (f.actual.length
+        ? <span className="falt falt-mal">⚠ Esta semana faltan {f.actual.length}: {f.actual.map((d, i) => <span key={d}>{i ? ', ' : ''}<button className="dia-pend" onClick={() => onDia?.(d)}>{corto(d)}</button></span>)}</span>
+        : <span className="falt falt-ok">✓ Todos los días laborales de esta semana están registrados</span>)}
+      {f.previa.length
+        ? <span className="falt falt-aviso">⚠ Semana anterior ({f.rango}) — faltan {f.previa.length} día(s) por registrar en Jornada: {f.previa.map((d, i) => <span key={d}>{i ? ', ' : ''}{onDia ? <button className="dia-pend" onClick={() => onDia(d)}>{corto(d)}</button> : corto(d)}</span>)}</span>
+        : <span className="falt falt-ok">✓ Semana anterior ({f.rango}): todos los días laborales tienen registro de jornada</span>}
+    </div>
+  )
+}
+
+// Cálculo de días faltantes (mismo criterio de la hoja: lunes a viernes sin festivo)
+export function calcularFaltantes(guardadas, festivos) {
+  const hoy = hoyCO(), ini = M.viernesDeSemana(hoy)
+  const entre = (a, b) => { const out = []; for (let d = a; d <= b; d = M.fechaISOMasDias(d, 1)) if (M.esDiaLaboralNormal(d, festivos) && !guardadas.includes(d)) out.push(d); return out }
+  const iniPrev = M.fechaISOMasDias(ini, -7), finPrev = M.fechaISOMasDias(ini, -1)
+  return { actual: entre(ini, M.fechaISOMasDias(hoy, -1)), previa: entre(iniPrev, finPrev), rango: `${fechaCorta(iniPrev).slice(0, 5)} al ${fechaCorta(finPrev).slice(0, 5)}` }
 }

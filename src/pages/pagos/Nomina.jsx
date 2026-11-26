@@ -6,8 +6,9 @@ import * as M from '../../nomina/motor.js'
 import { hoyCO, pesos, num, todas, opcionesQuincena, empleadosMotor, porId } from '../../nomina/datos.js'
 import { descargarTabla } from '../../nomina/xlsx.js'
 import { ModalBanco } from './HorasExtra.jsx'
+import { useOrden } from '../../nomina/orden.jsx'
 
-export default function Nomina({ config, empleados }) {
+export default function Nomina({ config, empleados, soloLectura }) {
   const { cfg, festivos } = config
   const emps = useMemo(() => empleadosMotor(empleados), [empleados])
   const empPorId = useMemo(() => porId(emps), [emps])
@@ -20,6 +21,7 @@ export default function Nomina({ config, empleados }) {
   const [guardando, setGuardando] = useState(false)
   const [banco, setBanco] = useState(null)
   const [editar, setEditar] = useState(null) // índice de la fila abierta en la ventana
+  const { ordenar, th } = useOrden()
 
   const cargar = useCallback(async () => {
     try {
@@ -70,6 +72,7 @@ export default function Nomina({ config, empleados }) {
 
   const guardar = async () => {
     setError(''); setOk('')
+    if (yaExiste && !window.confirm(`La quincena "${quincena}" ya está guardada. ¿Reemplazar los datos anteriores con lo que ves en pantalla?`)) return
     try {
       setGuardando(true)
       const payload = filas.map((f) => {
@@ -99,30 +102,31 @@ export default function Nomina({ config, empleados }) {
           {opciones.lista.map((s) => <option key={s} value={s}>{s}{s === opciones.actual ? ' (actual)' : ''}</option>)}
         </select>
         {yaExiste ? <Badge tone="ok">Guardada</Badge> : <Badge tone="warn">Sin guardar</Badge>}
-        {yaExiste && <button className="btn btn-sec btn-sm" onClick={() => { setSucio(false); setRecalc(true) }} title="Vuelve a traer días de incapacidad, vacaciones, licencias y ausencias (conserva Otros y Nota)">Recalcular desde Ausentismos</button>}
+        {yaExiste && !soloLectura && <button className="btn btn-sec btn-sm" onClick={() => { setSucio(false); setRecalc(true) }} title="Vuelve a traer días de incapacidad, vacaciones, licencias y ausencias (conserva Otros y Nota)">Recalcular desde Ausentismos</button>}
         <button className="btn btn-sec btn-sm" onClick={exportar}>Exportar Excel</button>
         <button className="btn btn-sec btn-sm" disabled={!yaExiste} onClick={() => { try { setBanco(M.datosBancolombiaNomina(quincena, datos.nomina.filter((n) => n.quincena === quincena), empPorId, cfg, hoyCO())) } catch (e) { setError(e.message) } }}>Archivo Bancolombia</button>
         <span className="empuja pagos-total">{filas.length} personas · Neto <b>{pesos(tot.neto)}</b></span>
         {sucio && <Badge tone="warn">Cambios sin guardar</Badge>}
-        <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : yaExiste ? 'Guardar cambios' : 'Guardar quincena'}</button>
+        {!soloLectura && <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : yaExiste ? 'Guardar cambios' : 'Guardar quincena'}</button>}
       </div>
+      {soloLectura && <div className="aviso-consulta">Solo consulta y exportación: este usuario no puede editar ni guardar la nómina.</div>}
       <Aviso>{error}</Aviso>
       <Aviso tipo="ok">{ok}</Aviso>
       {recalc && <Aviso tipo="warn">Se recalcularon los días desde Ausentismos y Vacaciones. Revisa y guarda para que quede así.</Aviso>}
       <div className="tabla-cont">
-        <table className="tabla tabla-pagos tabla-compacta tabla-nomina tabla-click">
+        <table className={'tabla tabla-pagos tabla-compacta tabla-nomina' + (soloLectura ? '' : ' tabla-click')}>
           <colgroup><col className="c-nombre" /><col className="c-dia" /><col className="c-dia" /><col className="c-dia" /><col className="c-dia" /><col className="c-otros" /><col className="c-nota" />{Array.from({ length: 9 }, (_, i) => <col key={i} />)}</colgroup>
           <thead><tr>
-            <th>Nombre · salario</th><th title="Días a remunerar (de 15)">Días</th><th title="Días de incapacidad">Incap.</th><th title="Días de vacaciones">Vac.</th><th title="Días de licencia remunerada (calamidad)">Lic.</th><th>Otros (+/-)</th><th>Nota</th>
-            <th>Básico</th><th>Aux. transp.</th><th>Subsidio incap.</th><th>Progra&shy;mado</th><th>Deven&shy;gado</th><th>Salud</th><th>Pensión</th><th>Descuen&shy;tos</th><th>Neto</th>
+            {th('nombre', 'Nombre · salario')}{th('DiasTrabajados', 'Días', { title: 'Días a remunerar (de 15)' })}{th('Incapacidad', 'Incap.', { title: 'Días de incapacidad' })}{th('DiasVacaciones', 'Vac.', { title: 'Días de vacaciones' })}{th('DiasLicencia', 'Lic.', { title: 'Días de licencia remunerada (calamidad)' })}{th('OtrosAjuste', 'Otros (+/-)')}{th('Nota', 'Nota')}
+            {[['Basico', 'Básico'], ['AuxTransporte', 'Aux. transp.'], ['SubsidioIncapacidad', 'Subsidio incap.'], ['Programado', <>Progra&shy;mado</>], ['TotalDevengado', <>Deven&shy;gado</>], ['Salud', 'Salud'], ['Pension', 'Pensión'], ['TotalDescuentos', <>Descuen&shy;tos</>], ['NetoPagar', 'Neto']].map(([k, t]) => th('c.' + k, t, { className: 'num' }))}
           </tr></thead>
           <tbody>
-            {filas.map((f, i) => {
-              const c = calcs[i], e = empPorId[f.id]
+            {ordenar(filas.map((_, i) => i), (i, k) => (k.startsWith('c.') ? calcs[i][k.slice(2)] : k === 'nombre' || k === 'Nota' ? filas[i][k] : Number(filas[i][k]) || 0)).map((i) => {
+              const f = filas[i], c = calcs[i], e = empPorId[f.id]
               const notas = [f.sug.DiasAntesIngreso && `ingresó: −${f.sug.DiasAntesIngreso} d`, f.sug.DiasDespuesRetiro && `retiro: −${f.sug.DiasDespuesRetiro} d`, f.sug.DiasNoRemunerados && `ausencias/permisos: −${f.sug.DiasNoRemunerados} d`, f.retirado && `retirado ${f.retirado}`, e.TipoContrato === 'Prestación de servicios' && 'prestación de servicios'].filter(Boolean)
               const m = (v) => (v ? num(Math.round(v), 0) : '')
               return (
-                <tr key={f.id} onClick={() => setEditar(i)} className={f.editado ? 'fila-editada' : ''} title="Clic para registrar novedades">
+                <tr key={f.id} onClick={() => !soloLectura && setEditar(i)} className={f.editado ? 'fila-editada' : ''} title={soloLectura ? '' : 'Clic para registrar novedades'}>
                   <td className="c-nombre-td"><b title={f.nombre}>{f.nombre}</b><div className="tenue">{pesos(e.Salario)}{notas.length > 0 && ' · ' + notas.join(' · ')}</div></td>
                   {['DiasTrabajados', 'Incapacidad', 'DiasVacaciones', 'DiasLicencia'].map((k) => <td key={k} className="num">{Number(f[k]) || (k === 'DiasTrabajados' ? 0 : '')}</td>)}
                   <td className="num">{Number(f.OtrosAjuste) ? m(f.OtrosAjuste) : ''}</td>

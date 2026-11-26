@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../../supabase.js'
 import { useEnVivo } from '../../vivo.js'
 import { Aviso, Badge, Cargando, Modal } from '../../ui.jsx'
+import { useOrden } from '../../nomina/orden.jsx'
 import { pesos, todas, siguienteId, ahoraTexto, opcionesQuincena } from '../../nomina/datos.js'
 
 const TIPOS_CUENTA = [['COSTO', 'costo'], ['GASTO ADMINISTRATIVO', 'gastoAdministrativo'], ['GASTO DE VENTAS', 'gastoDeVentas']]
-const vacio = { empleado_id: '', concepto: '', tipo: 'Indefinido', valor: '', monto_total: '', quincenas_totales: '', quincena_inicio: '', concilia: 'No', tipo_cuenta: '', cuenta: '' }
+const vacio = { empleado_id: '', concepto: '', tipo: 'Indefinido', direccion: 'sumar', valor: '', monto_total: '', quincenas_totales: '', concilia: 'No', tipo_cuenta: '', cuenta: '' }
 
 function resumen(p) {
   const valor = Number(p.valor) || 0, tot = Number(p.quincenas_totales) || 0, apl = Number(p.quincenas_aplicadas) || 0
@@ -19,7 +20,7 @@ export default function Programados({ config, empleados }) {
   const [lista, setLista] = useState(null)
   const [f, setF] = useState(vacio)
   const [error, setError] = useState(''), [ok, setOk] = useState('')
-  const [verTodos, setVerTodos] = useState(false)
+  const [fAct, setFAct] = useState(''), [fFin, setFFin] = useState(''), [fEstado, setFEstado] = useState('')
   const [nuevo, setNuevo] = useState(false)
   const [conc, setConc] = useState(null)
   const activos = useMemo(() => empleados.filter((e) => e.estado !== 'Inactivo'), [empleados])
@@ -44,19 +45,20 @@ export default function Programados({ config, empleados }) {
       if (!emp) throw new Error('Elige el empleado.')
       if (!f.concepto.trim()) throw new Error('El concepto es obligatorio.')
       let valor, tot, monto
+      const signo = f.direccion === 'descontar' ? -1 : 1 // igual que la hoja: se escribe el valor positivo y se elige si suma o descuenta
       if (f.tipo === 'A término fijo') {
-        monto = Number(f.monto_total); tot = Number(f.quincenas_totales)
+        monto = signo * Math.abs(Number(f.monto_total)); tot = Number(f.quincenas_totales)
         if (!monto) throw new Error('El monto total debe ser distinto de cero (positivo = pago, negativo = descuento).')
         if (!tot || tot <= 0) throw new Error('El número de quincenas debe ser mayor a cero.')
         valor = Math.round(monto / tot)
       } else {
-        valor = Number(f.valor); tot = 0; monto = 0
+        valor = signo * Math.abs(Number(f.valor)); tot = 0; monto = 0
         if (!valor) throw new Error('El valor debe ser distinto de cero (positivo = pago, negativo = descuento).')
       }
       const conc = validarConciliacion(f)
       await q(sb.from('programados').insert({ id: siguienteId(lista.map((p) => p.id), 'P', 3), empleado_id: emp.id, nombre: emp.nombre, concepto: f.concepto.trim(),
         valor, quincenas_totales: tot, quincenas_aplicadas: 0, estado: 'Activo', fecha_creacion: ahoraTexto(), tipo: f.tipo, monto_total: monto,
-        quincena_inicio: f.quincena_inicio || null, ...conc }))
+        quincena_inicio: null, ...conc }))
       setF(vacio); setNuevo(false); setOk('Programado creado. Se aplicará en la próxima quincena que se guarde.'); cargar()
     } catch (err) { setError(err.message) }
   }
@@ -69,12 +71,16 @@ export default function Programados({ config, empleados }) {
   }
 
   if (!lista) return error ? <Aviso>{error}</Aviso> : <Cargando />
-  const vis = lista.filter((p) => verTodos || p.estado === 'Activo').sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'))
+  const ordenar = (xs) => [...xs].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'))
+  const act = ordenar(lista.filter((p) => p.estado === 'Activo' && (!fAct || p.empleado_id === fAct)))
+  const fin = ordenar(lista.filter((p) => p.estado !== 'Activo' && (!fFin || p.empleado_id === fFin) && (!fEstado || p.estado === fEstado)))
+  const empsDe = (xs) => [...new Map(xs.map((p) => [p.empleado_id, p.nombre])).entries()].sort((a, b) => (a[1] || '').localeCompare(b[1] || '', 'es'))
   const cuentasDe = (t) => (caus.cuentas?.[(TIPOS_CUENTA.find(([x]) => x === t) || [])[1]] || []).map((c) => c.Concepto)
   return (
     <div>
       <div className="barra-horas">
-        <label className="check"><input type="checkbox" checked={verTodos} onChange={(e) => setVerTodos(e.target.checked)} /> Ver también finalizados y cancelados</label>
+        <h3 style={{ margin: 0 }}>Activos</h3>
+        <select value={fAct} onChange={(e) => setFAct(e.target.value)}><option value="">Todos los empleados</option>{empsDe(lista.filter((p) => p.estado === 'Activo')).map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>
         <button className="btn btn-sm empuja" onClick={() => { setF(vacio); setError(''); setNuevo(true) }}>+ Nuevo programado</button>
       </div>
       <Aviso>{error && !nuevo ? error : ''}</Aviso><Aviso tipo="ok">{ok}</Aviso>
@@ -83,45 +89,59 @@ export default function Programados({ config, empleados }) {
         <div className="fila3">
           <label>Empleado<select value={f.empleado_id} onChange={(e) => setF({ ...f, empleado_id: e.target.value })}><option value="">—</option>{activos.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select></label>
           <label>Concepto<input value={f.concepto} onChange={(e) => setF({ ...f, concepto: e.target.value })} placeholder="Ej. Préstamo, bonificación…" /></label>
-          <label>Tipo<select value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })}><option>Indefinido</option><option>A término fijo</option></select></label>
+          <label>Tipo<select value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })}><option value="Indefinido">Indefinido (sin fin)</option><option value="A término fijo">A término fijo (monto total en X quincenas)</option></select></label>
+          <label>¿Sumar o descontar?<select value={f.direccion} onChange={(e) => setF({ ...f, direccion: e.target.value })}><option value="sumar">Sumar a la nómina (pago)</option><option value="descontar">Descontar de la nómina</option></select></label>
           {f.tipo === 'Indefinido'
-            ? <label>Valor quincenal (+ pago / − descuento)<input type="number" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} /></label>
+            ? <label>Valor quincenal<input type="number" min="0" value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} placeholder="Ej: 50000" /></label>
             : <>
-              <label>Monto total (+ pago / − descuento)<input type="number" value={f.monto_total} onChange={(e) => setF({ ...f, monto_total: e.target.value })} /></label>
+              <label>Monto total<input type="number" min="0" value={f.monto_total} onChange={(e) => setF({ ...f, monto_total: e.target.value })} /></label>
               <label>Número de quincenas<input type="number" min="1" value={f.quincenas_totales} onChange={(e) => setF({ ...f, quincenas_totales: e.target.value })} /></label>
             </>}
-          <label>Quincena de inicio (opcional)<select value={f.quincena_inicio} onChange={(e) => setF({ ...f, quincena_inicio: e.target.value })}><option value="">La próxima que se guarde</option>{opcionesQuincena().lista.map((x) => <option key={x}>{x}</option>)}</select></label>
           <label>¿Cuenta para conciliaciones?<select value={f.concilia} onChange={(e) => setF({ ...f, concilia: e.target.value })}><option>No</option><option>Sí</option></select></label>
           {f.concilia === 'Sí' && <>
             <label>Tipo de cuenta<select value={f.tipo_cuenta} onChange={(e) => setF({ ...f, tipo_cuenta: e.target.value, cuenta: '' })}><option value="">—</option>{TIPOS_CUENTA.map(([t]) => <option key={t}>{t}</option>)}</select></label>
             <label>Cuenta puntual<select value={f.cuenta} onChange={(e) => setF({ ...f, cuenta: e.target.value })}><option value="">—</option>{cuentasDe(f.tipo_cuenta).map((c) => <option key={c}>{c}</option>)}</select></label>
           </>}
         </div>
-        {f.tipo === 'A término fijo' && Number(f.monto_total) && Number(f.quincenas_totales) > 0 ? <p className="tenue">Cuota por quincena: {pesos(Math.round(Number(f.monto_total) / Number(f.quincenas_totales)))} (la última ajusta el redondeo)</p> : null}
+        {f.tipo === 'A término fijo' && Number(f.monto_total) > 0 && Number(f.quincenas_totales) > 0 ? <p className="tenue">Valor por quincena (automático): {pesos((f.direccion === 'descontar' ? -1 : 1) * Math.round(Number(f.monto_total) / Number(f.quincenas_totales)))} (la última cuota ajusta el redondeo)</p> : null}
         <Aviso>{error}</Aviso>
         <div className="acciones"><button type="button" className="btn btn-sec" onClick={() => setNuevo(false)}>Cancelar</button><button className="btn btn-ok">Crear programado</button></div>
       </form>
       </Modal>}
-      <div className="tabla-cont"><table className="tabla tabla-pagos">
-        <thead><tr><th>ID</th><th>Empleado</th><th>Concepto</th><th>Tipo</th><th>Valor quincenal</th><th>Avance</th><th>Saldo pendiente</th><th>Inicio</th><th>Conciliación</th><th>Estado</th><th></th></tr></thead>
-        <tbody>{vis.map((p) => {
-          const r = resumen(p)
-          return (
-            <tr key={p.id}>
-              <td className="tenue">{p.id}</td><td>{p.nombre}</td><td>{p.concepto}</td><td>{p.tipo || (r.termino ? 'A término fijo' : 'Indefinido')}</td>
-              <td className="num">{pesos(p.valor)}</td>
-              <td className="num">{r.termino ? `${p.quincenas_aplicadas}/${p.quincenas_totales}` : `${p.quincenas_aplicadas} aplicadas`}</td>
-              <td className="num">{r.termino ? pesos(r.saldo) : ''}</td>
-              <td className="tenue">{p.quincena_inicio || ''}</td>
-              <td>{p.cuenta_conciliacion === 'Sí' ? `${p.tipo_cuenta_conciliacion} · ${p.cuenta_contable_conciliacion}` : 'No'} <button className="btn-link" onClick={() => { setError(''); setConc(p) }}>Editar</button></td>
-              <td><Badge tone={p.estado === 'Activo' ? 'ok' : p.estado === 'Cancelado' ? 'bad' : 'muted'}>{p.estado}</Badge></td>
-              <td>{p.estado === 'Activo' && <button className="btn-link peligro" onClick={() => cancelar(p)}>Cancelar</button>}</td>
-            </tr>
-          )
-        })}</tbody>
-      </table></div>
+      <TablaProg filas={act} activos onConc={(p) => { setError(''); setConc(p) }} onCancelar={cancelar} />
+      <div className="barra-horas" style={{ marginTop: 18 }}>
+        <h3 style={{ margin: 0 }}>Finalizados y cancelados</h3>
+        <select value={fFin} onChange={(e) => setFFin(e.target.value)}><option value="">Todos los empleados</option>{empsDe(lista.filter((p) => p.estado !== 'Activo')).map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>
+        <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}><option value="">Todos los estados</option><option>Finalizado</option><option>Cancelado</option></select>
+      </div>
+      <TablaProg filas={fin} onConc={(p) => { setError(''); setConc(p) }} />
       {conc && <ModalConc p={conc} cuentasDe={cuentasDe} error={error} onCambio={(d) => cambiarConc(conc, d)} onClose={() => setConc(null)} />}
     </div>
+  )
+}
+
+function TablaProg({ filas: crudas, activos, onConc, onCancelar }) {
+  const { ordenar, th } = useOrden()
+  const filas = ordenar(crudas, (p, k) => { const r = resumen(p); return k === 'monto' ? (r.termino ? r.monto : null) : k === 'saldo' ? r.saldo : k === 'restantes' ? r.restantes : k === 'valor' ? Number(p.valor) : k === 'avance' ? Number(p.quincenas_aplicadas) : p[k] })
+  return (
+    <div className="tabla-cont"><table className="tabla tabla-pagos">
+      <thead><tr>{th('nombre', 'Empleado')}{th('concepto', 'Concepto')}{th('tipo', 'Tipo')}{th('monto', 'Monto total', { className: 'num' })}{th('valor', 'Valor/quincena', { className: 'num' })}{th('quincena_inicio', 'Quincena inicio')}{th('avance', 'Avance', { className: 'num' })}
+        {activos ? <>{th('saldo', 'Saldo pendiente', { className: 'num' })}{th('restantes', 'Quincenas restantes', { className: 'num' })}</> : th('estado', 'Estado')}{th('cuenta_conciliacion', 'Conciliación')}<th></th></tr></thead>
+      <tbody>{filas.map((p) => {
+        const r = resumen(p)
+        return (
+          <tr key={p.id}>
+            <td><b>{p.nombre}</b></td><td>{p.concepto}</td><td>{p.tipo || (r.termino ? 'A término fijo' : 'Indefinido')}</td>
+            <td className="num">{r.termino ? pesos(r.monto) : '—'}</td><td className="num">{pesos(p.valor)}</td><td className="tenue">{p.quincena_inicio || '—'}</td>
+            <td className="num">{r.termino ? `${p.quincenas_aplicadas}/${p.quincenas_totales}` : `${p.quincenas_aplicadas} aplicadas`}</td>
+            {activos ? <><td className="num">{r.termino ? pesos(r.saldo) : '—'}</td><td className="num">{r.termino ? r.restantes : '—'}</td></>
+              : <td><Badge tone={p.estado === 'Cancelado' ? 'bad' : 'muted'}>{p.estado}</Badge></td>}
+            <td>{p.cuenta_conciliacion === 'Sí' ? `${p.tipo_cuenta_conciliacion} · ${p.cuenta_contable_conciliacion}` : 'No'} <button className="btn-link" onClick={() => onConc(p)}>Editar</button></td>
+            <td>{activos && <button className="btn-link peligro" onClick={() => onCancelar(p)}>Cancelar</button>}</td>
+          </tr>
+        )
+      })}</tbody>
+    </table>{!filas.length && <p className="tenue">No hay registros.</p>}</div>
   )
 }
 

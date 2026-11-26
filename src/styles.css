@@ -759,5 +759,23 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .pagos .modal .fila-form label { min-width: 120px; }
 
 .jornada-paneles:not(.dos) .tabla-jornada td.j-nombre-td { white-space: nowrap; }
-.jornada-paneles:not(.dos) .tabla-jornada td:last-child { width: 50%; }
 .jornada-paneles:not(.dos) .tabla-jornada td:not(:first-child):not(:last-child), .jornada-paneles:not(.dos) .tabla-jornada th:not(:first-child):not(:last-child) { width: 1%; white-space: nowrap; padding-left: 10px; padding-right: 10px; }
+
+/* Jornada: observación de ancho razonable; la tabla se ajusta a su contenido */
+.jornada-paneles:not(.dos) .tabla-jornada { width: auto; min-width: 760px; max-width: 100%; }
+.jornada-paneles:not(.dos) .tabla-jornada input.obs { width: 260px; }
+.jornada-paneles.dos .tabla-jornada input.obs { width: 100%; max-width: 200px; }
+fieldset.jornada-paneles { border: 0; padding: 0; margin: 0; min-width: 0; }
+/* Alertas de días faltantes (igual que la hoja) */
+.faltantes { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
+.falt { display: inline-block; width: fit-content; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 12px; }
+.falt-ok { background: #e3f3df; color: #1d6b3d; }
+.falt-mal { background: #fdecec; color: #a12626; }
+.falt-aviso { background: #fff4dc; color: #8a5a00; }
+.dia-pend { background: none; border: 0; padding: 0 2px; font: inherit; font-weight: 700; color: inherit; text-decoration: underline; cursor: pointer; }
+.aviso-consulta { display: inline-block; background: #e8f0fe; color: #1f55a8; border: 1px solid #c3d7f5; border-radius: 6px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; margin: 2px 0 8px; }
+fieldset:disabled .tabla-jornada input, fieldset:disabled .tabla-jornada select { background: #f7f8fa; color: var(--tinta); }
+.pagos .tabla th.ordenable { cursor: pointer; user-select: none; }
+.pagos .tabla th.ordenable:hover { color: var(--tinta); }
+.pagos .tabla th.ordenada { color: var(--tinta); }
+.pagos tr.fila-sel td { background: #eef4ff; }

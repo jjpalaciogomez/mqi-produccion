@@ -4,6 +4,7 @@ import { Aviso, Cargando } from '../../ui.jsx'
 import * as M from '../../nomina/motor.js'
 import { pesos, num, todas, empleadosMotor, porId, hoyCO, fechaCorta } from '../../nomina/datos.js'
 import { descargarTabla } from '../../nomina/xlsx.js'
+import { useOrden } from '../../nomina/orden.jsx'
 
 const VISTAS = [['novedades', 'Novedades de la quincena'], ['costos', 'Costo de nómina'], ['extras', 'Horas extra'], ['ausentismo', 'Ausentismo'], ['programados', 'Programados'], ['historico', 'Histórico por empleado']]
 const ordenQ = (a, b) => M.parsearQuincena(a).inicio.localeCompare(M.parsearQuincena(b).inicio)
@@ -12,11 +13,13 @@ function Barras({ datos }) {
   const max = Math.max(1, ...datos.map((d) => d.v))
   return <div className="barras">{datos.map((d) => <div key={d.k} className="barra-col" title={`${d.k}: ${pesos(d.v)}`}><div className="barra-val" style={{ height: `${(d.v / max) * 100}%` }} /><span>{d.c}</span></div>)}</div>
 }
-function Tabla({ enc, filas, archivo }) {
+function Tabla({ enc, filas: crudas, archivo }) {
+  const { ordenar, th } = useOrden()
+  const filas = ordenar(crudas, (f, j) => { const v = f[j]; return v && v.excel !== undefined ? v.excel : v })
   return (
     <>
       <div className="barra-horas"><button className="btn btn-sec btn-sm" onClick={() => descargarTabla(archivo, enc, filas.map((f) => f.map((v) => (v && v.excel !== undefined ? v.excel : v))))}>Exportar Excel</button></div>
-      <div className="tabla-cont"><table className="tabla tabla-pagos"><thead><tr>{enc.map((e) => <th key={e}>{e}</th>)}</tr></thead>
+      <div className="tabla-cont"><table className="tabla tabla-pagos"><thead><tr>{enc.map((e, j) => th(j, e))}</tr></thead>
         <tbody>{filas.map((f, i) => <tr key={i}>{f.map((v, j) => <td key={j} className={typeof (v?.excel ?? v) === 'number' ? 'num' : ''}>{v?.ver ?? v}</td>)}</tr>)}</tbody></table></div>
     </>
   )
@@ -34,6 +37,7 @@ export default function Informes({ config, empleados }) {
   const [cant, setCant] = useState(12)
   const [rango, setRango] = useState(() => { const h = hoyCO(); return { desde: h.slice(0, 8) + '01', hasta: h } })
   const [emp, setEmp] = useState('')
+  const [nEmp, setNEmp] = useState(''), [nTipo, setNTipo] = useState('')
 
   const cargar = useCallback(async () => {
     try {
@@ -67,8 +71,12 @@ export default function Informes({ config, empleados }) {
       if (a.observacion) g[k].obs.push(a.observacion)
     })
     Object.values(g).forEach((x) => nov.push([x.n, x.area, x.t, $(0), `${x.dias} día(s) hábil(es)${x.obs.length ? ' — ' + x.obs.join('; ') : ''}`, 'Ausentismos']))
-    cuerpo = <><select value={quincena} onChange={(e) => setQuincena(e.target.value)}>{quincenas.map((x) => <option key={x}>{x}</option>)}</select>
-      <Tabla enc={['Empleado', 'Área', 'Tipo', 'Valor', 'Detalle', 'Fuente']} filas={nov} archivo={`Novedades_${quincena}.xlsx`} /></>
+    const nombres = [...new Set(nov.map((n) => n[0]))].sort((a, b) => a.localeCompare(b, 'es')), tipos = [...new Set(nov.map((n) => n[2]))].sort()
+    const vis = nov.filter((n) => (!nEmp || n[0] === nEmp) && (!nTipo || n[2] === nTipo)).sort((a, b) => a[0].localeCompare(b[0], 'es'))
+    cuerpo = <><div className="barra-horas"><select value={quincena} onChange={(e) => setQuincena(e.target.value)}>{quincenas.map((x) => <option key={x}>{x}</option>)}</select>
+      <select value={nEmp} onChange={(e) => setNEmp(e.target.value)}><option value="">Todos los empleados</option>{nombres.map((n) => <option key={n}>{n}</option>)}</select>
+      <select value={nTipo} onChange={(e) => setNTipo(e.target.value)}><option value="">Todos los tipos</option>{tipos.map((n) => <option key={n}>{n}</option>)}</select></div>
+      <Tabla enc={['Empleado', 'Área', 'Tipo', 'Valor', 'Detalle', 'Fuente']} filas={vis} archivo={`Novedades_${quincena}.xlsx`} /></>
   }
   if (vista === 'costos') {
     const porQ = {}

@@ -11,11 +11,13 @@ import Vacaciones from './Vacaciones.jsx'
 import Informes from './Informes.jsx'
 import Causaciones from './Causaciones.jsx'
 import Empleados from './Empleados.jsx'
+import { AYUDA, ModalAyuda } from './Ayuda.jsx'
 
 // Contenedor de Pagos: carga la configuración de nómina y los empleados una vez y los comparte
 export default function Pagos({ modulo, perfil, modulos }) {
   const [base, setBase] = useState(null)
   const [error, setError] = useState('')
+  const [ayuda, setAyuda] = useState(false)
   const verEmpleados = modulos.some((m) => !['jornadalito', 'jornadaindustrial'].includes(m))
 
   const cargar = useCallback(async () => {
@@ -39,10 +41,14 @@ export default function Pagos({ modulo, perfil, modulos }) {
   const titulo = (MODULOS.find(([m]) => m === modulo) || [])[1]
   if (error) return <Aviso>{error}</Aviso>
   if (!base) return <Cargando />
-  const props = { ...base, perfil, modulos, recargarBase: cargar }
+  const rol = perfil?.rol
+  // Mismos permisos del programa anterior: Gerencia/Administrador todo; Contabilidad consulta y exporta (no guarda nómina,
+  // horas extra ni causaciones, ni elimina ausentismos); Recursos Humanos edita sus módulos; los retirados solo los ve Gerencia.
+  const props = { ...base, perfil, modulos, recargarBase: cargar, gestor: ['admin', 'direccion'].includes(rol), soloLectura: rol === 'contabilidad' }
   return (
     <div className="pagos">
-      <div className="titulo-pagina"><h1>{titulo}</h1></div>
+      <div className="titulo-pagina"><h1>{titulo}</h1>{AYUDA[modulo] && <button className="btn btn-sec btn-sm" onClick={() => setAyuda(true)}>❓ Ayuda</button>}</div>
+      {ayuda && <ModalAyuda a={AYUDA[modulo]} onClose={() => setAyuda(false)} />}
       {modulo === 'jornadalito' && <Jornada grupo="litografia" {...props} />}
       {modulo === 'jornadaindustrial' && <Jornada grupo="industrial" {...props} />}
       {modulo === 'horasextra' && <HorasExtra {...props} />}

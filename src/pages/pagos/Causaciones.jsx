@@ -9,7 +9,7 @@ import { CausConfig } from './ConfigNomina.jsx'
 
 const ENC = ['Quincena', 'ID línea', 'ID_Empleado', 'Cuenta', 'Descripción', 'C. Costo', 'NIT', 'Nombre', 'Débito', 'Crédito', 'Concepto', 'Tipo', 'Fecha de generación']
 
-export default function Causaciones({ config, empleados, recargarBase }) {
+export default function Causaciones({ config, empleados, recargarBase, soloLectura, gestor }) {
   const emps = useMemo(() => empleadosMotor(empleados), [empleados])
   const empPorId = useMemo(() => porId(emps), [emps])
   const [datos, setDatos] = useState(null)
@@ -70,10 +70,10 @@ export default function Causaciones({ config, empleados, recargarBase }) {
         <select value={quincena} onChange={(e) => { setVista(null); setQuincena(e.target.value) }}>{quincenas.map((x) => <option key={x}>{x}</option>)}</select>
         {guardadas.length ? <Badge tone="ok">Causada ({guardadas.length} líneas)</Badge> : <Badge tone="warn">Sin causar</Badge>}
         <button className="btn btn-sec btn-sm" onClick={previsualizar}>Previsualizar</button>
-        {!guardadas.length ? <button className="btn btn-sm btn-ok" disabled={ocupado} onClick={() => generar(false)}>Generar causación</button>
-          : <><button className="btn btn-sm" disabled={ocupado} onClick={() => generar(true)}>Regenerar</button><button className="btn btn-sm btn-paro" onClick={eliminar}>Eliminar</button></>}
+        {!soloLectura && (!guardadas.length ? <button className="btn btn-sm btn-ok" disabled={ocupado} onClick={() => generar(false)}>Generar causación</button>
+          : <><button className="btn btn-sm" disabled={ocupado} onClick={() => generar(true)}>Regenerar</button><button className="btn btn-sm btn-paro" onClick={eliminar}>Eliminar</button></>)}
         {mostrar.length > 0 && <button className="btn btn-sec btn-sm" onClick={() => exportar(mostrar, `Causacion_${quincena}.xlsx`)}>Exportar Excel</button>}
-        <button className="btn btn-sec btn-sm empuja" onClick={() => setVerConfig(true)}>Configuración contable</button>
+        {gestor && <button className="btn btn-sec btn-sm empuja" onClick={() => setVerConfig(true)}>Configuración contable</button>}
       </div>
       <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
       {vista && <Aviso tipo="warn">Vista previa (sin guardar): {vista.lineas.length} líneas · Débitos {pesos(vista.totalDebito)} · Créditos {pesos(vista.totalCredito)}{vista.advertencias.length ? ' · ' + vista.advertencias.join(' ') : ''}</Aviso>}
@@ -88,8 +88,8 @@ export default function Causaciones({ config, empleados, recargarBase }) {
         </details>
       </>}
       <h3>Causaciones guardadas</h3>
-      <div className="tabla-cont"><table className="tabla tabla-pagos"><thead><tr><th>Quincena</th><th>Líneas</th><th>Débitos</th><th>Créditos</th><th>Generada</th></tr></thead>
-        <tbody>{resumen.map((r) => <tr key={r.q}><td>{r.q}</td><td className="num">{r.n}</td><td className="num">{pesos(r.d)}</td><td className="num">{pesos(r.c)}</td><td className="tenue">{r.f}</td></tr>)}</tbody></table></div>
+      <div className="tabla-cont"><table className="tabla tabla-pagos tabla-click"><thead><tr><th>Quincena</th><th className="num">Líneas</th><th className="num">Débitos</th><th className="num">Créditos</th><th>Generada</th></tr></thead>
+        <tbody>{resumen.map((r) => <tr key={r.q} onClick={() => { setVista(null); setQuincena(r.q); window.scrollTo({ top: 0, behavior: 'smooth' }) }} title="Ver el detalle de esta quincena" className={r.q === quincena ? 'fila-sel' : ''}><td>{r.q}</td><td className="num">{r.n}</td><td className="num">{pesos(r.d)}</td><td className="num">{pesos(r.c)}</td><td className="tenue">{r.f}</td></tr>)}</tbody></table></div>
       {verConfig && <Modal titulo="Configuración contable · cuentas, centros de costo, porcentajes y entidades" onClose={() => setVerConfig(false)} ancho={1100}>
         <CausConfig valor={config.causaciones} onGuardado={recargarBase} />
       </Modal>}

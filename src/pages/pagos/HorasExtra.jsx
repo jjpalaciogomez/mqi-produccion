@@ -5,11 +5,13 @@ import { Aviso, Badge, Cargando, Modal } from '../../ui.jsx'
 import * as M from '../../nomina/motor.js'
 import { hoyCO, pesos, num, todas, opcionesSemana, empleadosMotor, porId, fechaCorta } from '../../nomina/datos.js'
 import { archivoBancolombia, descargarTabla } from '../../nomina/xlsx.js'
+import { AlertasFaltantes, calcularFaltantes } from './Jornada.jsx'
+import { useOrden } from '../../nomina/orden.jsx'
 
 const C = M.CATEGORIAS
 const NOMBRES = { HED: 'Extra diurna', HEN: 'Extra nocturna', RN: 'Recargo nocturno', HDF: 'Dominical/festiva diurna', HNDF: 'Dominical/festiva nocturna', HEDF: 'Extra dom./fest. diurna', HENF: 'Extra dom./fest. nocturna' }
 
-export default function HorasExtra({ config, empleados }) {
+export default function HorasExtra({ config, empleados, soloLectura }) {
   const { cfg, festivos } = config
   const emps = useMemo(() => empleadosMotor(empleados), [empleados])
   const empPorId = useMemo(() => porId(emps), [emps])
@@ -100,36 +102,41 @@ export default function HorasExtra({ config, empleados }) {
           <button className={grupo === 'litografia' ? 'sel' : ''} onClick={() => { setSucio(false); setGrupo('litografia') }}>Litografía</button>
         </div>
         <div className="segmentado">
-          {[['cuadro', 'Cuadro'], ['detalle', 'Detalle por día'], ['saldos', 'Saldos por devolver']].map(([v, t]) => <button key={v} className={vista === v ? 'sel' : ''} onClick={() => setVista(v)}>{t}</button>)}
+          {[['cuadro', 'Cuadro'], ['resumen', 'Resumen de la semana'], ['saldos', 'Saldos pendientes']].map(([v, t]) => <button key={v} className={vista === v ? 'sel' : ''} onClick={() => setVista(v)}>{t}</button>)}
         </div>
         {guardadaSemana ? <Badge tone="ok">Semana guardada</Badge> : <Badge tone="warn">Sin guardar</Badge>}
         <button className="btn btn-sec btn-sm" disabled={!guardadaSemana} onClick={prepararBanco}>Archivo Bancolombia</button>
         {vista === 'cuadro' && <>
           <span className="empuja pagos-total">A pagar <b>{pesos(totales.neto)}</b></span>
           {sucio && <Badge tone="warn">Cambios sin guardar</Badge>}
+          {!soloLectura && <>
           <button className="btn btn-sec btn-sm" onClick={traerJornada} title="Reemplaza las horas del cuadro por las calculadas desde la jornada">Traer horas de la jornada</button>
           <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar semana'}</button>
+          </>}
         </>}
       </div>
       <Aviso>{error}</Aviso>
       <Aviso tipo="ok">{ok}</Aviso>
       {vista === 'cuadro' && <>
+        <AlertasFaltantes soloAnterior f={calcularFaltantes([...new Set(datos.jornadas.filter((j) => j.grupo === grupo).map((j) => j.fecha))], festivos)} />
+        {soloLectura && <div className="aviso-consulta">Solo consulta y exportación: este usuario no puede editar ni guardar el cuadro.</div>}
         <div className="tabla-cont">
-          <table className="tabla tabla-pagos tabla-click">
-            <thead><tr><th>Nombre</th><th>Área</th>{C.map((c) => <th key={c} title={NOMBRES[c]}>{c}</th>)}<th>Valor hora</th><th>Bruto</th><th title="Horas por devolver (descanso nocturno / llegadas tarde)">Descuento</th><th>A pagar</th></tr></thead>
+          <table className={'tabla tabla-pagos' + (soloLectura ? '' : ' tabla-click')}>
+            <thead><tr><th>Nombre</th><th>Área</th>{C.map((c) => <th key={c} title={NOMBRES[c]} className="num">{c}</th>)}<th className="num">Valor hora</th><th className="num">Extras (bruto)</th><th title="Horas por devolver (descanso nocturno / llegadas tarde)">Descuento por devolver (h)</th><th className="num">Neto a pagar</th><th className="num">Saldo pendiente (h)</th></tr></thead>
             <tbody>
               {filas.map((f, i) => {
                 const c = calc(f)
                 return (
-                  <tr key={f.id} onClick={() => setEditar(i)} className={f.editado ? 'fila-editada' : ''} title="Clic para corregir las horas">
+                  <tr key={f.id} onClick={() => !soloLectura && setEditar(i)} className={f.editado ? 'fila-editada' : ''} title={soloLectura ? '' : 'Clic para corregir las horas'}>
                     <td><b>{f.nombre}</b>{!f.guardado && <div className="tenue">calculado de la jornada</div>}</td>
                     <td className="tenue">{f.area}</td>
                     {C.map((k) => <td key={k} className="num">{Number(f[k]) ? num(Number(f[k])) : ''}</td>)}
                     <td className="num">{pesos(c.ValorHora)}</td>
                     <td className="num">{pesos(c.TotalHorasExtra)}</td>
                     <td className="num">{c.aplicado.AplicadoTotal > 0 || c.saldoAnt > 0 || c.debe > 0
-                      ? <span title={`Debe esta semana: ${c.debe} h · saldo anterior: ${c.saldoAnt} h · queda: ${c.aplicado.SaldoFinal} h`}>{c.aplicado.AplicadoTotal} h ({M.textoAplicado(c.aplicado.Aplicado) || '—'}){c.aplicado.SaldoFinal > 0 && <div className="tenue">queda {c.aplicado.SaldoFinal} h</div>}</span> : ''}</td>
+                      ? <span title={`Debe esta semana: ${c.debe} h · saldo anterior: ${c.saldoAnt} h · queda: ${c.aplicado.SaldoFinal} h`}>{c.aplicado.AplicadoTotal} h ({M.textoAplicado(c.aplicado.Aplicado) || '—'})</span> : ''}</td>
                     <td className="num"><b>{pesos(c.neto)}</b></td>
+                    <td className="num">{c.aplicado.SaldoFinal || ''}</td>
                   </tr>
                 )
               })}
@@ -141,7 +148,7 @@ export default function HorasExtra({ config, empleados }) {
         </div>
         <p className="ayuda-txt">Las horas se calculan solas desde la Jornada (viernes a jueves). Para corregirlas haz clic en la persona antes de guardar. El descuento por descanso nocturno y llegadas tarde se aplica sobre HED, HEN, HEDF y HENF, en ese orden.</p>
       </>}
-      {vista === 'detalle' && <DetalleDias datos={datos} fechas={fechas} grupo={grupo} cfg={cfg} festivos={festivos} cadena={cadena} inicio={inicio} />}
+      {vista === 'resumen' && <Resumen datos={datos} semana={semana} fechas={fechas} grupo={grupo} cfg={cfg} festivos={festivos} cadena={cadena} inicio={inicio} emps={emps} />}
       {vista === 'saldos' && <Saldos cadena={cadena} empPorId={empPorId} />}
       {banco && <ModalBanco res={banco} tipo="HORAS_EXTRA" onClose={() => setBanco(null)} />}
       {editar !== null && filas[editar] && <ModalHoras f={filas[editar]} calc={calc} desdeJornada={desdeJornada[filas[editar].id] || {}}
@@ -180,41 +187,122 @@ function ModalHoras({ f: inicial, calc, desdeJornada, onAplicar, onClose }) {
   )
 }
 
-function DetalleDias({ datos, fechas, grupo, cfg, festivos, cadena, inicio }) {
+// Filas día a día con horas extra (jornada y 2ª jornada) de una semana, para los empleados del grupo
+function detalleDias(datos, fechas, grupo, cfg, festivos, ids) {
   const filas = []
-  datos.jornadas.filter((j) => j.grupo === grupo).forEach((j) => {
+  datos.jornadas.filter((j) => j.grupo === grupo && ids.has(j.empleado_id)).forEach((j) => {
     M.segmentosDeJornada(j, cfg, festivos).forEach((s) => {
       if (!fechas.includes(s.Fecha)) return
-      const tot = C.reduce((a, c) => a + s.Clasif[c], 0)
-      if (tot > 0) filas.push({ nombre: j.nombre, fecha: s.Fecha, jornada: s.Segunda ? `2ª: ${j.seg_entrada}–${j.seg_salida}` : `${j.entrada}–${j.salida}`, ...s.Clasif, tot })
+      const tot = M.redondear2(C.reduce((a, c) => a + s.Clasif[c], 0))
+      if (tot > 0) filas.push({ id: j.empleado_id, nombre: j.nombre, area: j.area || '', fecha: s.Fecha, jornada: s.Segunda ? '' : `${j.entrada || ''}–${j.salida || ''}`, segunda: s.Segunda ? `${j.seg_entrada}–${j.seg_salida}` : '', ...s.Clasif, tot })
     })
   })
-  filas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es') || a.fecha.localeCompare(b.fecha))
-  const desc = cadena ? [...cadena.descansos.filter((d) => d.SemanaInicio === inicio), ...cadena.tardanzas.filter((t) => t.SemanaInicio === inicio)] : []
+  return filas
+}
+const diaCorto = (iso) => `${M.DIAS_SEMANA[M.diaSemana(iso)].slice(0, 3)} ${fechaCorta(iso).slice(0, 5)}`
+
+// Resumen de la semana: qué días hicieron horas extra, descuentos por descansos/llegadas tarde y neto (igual que la hoja)
+function Resumen({ datos, semana, fechas, grupo, cfg, festivos, cadena, inicio, emps }) {
+  const [filtro, setFiltro] = useState('')
+  const { ordenar, th } = useOrden()
+  const empPorId = Object.fromEntries(M.empleadosParaHorasExtra(emps, grupo).map((e) => [e.ID_Empleado, e]))
+  const ids = new Set(Object.keys(empPorId))
+  const det = detalleDias(datos, fechas, grupo, cfg, festivos, ids)
+  const guardado = {}, guardadoHoras = {}
+  datos.he.filter((r) => r.semana === semana && ids.has(r.empleado_id)).forEach((r) => {
+    guardado[r.empleado_id] = (guardado[r.empleado_id] || 0) + (Number(r.total) || 0)
+    const h = guardadoHoras[r.empleado_id] || (guardadoHoras[r.empleado_id] = Object.fromEntries(C.map((c) => [c, 0])))
+    C.forEach((c) => { h[c] += Number(r[c.toLowerCase()]) || 0 })
+  })
+  const porEmp = {}
+  const fila = (id) => (porEmp[id] = porEmp[id] || { id, nombre: empPorId[id].Nombre, area: empPorId[id].Area || '', dias: [], descansos: [], tardanzas: [], ...Object.fromEntries(C.map((c) => [c, 0])), total: 0 })
+  det.forEach((f) => { const e = fila(f.id); e.dias.push(f.fecha); C.forEach((c) => { e[c] += f[c] }); e.total += f.tot })
+  const extra = []
+  if (cadena) {
+    cadena.descansos.forEach((d) => { if (!ids.has(d.ID_Empleado) || d.SemanaInicio !== inicio) return; fila(d.ID_Empleado).descansos.push(d); extra.push({ id: d.ID_Empleado, nombre: d.Nombre, fecha: d.Fecha, nota: d.Laboral ? `Descanso nocturno: ${d.Horas} h por devolver` : 'Descanso en día no laboral: no genera horas' }) })
+    cadena.tardanzas.forEach((t) => { if (!ids.has(t.ID_Empleado) || t.SemanaInicio !== inicio) return; fila(t.ID_Empleado).tardanzas.push(t); extra.push({ id: t.ID_Empleado, nombre: t.Nombre, fecha: t.Fecha, nota: `Llegó ${t.Entrada} (${t.Minutos} min tarde = ${t.Horas} h)` }) })
+    Object.keys(guardado).forEach((id) => { if (guardado[id] > 0) fila(id) })
+    Object.keys(cadena.porEmpleado).forEach((id) => { if (ids.has(id) && M.saldoAntesDeSemana(cadena, id, inicio) > 0) fila(id) })
+  }
+  const lista = Object.values(porEmp).map((e) => {
+    C.forEach((c) => { e[c] = M.redondear2(e[c]) }); e.total = M.redondear2(e.total)
+    e.fest = M.redondear2(e.HDF + e.HNDF + e.HEDF + e.HENF)
+    const base = guardado[e.id] !== undefined ? guardadoHoras[e.id] : Object.fromEntries(C.map((c) => [c, e[c]]))
+    e.bruto = guardado[e.id] !== undefined ? guardado[e.id] : M.calcularHorasExtra(empPorId[e.id], base, cfg).TotalHorasExtra
+    e.debe = M.redondear2(e.descansos.reduce((a, d) => a + (d.Horas || 0), 0) + e.tardanzas.reduce((a, t) => a + t.Horas, 0))
+    e.saldoAnt = cadena ? M.saldoAntesDeSemana(cadena, e.id, inicio) : 0
+    const r = M.aplicarDescuentoHoras(base, e.saldoAnt + e.debe, empPorId[e.id], cfg)
+    e.aplicado = r; e.neto = Math.max(0, e.bruto - r.ValorDescuento)
+    e.dias = [...new Set(e.dias)].sort()
+    e.novedades = [...e.descansos.map((d) => `descanso ${fechaCorta(d.Fecha).slice(0, 5)}`), ...e.tardanzas.map((t) => `tarde ${fechaCorta(t.Fecha).slice(0, 5)} (${t.Minutos} min)`)].join(', ')
+    return e
+  }).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  const enc = ['Empleado', 'Área', 'Días con horas', 'Fechas', 'HED', 'HEN', 'RN', 'Dom./festivo', 'Total horas', 'Extras (bruto)', 'Descansos y llegadas tarde', 'Descuento (h)', 'Saldo anterior (h)', 'Neto a pagar', 'Saldo pendiente (h)']
+  const filasX = lista.map((e) => [e.nombre, e.area, e.dias.length, e.dias.map((d) => fechaCorta(d).slice(0, 5)).join(', '), e.HED, e.HEN, e.RN, e.fest, e.total, Math.round(e.bruto), e.novedades, e.aplicado.AplicadoTotal, e.saldoAnt, Math.round(e.neto), e.aplicado.SaldoFinal])
+  const detalle = [...det, ...extra.map((x) => ({ ...x, nota: x.nota }))].filter((f) => !filtro || f.id === filtro).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es') || a.fecha.localeCompare(b.fecha))
   return (
     <div>
+      <div className="barra-horas">
+        <span className="tenue">{grupo === 'industrial' ? 'Industrial' : 'Litografía'} · {semana}</span>
+        <button className="btn btn-sec btn-sm empuja" onClick={() => descargarTabla(`Resumen_HE_${grupo}.xlsx`, enc, filasX)}>Descargar resumen (Excel)</button>
+      </div>
       <div className="tabla-cont"><table className="tabla tabla-pagos">
-        <thead><tr><th>Nombre</th><th>Fecha</th><th>Jornada</th>{C.map((c) => <th key={c}>{c}</th>)}<th>Total</th></tr></thead>
-        <tbody>{filas.map((f, i) => <tr key={i}><td>{f.nombre}</td><td>{M.DIAS_SEMANA[M.diaSemana(f.fecha)].slice(0, 3)} {fechaCorta(f.fecha)}</td><td className="tenue">{f.jornada}</td>{C.map((c) => <td key={c} className="num">{f[c] ? num(f[c]) : ''}</td>)}<td className="num"><b>{num(f.tot)}</b></td></tr>)}</tbody>
+        <thead><tr>{enc.map((t, i) => th(i, t, { className: i >= 4 && i !== 10 ? 'num' : '' }))}</tr></thead>
+        <tbody>{ordenar(lista, (e, k) => filasX[lista.indexOf(e)][k]).map((e) => <tr key={e.id}><td><b>{e.nombre}</b></td><td className="tenue">{e.area}</td><td className="num">{e.dias.length || ''}</td><td className="tenue">{e.dias.map(diaCorto).join(', ')}</td>
+          {['HED', 'HEN', 'RN', 'fest', 'total'].map((k) => <td key={k} className="num">{e[k] ? num(e[k]) : ''}</td>)}
+          <td className="num">{pesos(e.bruto)}</td><td className="tenue">{e.novedades}</td><td className="num">{e.aplicado.AplicadoTotal || ''}</td><td className="num">{e.saldoAnt || ''}</td>
+          <td className="num"><b>{pesos(e.neto)}</b></td><td className="num">{e.aplicado.SaldoFinal || ''}</td></tr>)}</tbody>
+      </table>{!lista.length && <p className="tenue">Nadie tuvo horas extra, descansos ni llegadas tarde esa semana.</p>}</div>
+      <div className="barra-horas" style={{ marginTop: 16 }}>
+        <h3 style={{ margin: 0 }}>Detalle día por día</h3>
+        <select value={filtro} onChange={(e) => setFiltro(e.target.value)}><option value="">Todos los empleados</option>{lista.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select>
+        <button className="btn btn-sec btn-sm empuja" onClick={() => descargarTabla(`Detalle_HE_${grupo}.xlsx`, ['Empleado', 'Fecha', 'Día', 'Jornada', '2ª jornada', ...C, 'Total', 'Nota'],
+          detalle.map((f) => [f.nombre, f.fecha, M.DIAS_SEMANA[M.diaSemana(f.fecha)], f.jornada || '', f.segunda || '', ...C.map((c) => f[c] || 0), f.tot || 0, f.nota || '']))}>Descargar detalle (Excel)</button>
+      </div>
+      <div className="tabla-cont"><table className="tabla tabla-pagos">
+        <thead><tr><th>Empleado</th><th>Fecha</th><th>Jornada</th><th>2ª jornada</th>{C.map((c) => <th key={c} className="num">{c}</th>)}<th className="num">Total</th></tr></thead>
+        <tbody>{detalle.map((f, i) => <tr key={i}><td>{f.nombre}</td><td>{diaCorto(f.fecha)}</td>
+          {f.nota ? <td colSpan={C.length + 3} className="tenue">{f.nota}</td> : <><td className="tenue">{f.jornada}</td><td className="tenue">{f.segunda}</td>{C.map((c) => <td key={c} className="num">{f[c] ? num(f[c]) : ''}</td>)}<td className="num"><b>{num(f.tot)}</b></td></>}</tr>)}</tbody>
       </table></div>
-      {desc.length > 0 && <><h3>Tiempo por devolver esta semana</h3><ul>{desc.map((d, i) => <li key={i}>{d.Nombre}: {d.Minutos ? `llegó tarde el ${fechaCorta(d.Fecha)} (${d.Minutos} min = ${d.Horas} h)` : `descanso nocturno el ${fechaCorta(d.Fecha)} (${d.Horas} h)`}</li>)}</ul></>}
     </div>
   )
 }
 
+// Saldos pendientes por descansos nocturnos y llegadas tarde, con su historial (igual que la hoja)
 function Saldos({ cadena, empPorId }) {
+  const [filtro, setFiltro] = useState('')
+  const { ordenar, th } = useOrden()
   if (!cadena) return null
-  const res = {}
-  const r = (id) => (res[id] = res[id] || { id, nombre: empPorId[id]?.Nombre || id, gen: 0, desc: 0, tarde: 0, descontadas: 0, saldo: 0 })
-  cadena.descansos.forEach((d) => { const x = r(d.ID_Empleado); x.desc = M.redondear2(x.desc + (d.Horas || 0)); x.gen = M.redondear2(x.gen + (d.Horas || 0)) })
-  cadena.tardanzas.forEach((t) => { const x = r(t.ID_Empleado); x.tarde = M.redondear2(x.tarde + t.Horas); x.gen = M.redondear2(x.gen + t.Horas) })
-  Object.entries(cadena.porEmpleado).forEach(([id, sem]) => Object.keys(sem).sort().forEach((w) => { const x = r(id); x.saldo = sem[w].SaldoFinal; x.descontadas = M.redondear2(x.descontadas + sem[w].AplicadoTotal) }))
-  const lista = Object.values(res).sort((a, b) => b.saldo - a.saldo)
+  const res = {}, movs = []
+  const r = (id, nombre, area) => (res[id] = res[id] || { id, nombre: nombre || empPorId[id]?.Nombre || id, area: area || empPorId[id]?.Area || '', desc: 0, tarde: 0, gen: 0, descontadas: 0, saldo: 0 })
+  const rango = (w) => `${fechaCorta(w).slice(0, 5)} al ${fechaCorta(M.fechaISOMasDias(w, 6)).slice(0, 5)}`
+  cadena.descansos.forEach((d) => { const x = r(d.ID_Empleado, d.Nombre, d.Area); x.gen = M.redondear2(x.gen + (d.Horas || 0)); x.desc = M.redondear2(x.desc + (d.Horas || 0))
+    movs.push({ id: d.ID_Empleado, nombre: x.nombre, fecha: d.Fecha, tipo: 'Descanso', semana: rango(d.SemanaInicio), horas: d.Horas || 0, detalle: d.Laboral ? `Día de descanso por turno nocturno: se deben ${d.Horas} h` : 'Cae en día no laboral: no genera horas por devolver', orden: d.Fecha + '1' }) })
+  cadena.tardanzas.forEach((t) => { const x = r(t.ID_Empleado, t.Nombre, t.Area); x.gen = M.redondear2(x.gen + t.Horas); x.tarde = M.redondear2(x.tarde + t.Horas)
+    movs.push({ id: t.ID_Empleado, nombre: x.nombre, fecha: t.Fecha, tipo: 'Llegada tarde', semana: rango(t.SemanaInicio), horas: t.Horas, detalle: `Llegó a las ${t.Entrada} (${t.Minutos} min tarde)${t.Observacion ? ' · ' + t.Observacion : ''}`, orden: t.Fecha + '1' }) })
+  Object.entries(cadena.porEmpleado).forEach(([id, sem]) => Object.keys(sem).sort().forEach((w) => { const c = sem[w], x = r(id); x.saldo = c.SaldoFinal
+    if (c.AplicadoTotal > 0) { x.descontadas = M.redondear2(x.descontadas + c.AplicadoTotal)
+      movs.push({ id, nombre: x.nombre, fecha: M.fechaISOMasDias(w, 6), tipo: 'Descuento', semana: rango(w), horas: -c.AplicadoTotal, detalle: `Se descontaron ${c.AplicadoTotal} h de las extras de esa semana (${M.textoAplicado(c.Aplicado)})${c.SaldoFinal > 0 ? ` · quedan ${c.SaldoFinal} h pendientes` : ' · saldo saldado'}`, orden: M.fechaISOMasDias(w, 7) + '2' }) } }))
+  const lista = Object.values(res).sort((a, b) => b.saldo - a.saldo || a.nombre.localeCompare(b.nombre, 'es'))
+  const mv = movs.filter((m) => !filtro || m.id === filtro).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es') || (a.orden < b.orden ? -1 : a.orden > b.orden ? 1 : 0))
+  const enc = ['Empleado', 'Área', 'Por descansos (h)', 'Por llegadas tarde (h)', 'Total generadas', 'Horas ya descontadas', 'Saldo pendiente (h)']
   return (
-    <div className="tabla-cont"><table className="tabla tabla-pagos">
-      <thead><tr><th>Nombre</th><th>Horas generadas</th><th>Por descanso nocturno</th><th>Por llegadas tarde</th><th>Descontadas de extras</th><th>Saldo pendiente</th></tr></thead>
-      <tbody>{lista.map((x) => <tr key={x.id}><td>{x.nombre}</td><td className="num">{x.gen}</td><td className="num">{x.desc}</td><td className="num">{x.tarde}</td><td className="num">{x.descontadas}</td><td className="num"><b>{x.saldo}</b></td></tr>)}</tbody>
-    </table><p className="ayuda-txt">Un día de descanso por turno nocturno (en día laboral) equivale a {cadena.horasDia} h. Las llegadas tarde cuentan desde el {fechaCorta(M.FECHA_INICIO_SALDO_TARDANZAS)}.</p></div>
+    <div>
+      <div className="barra-horas"><span className="tenue">Un día de descanso por turno nocturno (en día laboral) equivale a {cadena.horasDia} h. Las llegadas tarde cuentan desde el {fechaCorta(M.FECHA_INICIO_SALDO_TARDANZAS)}.</span>
+        <button className="btn btn-sec btn-sm empuja" onClick={() => descargarTabla('Saldos_horas_por_devolver.xlsx', enc, lista.map((x) => [x.nombre, x.area, x.desc, x.tarde, x.gen, x.descontadas, x.saldo]))}>Descargar (Excel)</button></div>
+      <div className="tabla-cont"><table className="tabla tabla-pagos">
+        <thead><tr>{enc.map((t, i) => th(i, t, { className: i > 1 ? 'num' : '' }))}</tr></thead>
+        <tbody>{ordenar(lista, (x, k) => [x.nombre, x.area, x.desc, x.tarde, x.gen, x.descontadas, x.saldo][k]).map((x) => <tr key={x.id}><td><b>{x.nombre}</b></td><td className="tenue">{x.area}</td><td className="num">{x.desc}</td><td className="num">{x.tarde}</td><td className="num">{x.gen}</td><td className="num">{x.descontadas}</td><td className="num"><b>{x.saldo}</b></td></tr>)}</tbody>
+      </table></div>
+      <div className="barra-horas" style={{ marginTop: 16 }}>
+        <h3 style={{ margin: 0 }}>Historial de movimientos</h3>
+        <select value={filtro} onChange={(e) => setFiltro(e.target.value)}><option value="">Todos los empleados</option>{lista.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}</select>
+      </div>
+      <div className="tabla-cont"><table className="tabla tabla-pagos">
+        <thead><tr><th>Empleado</th><th>Fecha</th><th>Movimiento</th><th>Semana del turno</th><th className="num">Horas</th><th>Detalle</th></tr></thead>
+        <tbody>{mv.map((m, i) => <tr key={i}><td>{m.nombre}</td><td>{diaCorto(m.fecha)}</td><td>{m.tipo}</td><td className="tenue">{m.semana}</td><td className="num">{m.horas > 0 ? '+' : ''}{m.horas}</td><td className="tenue">{m.detalle}</td></tr>)}</tbody>
+      </table></div>
+    </div>
   )
 }
 
