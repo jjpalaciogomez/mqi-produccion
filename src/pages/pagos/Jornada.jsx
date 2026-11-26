@@ -16,6 +16,7 @@ export default function Jornada({ grupo, config }) {
   const [personas, setPersonas] = useState(null)
   const [filas, setFilas] = useState([])
   const [yaExiste, setYaExiste] = useState(false)
+  const [abiertas, setAbiertas] = useState({})
   const [guardadas, setGuardadas] = useState([])
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
@@ -134,26 +135,31 @@ export default function Jornada({ grupo, config }) {
         <button className="btn-link" onClick={() => setFecha(hoyCO())}>Hoy</button>
         <span className="pagos-dia">{fmtLarga(fecha)} {laboral ? <Badge tone="info">Día laboral</Badge> : <Badge tone="warn">{festivos.includes(fecha) ? 'Festivo' : M.diaSemana(fecha) === 0 ? 'Domingo' : 'Sábado'}</Badge>}
           {yaExiste && <Badge tone="ok">Ya registrado</Badge>}</span>
+        {personas && <span className="empuja pagos-total" title={'Hora en formato 24 h (HH:MM). ' + (laboral ? `Se descuentan ${cfg.tiempoAlmuerzo} h de almuerzo.` : 'Día no laboral: quien no digite nada no trabajó y no se guarda.') + (industrial ? ' Segunda jornada (+): toda es tiempo extra; si termina después de medianoche marca la casilla.' : '')}>Total: <b>{Math.round(total * 100) / 100} h</b> <span className="ayuda-q">?</span></span>}
+        {personas && <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar día'}</button>}
       </div>
       {(faltantes.actual.length > 0 || faltantes.previa.length > 0) && (
         <Aviso tipo="warn">
-          {faltantes.previa.length > 0 && <div><b>Semana anterior sin registrar:</b> {faltantes.previa.map((d) => <button key={d} className="btn-link" onClick={() => setFecha(d)}>{fechaCorta(d)}</button>)}</div>}
-          {faltantes.actual.length > 0 && <div><b>Esta semana sin registrar:</b> {faltantes.actual.map((d) => <button key={d} className="btn-link" onClick={() => setFecha(d)}>{fechaCorta(d)}</button>)}</div>}
+          {faltantes.previa.length > 0 && <span><b>Semana anterior sin registrar:</b> {faltantes.previa.map((d) => <button key={d} className="btn-link" onClick={() => setFecha(d)}>{fechaCorta(d).slice(0, 5)}</button>)}</span>}
+          {faltantes.actual.length > 0 && <span><b> Esta semana sin registrar:</b> {faltantes.actual.map((d) => <button key={d} className="btn-link" onClick={() => setFecha(d)}>{fechaCorta(d).slice(0, 5)}</button>)}</span>}
         </Aviso>
       )}
       <Aviso>{error}</Aviso>
       <Aviso tipo="ok">{ok}</Aviso>
       {!personas ? <Cargando /> : (
         <>
-          <div className="tabla-cont">
-            <table className="tabla tabla-pagos">
+          <div className={'jornada-paneles' + (filas.length > 10 ? ' dos' : '')}>
+            {(filas.length > 10 ? [filas.slice(0, Math.ceil(filas.length / 2)), filas.slice(Math.ceil(filas.length / 2))] : [filas]).map((grupoFilas, gi) => (
+            <div className="tabla-cont" key={gi}>
+            <table className="tabla tabla-pagos tabla-compacta tabla-jornada">
               <thead><tr>
-                <th>Nombre</th><th>Área</th><th>Estado</th><th>Entrada</th><th>Salida</th><th>Horas</th>
-                {industrial && <><th>2ª entrada</th><th>2ª salida</th><th>Día sig.</th><th>2ª horas</th></>}
+                <th className="j-nombre">Nombre</th><th className="j-estado">Estado</th><th className="j-hora">Entrada</th><th className="j-hora">Salida</th><th className="j-horas">Horas</th>
+                {industrial && <th className="j-seg" title="Segunda jornada (toda es tiempo extra)">2ª jorn.</th>}
                 <th>Observación</th>
               </tr></thead>
               <tbody>
-                {filas.map((f, i) => {
+                {grupoFilas.map((f) => {
+                  const i = filas.indexOf(f)
                   const normal = f.estado === 'Normal'
                   const h = normal ? M.calcularHorasLaboradas(f.entrada, f.salida, cfg, laboral) : 0
                   const malE = normal && f.entrada && !M.esHoraValida(f.entrada), malS = normal && f.salida && !M.esHoraValida(f.salida)
@@ -161,36 +167,32 @@ export default function Jornada({ grupo, config }) {
                     ? Math.round((M.textoAHoras(f.entrada) - M.textoAHoras(cfg.inicioJornadaNormal)) * 60) : 0
                   const permiteSeg = normal || f.estado === M.ESTADO_DESCANSO_NOCTURNO
                   const hs = f.segEntrada || f.segSalida ? M.calcularHorasSegunda(f.segEntrada, f.segSalida, f.segSiguiente) : 0
+                  const segAbierta = abiertas[f.id] || f.segEntrada || f.segSalida
                   return (
                     <tr key={f.id} className={!normal ? 'fila-tenue' : ''}>
-                      <td><b>{f.nombre}</b></td>
-                      <td className="tenue">{f.area}</td>
+                      <td className="j-nombre-td" title={`${f.nombre} · ${f.area}`}><b>{f.nombre}</b></td>
                       <td><select value={f.estado} onChange={(e) => cambiar(i, 'estado', e.target.value)}>
                         {[...ESTADOS, ...(industrial ? [M.ESTADO_DESCANSO_NOCTURNO] : [])].map((o) => <option key={o}>{o}</option>)}
                       </select></td>
-                      <td><input className={'hora' + (malE ? ' mal' : '')} value={f.entrada} disabled={!normal} placeholder="07:00" onChange={(e) => cambiar(i, 'entrada', e.target.value.trim())} />
-                        {tarde > M.TOLERANCIA_LLEGADA_TARDE_MIN && <div className="tarde">{tarde} min tarde</div>}</td>
+                      <td><input className={'hora' + (malE ? ' mal' : '')} value={f.entrada} disabled={!normal} placeholder="07:00" onChange={(e) => cambiar(i, 'entrada', e.target.value.trim())} /></td>
                       <td><input className={'hora' + (malS ? ' mal' : '')} value={f.salida} disabled={!normal} placeholder="16:00" onChange={(e) => cambiar(i, 'salida', e.target.value.trim())} /></td>
-                      <td className="num">{normal ? (h === null ? (f.salida ? <span className="mal-txt">Verifica hora</span> : '') : h) : '—'}</td>
-                      {industrial && <>
-                        <td><input className="hora" value={f.segEntrada} disabled={!permiteSeg} placeholder="—" onChange={(e) => cambiar(i, 'segEntrada', e.target.value.trim())} /></td>
-                        <td><input className="hora" value={f.segSalida} disabled={!permiteSeg} placeholder="—" onChange={(e) => cambiar(i, 'segSalida', e.target.value.trim())} /></td>
-                        <td><input type="checkbox" checked={f.segSiguiente} disabled={!permiteSeg} onChange={(e) => cambiar(i, 'segSiguiente', e.target.checked)} /></td>
-                        <td className="num">{hs === null ? <span className="mal-txt">Revisa</span> : hs || ''}</td>
-                      </>}
-                      <td><input className="obs" value={f.observacion} onChange={(e) => cambiar(i, 'observacion', e.target.value)} /></td>
+                      <td className="num">{normal ? (h === null ? (f.salida ? <span className="mal-txt">Revisa</span> : '') : h) : '—'}{industrial && (hs === null ? <div className="mal-txt seg-h">2ª ?</div> : hs ? <div className="seg-h" title="Horas de la segunda jornada">+{hs}</div> : null)}{tarde > M.TOLERANCIA_LLEGADA_TARDE_MIN && <div className="tarde" title={`Llegó ${tarde} minutos tarde`}>{tarde}′ tarde</div>}</td>
+                      {industrial && <td className="j-seg-td">{!segAbierta
+                        ? <button className="btn-mini" disabled={!permiteSeg} title="Agregar segunda jornada" onClick={() => setAbiertas((x) => ({ ...x, [f.id]: true }))}>+</button>
+                        : <span className="seg-campos">
+                          <input className="hora" value={f.segEntrada} disabled={!permiteSeg} placeholder="—" onChange={(e) => cambiar(i, 'segEntrada', e.target.value.trim())} />
+                          <input className="hora" value={f.segSalida} disabled={!permiteSeg} placeholder="—" onChange={(e) => cambiar(i, 'segSalida', e.target.value.trim())} />
+                          <input type="checkbox" title="Termina al día siguiente (después de medianoche)" checked={f.segSiguiente} disabled={!permiteSeg} onChange={(e) => cambiar(i, 'segSiguiente', e.target.checked)} />
+                        </span>}</td>}
+                      <td><input className="obs" value={f.observacion} title={f.observacion} onChange={(e) => cambiar(i, 'observacion', e.target.value)} /></td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
+            </div>
+            ))}
           </div>
-          <div className="pagos-pie">
-            <span>Total horas laboradas: <b>{Math.round(total * 100) / 100}</b></span>
-            <button className="btn btn-ok" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar día'}</button>
-          </div>
-          <p className="ayuda-txt">Hora en formato 24 h (HH:MM). {laboral ? `Se descuentan ${cfg.tiempoAlmuerzo} h de almuerzo.` : 'Día no laboral: quien no digite nada no trabajó y no se guarda.'}
-            {industrial && ' Segunda jornada: toda es tiempo extra; si termina después de medianoche marca "Día sig.".'}</p>
         </>
       )}
     </div>

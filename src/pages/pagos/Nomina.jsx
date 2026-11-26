@@ -3,7 +3,7 @@ import { sb, q } from '../../supabase.js'
 import { useEnVivo } from '../../vivo.js'
 import { Aviso, Badge, Cargando } from '../../ui.jsx'
 import * as M from '../../nomina/motor.js'
-import { hoyCO, pesos, todas, opcionesQuincena, empleadosMotor, porId } from '../../nomina/datos.js'
+import { hoyCO, pesos, num, todas, opcionesQuincena, empleadosMotor, porId } from '../../nomina/datos.js'
 import { descargarTabla } from '../../nomina/xlsx.js'
 import { ModalBanco } from './HorasExtra.jsx'
 
@@ -106,26 +106,27 @@ export default function Nomina({ config, empleados }) {
       <Aviso tipo="ok">{ok}</Aviso>
       {recalc && <Aviso tipo="warn">Se recalcularon los días desde Ausentismos y Vacaciones. Revisa y guarda para que quede así.</Aviso>}
       <div className="tabla-cont">
-        <table className="tabla tabla-pagos tabla-nomina">
+        <table className="tabla tabla-pagos tabla-compacta tabla-nomina">
+          <colgroup><col className="c-nombre" /><col className="c-dia" /><col className="c-dia" /><col className="c-dia" /><col className="c-dia" /><col className="c-otros" /><col className="c-nota" />{Array.from({ length: 9 }, (_, i) => <col key={i} />)}</colgroup>
           <thead><tr>
-            <th>Nombre</th><th>Salario</th><th title="Días a remunerar (de 15)">Días</th><th>Incap.</th><th>Vacac.</th><th>Licencia</th><th>Otros (+/-)</th><th>Nota</th>
-            <th>Básico</th><th>Aux. transp.</th><th>Subsidio incap.</th><th>Programado</th><th>Devengado</th><th>Salud</th><th>Pensión</th><th>Descuentos</th><th>Neto</th>
+            <th>Nombre · salario</th><th title="Días a remunerar (de 15)">Días</th><th title="Días de incapacidad">Incap.</th><th title="Días de vacaciones">Vac.</th><th title="Días de licencia remunerada (calamidad)">Lic.</th><th>Otros (+/-)</th><th>Nota</th>
+            <th>Básico</th><th>Aux. transp.</th><th>Subsidio incap.</th><th>Progra&shy;mado</th><th>Deven&shy;gado</th><th>Salud</th><th>Pensión</th><th>Descuen&shy;tos</th><th>Neto</th>
           </tr></thead>
           <tbody>
             {filas.map((f, i) => {
               const c = calcs[i], e = empPorId[f.id]
-              const notas = [f.sug.DiasAntesIngreso && `ingresó: −${f.sug.DiasAntesIngreso} d`, f.sug.DiasDespuesRetiro && `retiro: −${f.sug.DiasDespuesRetiro} d`, f.sug.DiasNoRemunerados && `ausencias/permisos: −${f.sug.DiasNoRemunerados} d`, f.retirado && `retirado ${f.retirado}`].filter(Boolean)
+              const notas = [f.sug.DiasAntesIngreso && `ingresó: −${f.sug.DiasAntesIngreso} d`, f.sug.DiasDespuesRetiro && `retiro: −${f.sug.DiasDespuesRetiro} d`, f.sug.DiasNoRemunerados && `ausencias/permisos: −${f.sug.DiasNoRemunerados} d`, f.retirado && `retirado ${f.retirado}`, e.TipoContrato === 'Prestación de servicios' && 'prestación de servicios'].filter(Boolean)
+              const m = (v) => (v ? num(Math.round(v), 0) : '')
               return (
                 <tr key={f.id}>
-                  <td><b>{f.nombre}</b>{notas.length > 0 && <div className="tenue">{notas.join(' · ')}</div>}{e.TipoContrato === 'Prestación de servicios' && <div className="tenue">Prestación de servicios</div>}</td>
-                  <td className="num">{pesos(e.Salario)}</td>
-                  {['DiasTrabajados', 'Incapacidad', 'DiasVacaciones', 'DiasLicencia'].map((k) => <td key={k}><input className="num-in corto" type="number" min="0" max="15" step="0.5" value={f[k]} onChange={(ev) => cambiar(i, k, ev.target.value)} /></td>)}
+                  <td className="c-nombre-td"><b title={f.nombre}>{f.nombre}</b><div className="tenue">{pesos(e.Salario)}{notas.length > 0 && ' · ' + notas.join(' · ')}</div></td>
+                  {['DiasTrabajados', 'Incapacidad', 'DiasVacaciones', 'DiasLicencia'].map((k) => <td key={k}><input className="num-in" type="number" min="0" max="15" step="0.5" value={f[k]} onChange={(ev) => cambiar(i, k, ev.target.value)} /></td>)}
                   <td><input className="num-in" type="number" step="1000" value={f.OtrosAjuste} onChange={(ev) => cambiar(i, 'OtrosAjuste', ev.target.value)} /></td>
-                  <td><input className="obs" value={f.Nota} onChange={(ev) => cambiar(i, 'Nota', ev.target.value)} /></td>
-                  <td className="num">{pesos(c.Basico)}</td><td className="num">{pesos(c.AuxTransporte)}</td><td className="num">{pesos(c.SubsidioIncapacidad)}</td>
-                  <td className="num" title={f.programado.concepto}>{c.Programado ? pesos(c.Programado) : ''}</td>
-                  <td className="num">{pesos(c.TotalDevengado)}</td><td className="num">{pesos(c.Salud)}</td><td className="num">{pesos(c.Pension)}</td>
-                  <td className="num">{pesos(c.TotalDescuentos)}</td><td className="num"><b>{pesos(c.NetoPagar)}</b></td>
+                  <td><input className="obs" value={f.Nota} title={f.Nota} onChange={(ev) => cambiar(i, 'Nota', ev.target.value)} /></td>
+                  <td className="num">{m(c.Basico)}</td><td className="num">{m(c.AuxTransporte)}</td><td className="num">{m(c.SubsidioIncapacidad)}</td>
+                  <td className="num" title={f.programado.concepto}>{m(c.Programado)}</td>
+                  <td className="num">{m(c.TotalDevengado)}</td><td className="num">{m(c.Salud)}</td><td className="num">{m(c.Pension)}</td>
+                  <td className="num">{m(c.TotalDescuentos)}</td><td className="num"><b>{m(c.NetoPagar)}</b></td>
                 </tr>
               )
             })}
@@ -136,7 +137,7 @@ export default function Nomina({ config, empleados }) {
         <span>{filas.length} personas · Devengado <b>{pesos(tot.dev)}</b> · Descuentos <b>{pesos(tot.desc)}</b> · Neto a pagar <b>{pesos(tot.neto)}</b></span>
         <button className="btn btn-ok" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : yaExiste ? 'Guardar cambios' : 'Guardar quincena'}</button>
       </div>
-      <p className="ayuda-txt">Días + incapacidad + vacaciones + licencia no pueden pasar de 15. Al guardar por primera vez a una persona en la quincena se avanza una cuota de sus pagos programados.</p>
+      <p className="ayuda-txt">Valores en pesos. Días + incapacidad + vacaciones + licencia no pueden pasar de 15. Al guardar por primera vez a una persona en la quincena se avanza una cuota de sus pagos programados.</p>
       {banco && <ModalBanco res={banco} tipo="NOMINA" onClose={() => setBanco(null)} />}
     </div>
   )

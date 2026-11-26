@@ -684,3 +684,47 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .barra-col { flex: 1; min-width: 34px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; }
 .barra-val { width: 70%; background: var(--acento, #2563eb); border-radius: 4px 4px 0 0; min-height: 2px; }
 .barra-col span { position: absolute; bottom: -20px; font-size: 10.5px; color: var(--tenue); white-space: nowrap; }
+
+/* ----- Tablas compactas de Pagos (nómina sin desplazamiento horizontal, jornada sin desplazamiento vertical) ----- */
+.pagos .titulo-pagina { margin-bottom: 6px; }
+.pagos .titulo-pagina h1 { font-size: 20px; }
+.pagos .barra-horas { margin: 6px 0; }
+.pagos .barra-horas .empuja { margin-left: auto; }
+.pagos .aviso { padding: 6px 10px; margin: 6px 0; }
+.tabla-compacta { font-size: 12.5px; }
+.tabla-compacta th { font-size: 10.5px; padding: 6px 5px; white-space: normal; line-height: 1.15; vertical-align: bottom; }
+.tabla-compacta td { padding: 3px 5px; }
+.tabla-compacta input, .tabla-compacta select { padding: 3px 5px; border-radius: 6px; font-size: 12.5px; height: 26px; box-sizing: border-box; }
+.tabla-compacta .tenue { font-size: 11px; }
+.tabla-nomina { table-layout: fixed; width: 100%; }
+.tabla-nomina col.c-nombre { width: 15%; }
+.tabla-nomina col.c-dia { width: 3.6%; }
+.tabla-nomina col.c-otros { width: 6.5%; }
+.tabla-nomina col.c-nota { width: 8%; }
+.tabla-nomina td { overflow: hidden; text-overflow: ellipsis; }
+.tabla-nomina td.c-nombre-td b, .tabla-nomina td.c-nombre-td .tenue { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabla-nomina input.num-in, .tabla-nomina input.obs { width: 100%; }
+.tabla-nomina input[type=number] { -moz-appearance: textfield; }
+.tabla-nomina input[type=number]::-webkit-inner-spin-button, .tabla-nomina input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.jornada-paneles { display: grid; gap: 12px; align-items: start; }
+.jornada-paneles.dos { grid-template-columns: 1fr 1fr; }
+@media (max-width: 1150px) { .jornada-paneles.dos { grid-template-columns: 1fr; } }
+.tabla-jornada { width: 100%; }
+.tabla-jornada td { padding: 2px 3px; height: 30px; }
+.tabla-jornada th { padding: 5px 3px; white-space: nowrap; }
+.tabla-jornada td.j-nombre-td b { display: block; max-width: clamp(90px, 8.8vw, 200px); overflow: hidden; text-overflow: ellipsis; }
+.tabla-jornada select { width: 100px; padding-left: 4px; padding-right: 0; }
+.tabla-jornada input.hora { width: 52px; text-align: center; padding-left: 3px; padding-right: 3px; }
+.tabla-jornada input.obs { width: 100%; min-width: 44px; }
+.tabla-jornada td.num { min-width: 34px; }
+.tabla-jornada .tarde { font-size: 10px; font-weight: 600; color: #a15c00; line-height: 1; }
+.tabla-jornada .seg-campos { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.tabla-jornada .seg-campos input.hora { width: 44px; padding: 3px 2px; }
+.tabla-jornada .seg-campos label { font-size: 11px; display: inline-flex; align-items: center; gap: 1px; }
+.tabla-jornada .seg-campos input[type=checkbox] { height: 16px; width: 16px; padding: 0; margin: 0; }
+.tabla-jornada .seg-h { font-size: 10.5px; line-height: 1; color: #6d28d9; font-weight: 600; }
+.btn-mini { width: 24px; height: 24px; border: 1px dashed #b8bfca; background: #fff; border-radius: 6px; cursor: pointer; color: var(--tenue); font-weight: 700; line-height: 1; }
+.btn-mini:disabled { opacity: .35; cursor: default; }
+.pagos-total { font-size: 13.5px; }
+.ayuda-q { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; background: #e5e7eb; font-size: 11px; font-weight: 700; cursor: help; margin-left: 4px; }
+.pagos .barra-horas .btn-sm, .pagos .barra-horas input[type=date] { padding-top: 4px; padding-bottom: 4px; }
