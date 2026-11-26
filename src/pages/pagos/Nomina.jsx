@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../../supabase.js'
 import { useEnVivo } from '../../vivo.js'
-import { Aviso, Badge, Cargando } from '../../ui.jsx'
+import { Aviso, Badge, Cargando, Modal } from '../../ui.jsx'
 import * as M from '../../nomina/motor.js'
 import { hoyCO, pesos, num, todas, opcionesQuincena, empleadosMotor, porId } from '../../nomina/datos.js'
 import { descargarTabla } from '../../nomina/xlsx.js'
@@ -19,6 +19,7 @@ export default function Nomina({ config, empleados }) {
   const [error, setError] = useState(''), [ok, setOk] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [banco, setBanco] = useState(null)
+  const [editar, setEditar] = useState(null) // índice de la fila abierta en la ventana
 
   const cargar = useCallback(async () => {
     try {
@@ -58,7 +59,7 @@ export default function Nomina({ config, empleados }) {
     }))
   }, [datos, quincena, emps, guardadas, recalc, sucio, festivos, cfg, qi?.inicio])
 
-  const cambiar = (i, c, v) => { setSucio(true); setOk(''); setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, [c]: v } : f))) }
+  const aplicar = (i, cambios) => { setSucio(true); setOk(''); setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, ...cambios, editado: true } : f))) }
   const calcular = (f) => {
     const emp = empPorId[f.id]
     const empQ = guardadas[f.id] && !sucio ? { ...emp, Salario: Number(guardadas[f.id].salario) } : emp
@@ -101,12 +102,15 @@ export default function Nomina({ config, empleados }) {
         {yaExiste && <button className="btn btn-sec btn-sm" onClick={() => { setSucio(false); setRecalc(true) }} title="Vuelve a traer días de incapacidad, vacaciones, licencias y ausencias (conserva Otros y Nota)">Recalcular desde Ausentismos</button>}
         <button className="btn btn-sec btn-sm" onClick={exportar}>Exportar Excel</button>
         <button className="btn btn-sec btn-sm" disabled={!yaExiste} onClick={() => { try { setBanco(M.datosBancolombiaNomina(quincena, datos.nomina.filter((n) => n.quincena === quincena), empPorId, cfg, hoyCO())) } catch (e) { setError(e.message) } }}>Archivo Bancolombia</button>
+        <span className="empuja pagos-total">{filas.length} personas · Neto <b>{pesos(tot.neto)}</b></span>
+        {sucio && <Badge tone="warn">Cambios sin guardar</Badge>}
+        <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : yaExiste ? 'Guardar cambios' : 'Guardar quincena'}</button>
       </div>
       <Aviso>{error}</Aviso>
       <Aviso tipo="ok">{ok}</Aviso>
       {recalc && <Aviso tipo="warn">Se recalcularon los días desde Ausentismos y Vacaciones. Revisa y guarda para que quede así.</Aviso>}
       <div className="tabla-cont">
-        <table className="tabla tabla-pagos tabla-compacta tabla-nomina">
+        <table className="tabla tabla-pagos tabla-compacta tabla-nomina tabla-click">
           <colgroup><col className="c-nombre" /><col className="c-dia" /><col className="c-dia" /><col className="c-dia" /><col className="c-dia" /><col className="c-otros" /><col className="c-nota" />{Array.from({ length: 9 }, (_, i) => <col key={i} />)}</colgroup>
           <thead><tr>
             <th>Nombre · salario</th><th title="Días a remunerar (de 15)">Días</th><th title="Días de incapacidad">Incap.</th><th title="Días de vacaciones">Vac.</th><th title="Días de licencia remunerada (calamidad)">Lic.</th><th>Otros (+/-)</th><th>Nota</th>
@@ -118,11 +122,11 @@ export default function Nomina({ config, empleados }) {
               const notas = [f.sug.DiasAntesIngreso && `ingresó: −${f.sug.DiasAntesIngreso} d`, f.sug.DiasDespuesRetiro && `retiro: −${f.sug.DiasDespuesRetiro} d`, f.sug.DiasNoRemunerados && `ausencias/permisos: −${f.sug.DiasNoRemunerados} d`, f.retirado && `retirado ${f.retirado}`, e.TipoContrato === 'Prestación de servicios' && 'prestación de servicios'].filter(Boolean)
               const m = (v) => (v ? num(Math.round(v), 0) : '')
               return (
-                <tr key={f.id}>
+                <tr key={f.id} onClick={() => setEditar(i)} className={f.editado ? 'fila-editada' : ''} title="Clic para registrar novedades">
                   <td className="c-nombre-td"><b title={f.nombre}>{f.nombre}</b><div className="tenue">{pesos(e.Salario)}{notas.length > 0 && ' · ' + notas.join(' · ')}</div></td>
-                  {['DiasTrabajados', 'Incapacidad', 'DiasVacaciones', 'DiasLicencia'].map((k) => <td key={k}><input className="num-in" type="number" min="0" max="15" step="0.5" value={f[k]} onChange={(ev) => cambiar(i, k, ev.target.value)} /></td>)}
-                  <td><input className="num-in" type="number" step="1000" value={f.OtrosAjuste} onChange={(ev) => cambiar(i, 'OtrosAjuste', ev.target.value)} /></td>
-                  <td><input className="obs" value={f.Nota} title={f.Nota} onChange={(ev) => cambiar(i, 'Nota', ev.target.value)} /></td>
+                  {['DiasTrabajados', 'Incapacidad', 'DiasVacaciones', 'DiasLicencia'].map((k) => <td key={k} className="num">{Number(f[k]) || (k === 'DiasTrabajados' ? 0 : '')}</td>)}
+                  <td className="num">{Number(f.OtrosAjuste) ? m(f.OtrosAjuste) : ''}</td>
+                  <td className="tenue celda-corta" title={f.Nota}>{f.Nota}</td>
                   <td className="num">{m(c.Basico)}</td><td className="num">{m(c.AuxTransporte)}</td><td className="num">{m(c.SubsidioIncapacidad)}</td>
                   <td className="num" title={f.programado.concepto}>{m(c.Programado)}</td>
                   <td className="num">{m(c.TotalDevengado)}</td><td className="num">{m(c.Salud)}</td><td className="num">{m(c.Pension)}</td>
@@ -135,10 +139,52 @@ export default function Nomina({ config, empleados }) {
       </div>
       <div className="pagos-pie">
         <span>{filas.length} personas · Devengado <b>{pesos(tot.dev)}</b> · Descuentos <b>{pesos(tot.desc)}</b> · Neto a pagar <b>{pesos(tot.neto)}</b></span>
-        <button className="btn btn-ok" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : yaExiste ? 'Guardar cambios' : 'Guardar quincena'}</button>
       </div>
-      <p className="ayuda-txt">Valores en pesos. Días + incapacidad + vacaciones + licencia no pueden pasar de 15. Al guardar por primera vez a una persona en la quincena se avanza una cuota de sus pagos programados.</p>
+      <p className="ayuda-txt">Haz clic en una persona para registrar sus novedades (días, incapacidad, vacaciones, licencia, otros pagos o descuentos). Valores en pesos. Días + incapacidad + vacaciones + licencia no pueden pasar de 15. Al guardar por primera vez a una persona en la quincena se avanza una cuota de sus pagos programados.</p>
       {banco && <ModalBanco res={banco} tipo="NOMINA" onClose={() => setBanco(null)} />}
+      {editar !== null && filas[editar] && <ModalNovedades f={filas[editar]} emp={empPorId[filas[editar].id]} calcular={calcular}
+        onAplicar={(c) => { aplicar(editar, c); setEditar(null) }} onClose={() => setEditar(null)} />}
     </div>
+  )
+}
+
+const CAMPOS_NOV = [['DiasTrabajados', 'Días a remunerar', 'De 15 días de la quincena'], ['Incapacidad', 'Días de incapacidad', ''], ['DiasVacaciones', 'Días de vacaciones', ''], ['DiasLicencia', 'Días de licencia remunerada', 'Calamidad']]
+
+function ModalNovedades({ f: inicial, emp, calcular, onAplicar, onClose }) {
+  const [d, setD] = useState({ DiasTrabajados: inicial.DiasTrabajados, Incapacidad: inicial.Incapacidad, DiasVacaciones: inicial.DiasVacaciones, DiasLicencia: inicial.DiasLicencia, OtrosAjuste: inicial.OtrosAjuste, Nota: inicial.Nota })
+  const c = calcular({ ...inicial, ...d })
+  const sumaDias = ['DiasTrabajados', 'Incapacidad', 'DiasVacaciones', 'DiasLicencia'].reduce((a, k) => a + (Number(d[k]) || 0), 0)
+  const s = inicial.sug
+  const aj = Number(d.OtrosAjuste) || 0, pg = Number(c.Programado) || 0, pc = inicial.programado.concepto ? ` (${inicial.programado.concepto})` : ''
+  const dev = [['Básico', c.Basico], ['Auxilio de transporte', c.AuxTransporte], ['Subsidio de incapacidad', c.SubsidioIncapacidad], ['Otros pagos', aj > 0 ? aj : 0], ['Pago programado' + pc, pg > 0 ? pg : 0]]
+  const des = [['Salud', c.Salud], ['Pensión', c.Pension], ['Otros descuentos', aj < 0 ? -aj : 0], ['Descuento programado' + pc, pg < 0 ? -pg : 0]]
+  return (
+    <Modal titulo={inicial.nombre} onClose={onClose} ancho={680}>
+      <form onSubmit={(e) => { e.preventDefault(); onAplicar(d) }}>
+        <p className="tenue" style={{ marginTop: 0 }}>Salario {pesos(emp.Salario)} · {emp.Area || 'sin área'}{emp.TipoContrato === 'Prestación de servicios' ? ' · prestación de servicios' : ''}
+          {' '}· Sugerido por Ausentismos: {s.DiasTrabajados} días{s.Incapacidad ? `, ${s.Incapacidad} incap.` : ''}{s.DiasVacaciones ? `, ${s.DiasVacaciones} vac.` : ''}{s.DiasLicencia ? `, ${s.DiasLicencia} lic.` : ''}</p>
+        <div className="fila-form">
+          {CAMPOS_NOV.map(([k, t, ay]) => <label key={k} title={ay}>{t}<input type="number" min="0" max="15" step="0.5" value={d[k]} onChange={(e) => setD({ ...d, [k]: e.target.value })} style={{ width: 110 }} /></label>)}
+        </div>
+        {sumaDias > 15 && <Aviso tipo="warn">Los días suman {sumaDias}; no pueden pasar de 15 (se ajustan al calcular).</Aviso>}
+        <div className="fila-form">
+          <label>Otros pagos (+) o descuentos (−)<input type="number" step="1000" value={d.OtrosAjuste} onChange={(e) => setD({ ...d, OtrosAjuste: e.target.value })} style={{ width: 160 }} /></label>
+          <label className="crece">Nota (motivo)<input value={d.Nota} onChange={(e) => setD({ ...d, Nota: e.target.value })} /></label>
+        </div>
+        <table className="tabla tabla-resumen">
+          <tbody>
+            {dev.filter(([, v]) => v).map(([t, v]) => <tr key={t}><td>{t}</td><td className="num">{pesos(v)}</td></tr>)}
+            <tr className="sub"><td><b>Total devengado</b></td><td className="num"><b>{pesos(c.TotalDevengado)}</b></td></tr>
+            {des.filter(([, v]) => v).map(([t, v]) => <tr key={t}><td>{t}</td><td className="num">−{pesos(v)}</td></tr>)}
+            <tr className="sub"><td><b>Neto a pagar</b></td><td className="num"><b>{pesos(c.NetoPagar)}</b></td></tr>
+          </tbody>
+        </table>
+        <div className="acciones" style={{ marginTop: 14 }}>
+          <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-ok">Aplicar</button>
+        </div>
+        <p className="tenue pequeño">"Aplicar" deja el cambio en el cuadro; para que quede en firme usa "Guardar quincena" arriba.</p>
+      </form>
+    </Modal>
   )
 }

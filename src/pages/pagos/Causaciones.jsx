@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../../supabase.js'
 import { useEnVivo } from '../../vivo.js'
-import { Aviso, Badge, Cargando } from '../../ui.jsx'
+import { Aviso, Badge, Cargando, Modal } from '../../ui.jsx'
 import * as M from '../../nomina/motor.js'
 import { pesos, todas, ahoraTexto, empleadosMotor, porId } from '../../nomina/datos.js'
 import { descargarTabla } from '../../nomina/xlsx.js'
@@ -17,6 +17,7 @@ export default function Causaciones({ config, empleados, recargarBase }) {
   const [vista, setVista] = useState(null)
   const [error, setError] = useState(''), [ok, setOk] = useState('')
   const [ocupado, setOcupado] = useState(false)
+  const [verConfig, setVerConfig] = useState(false)
 
   const cargar = useCallback(async () => {
     try {
@@ -72,6 +73,7 @@ export default function Causaciones({ config, empleados, recargarBase }) {
         {!guardadas.length ? <button className="btn btn-sm btn-ok" disabled={ocupado} onClick={() => generar(false)}>Generar causación</button>
           : <><button className="btn btn-sm" disabled={ocupado} onClick={() => generar(true)}>Regenerar</button><button className="btn btn-sm btn-paro" onClick={eliminar}>Eliminar</button></>}
         {mostrar.length > 0 && <button className="btn btn-sec btn-sm" onClick={() => exportar(mostrar, `Causacion_${quincena}.xlsx`)}>Exportar Excel</button>}
+        <button className="btn btn-sec btn-sm empuja" onClick={() => setVerConfig(true)}>Configuración contable</button>
       </div>
       <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
       {vista && <Aviso tipo="warn">Vista previa (sin guardar): {vista.lineas.length} líneas · Débitos {pesos(vista.totalDebito)} · Créditos {pesos(vista.totalCredito)}{vista.advertencias.length ? ' · ' + vista.advertencias.join(' ') : ''}</Aviso>}
@@ -88,9 +90,9 @@ export default function Causaciones({ config, empleados, recargarBase }) {
       <h3>Causaciones guardadas</h3>
       <div className="tabla-cont"><table className="tabla tabla-pagos"><thead><tr><th>Quincena</th><th>Líneas</th><th>Débitos</th><th>Créditos</th><th>Generada</th></tr></thead>
         <tbody>{resumen.map((r) => <tr key={r.q}><td>{r.q}</td><td className="num">{r.n}</td><td className="num">{pesos(r.d)}</td><td className="num">{pesos(r.c)}</td><td className="tenue">{r.f}</td></tr>)}</tbody></table></div>
-      <details className="tarjeta" style={{ marginTop: 16 }}><summary><b>Configuración contable</b> (cuentas, centros de costo, porcentajes y entidades)</summary>
+      {verConfig && <Modal titulo="Configuración contable · cuentas, centros de costo, porcentajes y entidades" onClose={() => setVerConfig(false)} ancho={1100}>
         <CausConfig valor={config.causaciones} onGuardado={recargarBase} />
-      </details>
+      </Modal>}
     </div>
   )
 }

@@ -131,7 +131,7 @@ export default function App() {
   if (crearClave) return <CrearClave onListo={() => setCrearClave(false)} />
   if (error) return (
     <div className="centro">
-      <div className="tarjeta"><p>{error}</p><button className="btn" onClick={() => sb.auth.signOut()}>Salir</button></div>
+      <div className="tarjeta"><p>{error}</p><button className="btn" onClick={() => sb.auth.signOut({ scope: 'local' })}>Salir</button></div>
     </div>
   )
   if (!perfil) return <Cargando />
@@ -225,7 +225,7 @@ function Shell({ perfil, prueba }) {
         <div className="usuario">
           {prueba && <SelectorVista {...prueba} />}
           <span>{perfil.nombre || ''} · {ROLES[perfil.rol]}</span>
-          <button className="btn btn-sec btn-sm" onClick={() => sb.auth.signOut()}>Salir</button>
+          <button className="btn btn-sec btn-sm" onClick={() => sb.auth.signOut({ scope: 'local' })}>Salir</button>
         </div>
       </header>
       {prueba && <AvisoPrueba {...prueba} />}

@@ -728,3 +728,32 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .pagos-total { font-size: 13.5px; }
 .ayuda-q { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; background: #e5e7eb; font-size: 11px; font-weight: 700; cursor: help; margin-left: 4px; }
 .pagos .barra-horas .btn-sm, .pagos .barra-horas input[type=date] { padding-top: 4px; padding-bottom: 4px; }
+
+/* ----- Pagos: todas las tablas compactas, sin desplazamiento horizontal y con encabezado fijo ----- */
+.pagos .tabla-cont { overflow: visible; }
+.pagos .tabla { overflow: visible; font-size: 12.5px; }
+.pagos .tabla th { font-size: 10.5px; padding: 6px 6px; white-space: normal; line-height: 1.15; vertical-align: bottom; }
+.pagos .tabla td { padding: 4px 6px; white-space: normal; }
+.pagos .tabla td.num, .pagos .tabla th.num { white-space: nowrap; }
+.pagos .tabla thead th { position: sticky; top: var(--alto-barra, 56px); z-index: 3; background: #f4f6f9; box-shadow: inset 0 -1px 0 var(--linea); }
+.pagos .tabla thead th:first-child { border-top-left-radius: var(--radio); }
+.pagos .tabla thead th:last-child { border-top-right-radius: var(--radio); }
+.pagos .modal .tabla thead th { top: 0; }
+.pagos .tabla input, .pagos .tabla select { padding: 3px 5px; border-radius: 6px; font-size: 12.5px; height: 26px; box-sizing: border-box; }
+.pagos .tabla input[type=number] { -moz-appearance: textfield; }
+.pagos .tabla input[type=number]::-webkit-inner-spin-button, .pagos .tabla input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.pagos .tabla .tenue { font-size: 11px; }
+.pagos .tabla .badge { font-size: 11px; padding: 2px 7px; }
+.pagos .tabla td.celda-corta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
+.pagos .tabla-click tbody tr:hover td { background: #f3f7fd; }
+.pagos tr.fila-editada td { background: #fff8e6; }
+.pagos tr.fila-editada td:first-child { box-shadow: inset 3px 0 0 #e0a100; }
+.tabla-resumen { font-size: 13.5px; }
+.tabla-resumen td { padding: 6px 10px; }
+.tabla-resumen tr.sub td { background: #f4f6f9; }
+.pagos .modal .fila-form { margin-top: 8px; margin-bottom: 10px; display: flex; gap: 12px; }
+.pagos .modal form > .fila3 { margin-bottom: 12px; }
+.pagos .modal .acciones { margin-top: 12px; }
+.pagos .tabla th.num { text-align: right; }
+.tabla-resumen tr.sub td { color: var(--tinta); }
+.pagos .modal .fila-form label { min-width: 120px; }

@@ -65,7 +65,7 @@ export default function Conductor({ perfil }) {
         <div><b>Ruta de hoy</b><div className="tenue-claro pequeño">{new Date(hoy + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
         <div className="cond-botones">
           <button className="btn btn-sec btn-sm" onClick={cargar}>Actualizar</button>
-          <button className="btn-link claro" onClick={() => sb.auth.signOut()}>Salir</button>
+          <button className="btn-link claro" onClick={() => sb.auth.signOut({ scope: 'local' })}>Salir</button>
         </div>
       </header>
       {msg && <div className="toast">{msg}</div>}

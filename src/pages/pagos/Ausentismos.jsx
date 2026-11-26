@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb, q } from '../../supabase.js'
 import { useEnVivo } from '../../vivo.js'
-import { Aviso, Cargando } from '../../ui.jsx'
+import { Aviso, Cargando, Modal } from '../../ui.jsx'
 import * as M from '../../nomina/motor.js'
 import { todas, siguienteId, ahoraTexto, opcionesQuincena, fechaCorta, hoyCO } from '../../nomina/datos.js'
 import { descargarTabla } from '../../nomina/xlsx.js'
@@ -18,6 +18,7 @@ export default function Ausentismos({ config, empleados }) {
   const [f, setF] = useState({ empleado_id: '', tipo: 'Incapacidad', fecha_inicio: hoy, fecha_fin: hoy, observacion: '' })
   const [filtro, setFiltro] = useState(() => opcionesQuincena().actual)
   const [error, setError] = useState(''), [ok, setOk] = useState('')
+  const [nuevo, setNuevo] = useState(false)
   const activos = useMemo(() => empleados.filter((e) => e.estado !== 'Inactivo'), [empleados])
 
   const cargar = useCallback(async () => {
@@ -38,7 +39,7 @@ export default function Ausentismos({ config, empleados }) {
       await q(sb.from('ausentismos').insert({ id: siguienteId(datos.aus.map((a) => a.id), 'AU'), empleado_id: emp.id, nombre: emp.nombre, tipo: f.tipo,
         fecha_inicio: f.fecha_inicio, fecha_fin: f.fecha_fin, dias_habiles: dias, observacion: f.observacion || null, estado: 'Activo', fecha_registro: ahoraTexto() }))
       setOk(`Registrado: ${f.tipo} de ${emp.nombre} (${dias} día${dias === 1 ? '' : 's'}).`)
-      setF({ ...f, empleado_id: '', observacion: '' }); cargar()
+      setF({ ...f, empleado_id: '', observacion: '' }); setNuevo(false); cargar()
     } catch (err) { setError(err.message) }
   }
   const eliminar = async (a) => {
@@ -54,8 +55,8 @@ export default function Ausentismos({ config, empleados }) {
   ].filter((a) => !qi || (a.fecha_fin >= qi.inicio && a.fecha_inicio <= qi.fin)).sort((a, b) => b.fecha_inicio.localeCompare(a.fecha_inicio))
   return (
     <div>
-      <form className="tarjeta form-pagos" onSubmit={guardar}>
-        <h3>Registrar ausencia</h3>
+      {nuevo && <Modal titulo="Registrar ausencia" onClose={() => setNuevo(false)} ancho={760}>
+      <form onSubmit={guardar}>
         <div className="fila3">
           <label>Empleado<select value={f.empleado_id} onChange={(e) => setF({ ...f, empleado_id: e.target.value })}><option value="">—</option>{activos.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select></label>
           <label>Tipo<select value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })}>{M.AUS_TIPOS.map((t) => <option key={t}>{t}</option>)}</select></label>
@@ -65,13 +66,16 @@ export default function Ausentismos({ config, empleados }) {
         </div>
         <p className="tenue">{dias} {M.AUS_TIPOS_INCAPACIDAD.includes(f.tipo) ? 'días calendario' : 'días hábiles (sin domingos ni festivos)'}.
           {' '}{M.AUS_TIPOS_INCAPACIDAD.includes(f.tipo) ? 'Pasa a Nómina como días de incapacidad.' : M.AUS_TIPOS_NO_REMUNERADOS.includes(f.tipo) ? 'Se descuenta de los días a remunerar.' : f.tipo === 'Calamidad' ? 'Licencia remunerada al 100 %, sin auxilio de transporte.' : 'Pasa a Nómina como días de vacaciones.'}</p>
-        <button className="btn btn-ok">Registrar</button>
+        <Aviso>{error}</Aviso>
+        <div className="acciones"><button type="button" className="btn btn-sec" onClick={() => setNuevo(false)}>Cancelar</button><button className="btn btn-ok">Registrar</button></div>
       </form>
-      <Aviso>{error}</Aviso><Aviso tipo="ok">{ok}</Aviso>
+      </Modal>}
       <div className="barra-horas">
         <select value={filtro} onChange={(e) => setFiltro(e.target.value)}><option value="todas">Todas las fechas</option>{opcionesQuincena().lista.map((x) => <option key={x}>{x}</option>)}</select>
         <button className="btn btn-sec btn-sm" onClick={() => descargarTabla('Ausentismos.xlsx', ['ID', 'Empleado', 'Tipo', 'Desde', 'Hasta', 'Días', 'Observación'], lista.map((a) => [a.id, a.nombre, a.tipo, a.fecha_inicio, a.fecha_fin, Number(a.dias_habiles), a.observacion || '']))}>Exportar Excel</button>
+        <button className="btn btn-sm empuja" onClick={() => { setError(''); setNuevo(true) }}>+ Registrar ausencia</button>
       </div>
+      <Aviso>{error && !nuevo ? error : ''}</Aviso><Aviso tipo="ok">{ok}</Aviso>
       <div className="tabla-cont"><table className="tabla tabla-pagos">
         <thead><tr><th>ID</th><th>Empleado</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Días</th><th>Observación</th><th></th></tr></thead>
         <tbody>{lista.map((a) => (

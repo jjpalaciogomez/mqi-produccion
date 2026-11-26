@@ -177,7 +177,7 @@ export default function Tablet({ perfil }) {
 
       <footer className="tablet-pie">
         <span>MQI Producción</span>
-        <button className="btn-link" onClick={() => sb.auth.signOut()}>Cerrar sesión de la tablet</button>
+        <button className="btn-link" onClick={() => sb.auth.signOut({ scope: 'local' })}>Cerrar sesión de la tablet</button>
       </footer>
 
       {accion?.tipo === 'elegir' && (

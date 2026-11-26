@@ -25,6 +25,15 @@ export default function Pagos({ modulo, perfil, modulos }) {
     } catch (e) { setError(e.message) }
   }, [verEmpleados])
   useEffect(() => { cargar() }, [cargar])
+  // Alto de la barra superior fija, para que los encabezados de las tablas queden pegados justo debajo
+  useEffect(() => {
+    const barra = document.querySelector('.barra-sup')
+    if (!barra || !window.ResizeObserver) return
+    const medir = () => document.documentElement.style.setProperty('--alto-barra', `${Math.round(barra.getBoundingClientRect().height)}px`)
+    medir()
+    const ro = new ResizeObserver(medir); ro.observe(barra)
+    return () => ro.disconnect()
+  }, [])
   useEnVivo(cargar, ['empleados', 'nomina_config'], 120000)
 
   const titulo = (MODULOS.find(([m]) => m === modulo) || [])[1]

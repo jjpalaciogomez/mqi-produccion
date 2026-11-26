@@ -22,6 +22,7 @@ export default function HorasExtra({ config, empleados }) {
   const [guardando, setGuardando] = useState(false)
   const [vista, setVista] = useState('cuadro')
   const [banco, setBanco] = useState(null)
+  const [editar, setEditar] = useState(null)
 
   const cargar = useCallback(async () => {
     try {
@@ -50,7 +51,7 @@ export default function HorasExtra({ config, empleados }) {
     }))
   }, [datos, semana, grupo, emps, desdeJornada, sucio])
 
-  const cambiar = (i, c, v) => { setSucio(true); setOk(''); setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, [c]: v } : f))) }
+  const aplicar = (i, cambios) => { setSucio(true); setOk(''); setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, ...cambios, editado: true } : f))) }
   const traerJornada = () => { setSucio(true); setFilas((fs) => fs.map((f) => ({ ...f, ...Object.fromEntries(C.map((c) => [c, M.redondear2((desdeJornada[f.id] || {})[c] || 0)])) }))) }
 
   const calc = (f) => {
@@ -103,21 +104,27 @@ export default function HorasExtra({ config, empleados }) {
         </div>
         {guardadaSemana ? <Badge tone="ok">Semana guardada</Badge> : <Badge tone="warn">Sin guardar</Badge>}
         <button className="btn btn-sec btn-sm" disabled={!guardadaSemana} onClick={prepararBanco}>Archivo Bancolombia</button>
+        {vista === 'cuadro' && <>
+          <span className="empuja pagos-total">A pagar <b>{pesos(totales.neto)}</b></span>
+          {sucio && <Badge tone="warn">Cambios sin guardar</Badge>}
+          <button className="btn btn-sec btn-sm" onClick={traerJornada} title="Reemplaza las horas del cuadro por las calculadas desde la jornada">Traer horas de la jornada</button>
+          <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar semana'}</button>
+        </>}
       </div>
       <Aviso>{error}</Aviso>
       <Aviso tipo="ok">{ok}</Aviso>
       {vista === 'cuadro' && <>
         <div className="tabla-cont">
-          <table className="tabla tabla-pagos">
+          <table className="tabla tabla-pagos tabla-click">
             <thead><tr><th>Nombre</th><th>Área</th>{C.map((c) => <th key={c} title={NOMBRES[c]}>{c}</th>)}<th>Valor hora</th><th>Bruto</th><th title="Horas por devolver (descanso nocturno / llegadas tarde)">Descuento</th><th>A pagar</th></tr></thead>
             <tbody>
               {filas.map((f, i) => {
                 const c = calc(f)
                 return (
-                  <tr key={f.id}>
+                  <tr key={f.id} onClick={() => setEditar(i)} className={f.editado ? 'fila-editada' : ''} title="Clic para corregir las horas">
                     <td><b>{f.nombre}</b>{!f.guardado && <div className="tenue">calculado de la jornada</div>}</td>
                     <td className="tenue">{f.area}</td>
-                    {C.map((k) => <td key={k}><input className="num-in" type="number" step="0.25" min="0" value={f[k]} onChange={(e) => cambiar(i, k, e.target.value)} /></td>)}
+                    {C.map((k) => <td key={k} className="num">{Number(f[k]) ? num(Number(f[k])) : ''}</td>)}
                     <td className="num">{pesos(c.ValorHora)}</td>
                     <td className="num">{pesos(c.TotalHorasExtra)}</td>
                     <td className="num">{c.aplicado.AplicadoTotal > 0 || c.saldoAnt > 0 || c.debe > 0
@@ -131,15 +138,45 @@ export default function HorasExtra({ config, empleados }) {
         </div>
         <div className="pagos-pie">
           <span>Bruto: <b>{pesos(totales.bruto)}</b> · A pagar: <b>{pesos(totales.neto)}</b></span>
-          <button className="btn btn-sec" onClick={traerJornada}>Traer horas de la jornada</button>
-          <button className="btn btn-ok" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar semana'}</button>
         </div>
-        <p className="ayuda-txt">Las horas se calculan solas desde la Jornada (viernes a jueves). Puedes corregirlas antes de guardar. El descuento por descanso nocturno y llegadas tarde se aplica sobre HED, HEN, HEDF y HENF, en ese orden.</p>
+        <p className="ayuda-txt">Las horas se calculan solas desde la Jornada (viernes a jueves). Para corregirlas haz clic en la persona antes de guardar. El descuento por descanso nocturno y llegadas tarde se aplica sobre HED, HEN, HEDF y HENF, en ese orden.</p>
       </>}
       {vista === 'detalle' && <DetalleDias datos={datos} fechas={fechas} grupo={grupo} cfg={cfg} festivos={festivos} cadena={cadena} inicio={inicio} />}
       {vista === 'saldos' && <Saldos cadena={cadena} empPorId={empPorId} />}
       {banco && <ModalBanco res={banco} tipo="HORAS_EXTRA" onClose={() => setBanco(null)} />}
+      {editar !== null && filas[editar] && <ModalHoras f={filas[editar]} calc={calc} desdeJornada={desdeJornada[filas[editar].id] || {}}
+        onAplicar={(c) => { aplicar(editar, c); setEditar(null) }} onClose={() => setEditar(null)} />}
     </div>
+  )
+}
+
+function ModalHoras({ f: inicial, calc, desdeJornada, onAplicar, onClose }) {
+  const [d, setD] = useState(Object.fromEntries(C.map((c) => [c, inicial[c]])))
+  const c = calc({ ...inicial, ...d })
+  return (
+    <Modal titulo={`${inicial.nombre} · horas extra`} onClose={onClose} ancho={720}>
+      <form onSubmit={(e) => { e.preventDefault(); onAplicar(d) }}>
+        <table className="tabla tabla-resumen">
+          <thead><tr><th>Tipo</th><th className="num">Según jornada</th><th className="num">Horas a pagar</th><th className="num">Valor</th></tr></thead>
+          <tbody>{C.map((k) => (
+            <tr key={k}><td><b>{k}</b> <span className="tenue">{NOMBRES[k]}</span></td>
+              <td className="num tenue">{M.redondear2(desdeJornada[k] || 0) || ''}</td>
+              <td className="num"><input className="num-in" type="number" step="0.25" min="0" value={d[k]} onChange={(e) => setD({ ...d, [k]: e.target.value })} style={{ width: 90 }} /></td>
+              <td className="num">{c['Valor' + k] ? pesos(c['Valor' + k]) : ''}</td></tr>
+          ))}
+            <tr className="sub"><td colSpan={3}><b>Bruto</b> <span className="tenue">(valor hora {pesos(c.ValorHora)})</span></td><td className="num"><b>{pesos(c.TotalHorasExtra)}</b></td></tr>
+            {c.aplicado.AplicadoTotal > 0 && <tr><td colSpan={3}>Descuento por horas por devolver: {c.aplicado.AplicadoTotal} h ({M.textoAplicado(c.aplicado.Aplicado)}){c.aplicado.SaldoFinal > 0 ? ` · quedan ${c.aplicado.SaldoFinal} h` : ''}</td><td className="num">−{pesos(c.aplicado.ValorDescuento)}</td></tr>}
+            <tr className="sub"><td colSpan={3}><b>A pagar</b></td><td className="num"><b>{pesos(c.neto)}</b></td></tr>
+          </tbody>
+        </table>
+        <div className="acciones" style={{ marginTop: 14 }}>
+          <button type="button" className="btn btn-sec" onClick={() => setD(Object.fromEntries(C.map((k) => [k, M.redondear2(desdeJornada[k] || 0)])))}>Usar las de la jornada</button>
+          <button type="button" className="btn btn-sec" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-ok">Aplicar</button>
+        </div>
+        <p className="tenue pequeño">"Aplicar" deja el cambio en el cuadro; para que quede en firme usa "Guardar semana" arriba.</p>
+      </form>
+    </Modal>
   )
 }
 

@@ -34,9 +34,18 @@ const PERMISOS = {
   tablet: ['Tablet', 'Pantalla de registro de un área para los operarios'],
   logistica: ['Pide vueltas', 'Solo Logística: pide entregas, recogidas y diligencias y guarda clientes y proveedores (compras, Litografía…)'],
   conductor: ['Conductor', 'Celular del conductor: ve la ruta confirmada del día y marca cada parada'],
+  rrhh: ['Recursos Humanos', 'Pagos: Nómina quincenal, Pagos programados, Ausentismos, Vacaciones y Empleados'],
+  contabilidad: ['Contabilidad', 'Pagos: Horas extra, Nómina, Programados, Ausentismos, Vacaciones, Informes, Causaciones y Empleados'],
+  litografia: ['Litografía', 'Pagos: solo registra la Jornada de Litografía'],
 }
-async function usuarios(body) {
+async function usuarios(body, reintento = true) {
   const { data, error } = await sb.functions.invoke('usuarios', { body })
+  if (error && reintento && error.context?.status === 401) {
+    // La sesión guardada en este navegador ya no es válida en el servidor: se renueva y se intenta otra vez
+    const { error: er } = await sb.auth.refreshSession()
+    if (!er) return usuarios(body, false)
+    throw new Error('Tu sesión venció. Usa "Salir" (arriba a la derecha) y vuelve a entrar con tu correo y contraseña.')
+  }
   if (error) {
     let m = error.message
     try { m = (await error.context.json()).error || m } catch { /* sin detalle */ }
