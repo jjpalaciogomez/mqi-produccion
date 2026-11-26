@@ -58,6 +58,9 @@ export default function Jornada({ grupo, config }) {
     } catch (e) { setError(e.message) }
   }, [grupo, fecha, festivos, cfg])
   useEffect(() => { setPersonas(null); setOk(''); cargar() }, [cargar])
+  // Una sola tabla mientras quepa en la pantalla; si no cabe, se parte en dos columnas para no desplazarse
+  const [altoVentana, setAltoVentana] = useState(() => window.innerHeight)
+  useEffect(() => { const f = () => setAltoVentana(window.innerHeight); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [])
   useEnVivo(() => { if (!sucio) cargar() }, ['jornadas'])
 
   const cambiar = (i, campo, v) => {
@@ -148,8 +151,9 @@ export default function Jornada({ grupo, config }) {
       <Aviso tipo="ok">{ok}</Aviso>
       {!personas ? <Cargando /> : (
         <>
-          <div className={'jornada-paneles' + (filas.length > 10 ? ' dos' : '')}>
-            {(filas.length > 10 ? [filas.slice(0, Math.ceil(filas.length / 2)), filas.slice(Math.ceil(filas.length / 2))] : [filas]).map((grupoFilas, gi) => (
+          {(() => { const dos = filas.length > Math.max(8, Math.floor((altoVentana - 250) / 33)); return (
+          <div className={'jornada-paneles' + (dos ? ' dos' : '')}>
+            {(dos ? [filas.slice(0, Math.ceil(filas.length / 2)), filas.slice(Math.ceil(filas.length / 2))] : [filas]).map((grupoFilas, gi) => (
             <div className="tabla-cont" key={gi}>
             <table className="tabla tabla-pagos tabla-compacta tabla-jornada">
               <thead><tr>
@@ -193,6 +197,7 @@ export default function Jornada({ grupo, config }) {
             </div>
             ))}
           </div>
+          ) })()}
         </>
       )}
     </div>

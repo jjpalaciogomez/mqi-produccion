@@ -712,7 +712,7 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .tabla-jornada { width: 100%; }
 .tabla-jornada td { padding: 2px 3px; height: 30px; }
 .tabla-jornada th { padding: 5px 3px; white-space: nowrap; }
-.tabla-jornada td.j-nombre-td b { display: block; max-width: clamp(90px, 8.8vw, 200px); overflow: hidden; text-overflow: ellipsis; }
+.jornada-paneles.dos .tabla-jornada td.j-nombre-td b { white-space: nowrap; display: block; max-width: clamp(90px, 8.8vw, 200px); overflow: hidden; text-overflow: ellipsis; }
 .tabla-jornada select { width: 100px; padding-left: 4px; padding-right: 0; }
 .tabla-jornada input.hora { width: 52px; text-align: center; padding-left: 3px; padding-right: 3px; }
 .tabla-jornada input.obs { width: 100%; min-width: 44px; }
@@ -757,3 +757,7 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .pagos .tabla th.num { text-align: right; }
 .tabla-resumen tr.sub td { color: var(--tinta); }
 .pagos .modal .fila-form label { min-width: 120px; }
+
+.jornada-paneles:not(.dos) .tabla-jornada td.j-nombre-td { white-space: nowrap; }
+.jornada-paneles:not(.dos) .tabla-jornada td:last-child { width: 50%; }
+.jornada-paneles:not(.dos) .tabla-jornada td:not(:first-child):not(:last-child), .jornada-paneles:not(.dos) .tabla-jornada th:not(:first-child):not(:last-child) { width: 1%; white-space: nowrap; padding-left: 10px; padding-right: 10px; }
