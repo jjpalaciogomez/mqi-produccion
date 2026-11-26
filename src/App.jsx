@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { iniciarEnVivo, detenerEnVivo } from './vivo.js'
 import { sb } from './supabase.js'
 import { Cargando } from './ui.jsx'
@@ -13,6 +13,10 @@ import Indicadores from './pages/Indicadores.jsx'
 import Programacion from './pages/Programacion.jsx'
 import Logistica from './pages/Logistica.jsx'
 import Conductor from './pages/Conductor.jsx'
+import Pagos from './pages/pagos/Pagos.jsx'
+import ConfigNomina from './pages/pagos/ConfigNomina.jsx'
+import Verificacion from './pages/pagos/Verificacion.jsx'
+import { MODULOS } from './nomina/datos.js'
 
 function useRuta() {
   const [h, setH] = useState(window.location.hash || '#/')
@@ -32,7 +36,16 @@ const VISTAS = [
   ['tablet|METAL', 'Tablet Metal'], ['tablet|MADERA', 'Tablet Madera'],
   ['tablet|ACRILICO', 'Tablet Acrílico'], ['tablet|GRAN FORMATO', 'Tablet Gran Formato'],
   ['logistica|', 'Pide vueltas (logística)'], ['conductor|', 'Conductor'],
+  ['rrhh|', 'Recursos Humanos'], ['contabilidad|', 'Contabilidad'], ['litografia|', 'Litografía (jornada)'],
 ]
+// Módulos de Pagos por rol (la base de datos aplica lo mismo; esto solo arma el menú)
+const MODULOS_ROL = {
+  admin: MODULOS.map(([m]) => m), direccion: MODULOS.map(([m]) => m),
+  rrhh: ['empleados', 'nomina', 'programados', 'ausentismos', 'vacaciones'],
+  contabilidad: ['horasextra', 'nomina', 'empleados', 'programados', 'ausentismos', 'vacaciones', 'informes', 'causaciones'],
+  litografia: ['jornadalito'],
+}
+const modulosDe = (p) => [...new Set([...(MODULOS_ROL[p.rol] || []), ...(p.modulos_pagos || [])])]
 const leerVista = () => { try { return localStorage.getItem('mqi_ver_como') || 'admin|' } catch { return 'admin|' } }
 const guardarVista = (v) => { try { localStorage.setItem('mqi_ver_como', v) } catch { /* sin almacenamiento */ } }
 
@@ -112,13 +125,54 @@ export default function App() {
   return <Shell key={vista} perfil={efectivo} prueba={prueba} />
 }
 
+function Menu({ titulo, items, ruta }) {
+  const [abierto, setAbierto] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!abierto) return
+    const f = (e) => { if (ref.current && !ref.current.contains(e.target)) setAbierto(false) }
+    document.addEventListener('pointerdown', f)
+    return () => document.removeEventListener('pointerdown', f)
+  }, [abierto])
+  useEffect(() => { setAbierto(false) }, [ruta])
+  if (!items.length) return null
+  const activo = items.some(([r]) => ruta === r || (r === '/' && ruta.startsWith('/op/')) || (r !== '/' && ruta.startsWith(r + '/')))
+  return (
+    <div ref={ref} className={'menu-sup' + (abierto ? ' abierto' : '')}
+      onMouseEnter={(e) => e.nativeEvent.pointerType !== 'touch' && setAbierto(true)} onMouseLeave={() => setAbierto(false)}>
+      <button className={'menu-titulo' + (activo ? ' activo' : '')} onClick={() => setAbierto((a) => !a)} aria-expanded={abierto}>
+        {titulo} <span className="menu-flecha">▾</span>
+      </button>
+      <div className="menu-lista" role="menu">
+        {items.map(([r, txt]) => (
+          <a key={r} role="menuitem" href={`#${r}`} className={ruta === r || (r === '/' && ruta.startsWith('/op/')) ? 'activo' : ''} onClick={() => setAbierto(false)}>{txt}</a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function Shell({ perfil, prueba }) {
   const ruta = useRuta()
   const gestor = ['admin', 'direccion'].includes(perfil.rol)
+  const soloPagos = ['rrhh', 'contabilidad', 'litografia'].includes(perfil.rol)
+  const modulos = modulosDe(perfil)
+  const itemsPagos = MODULOS.filter(([m]) => modulos.includes(m)).map(([m, t]) => ['/pagos/' + m, t])
+  const itemsProd = soloPagos ? [] : perfil.rol === 'logistica' ? [['/', 'Logística']] : [
+    ['/', 'Tablero de planta'], ['/programacion', 'Programación'],
+    ...(gestor ? [['/logistica', 'Logística'], ['/horas', 'Horas del personal'], ['/indicadores', 'Indicadores']] : []),
+  ]
+  const itemsConfig = gestor ? [['/catalogos', 'Catálogos y usuarios'], ['/config/nomina', 'Parámetros de nómina'], ['/config/verificacion', 'Verificación de cálculos']] : []
+
   let pagina
   const m = ruta.match(/^\/op\/([0-9a-f-]+)/)
+  const mp = ruta.match(/^\/pagos\/(\w+)/)
+  if (mp && modulos.includes(mp[1])) pagina = <Pagos key={mp[1]} modulo={mp[1]} perfil={perfil} modulos={modulos} />
+  else if (soloPagos) pagina = itemsPagos.length ? <Pagos key={itemsPagos[0][0]} modulo={itemsPagos[0][0].split('/')[2]} perfil={perfil} modulos={modulos} /> : <p>Sin módulos asignados.</p>
+  else if (ruta === '/config/nomina' && gestor) pagina = <ConfigNomina perfil={perfil} />
+  else if (ruta === '/config/verificacion' && gestor) pagina = <Verificacion />
   // Quien solo pide vueltas (compras, Litografía…) ve únicamente Logística
-  if (perfil.rol === 'logistica') pagina = <Logistica perfil={perfil} gestor={false} />
+  else if (perfil.rol === 'logistica') pagina = <Logistica perfil={perfil} gestor={false} />
   else if (ruta === '/logistica' && gestor) pagina = <Logistica perfil={perfil} gestor />
   else if (m) pagina = <OrdenDetalle id={m[1]} perfil={perfil} gestor={gestor} />
   else if (ruta === '/nueva' && gestor) pagina = <NuevaOP rol={perfil.rol} />
@@ -128,22 +182,14 @@ function Shell({ perfil, prueba }) {
   else if (ruta === '/indicadores' && gestor) pagina = <Indicadores perfil={perfil} />
   else pagina = <Tablero gestor={gestor} rol={perfil.rol} />
 
-  const link = (r, txt) => (
-    <a href={`#${r}`} className={(ruta === r || (r === '/' && ruta.startsWith('/op/'))) ? 'activo' : ''}>{txt}</a>
-  )
   return (
     <div className="shell">
       <header className="barra-sup">
-        <div className="marca"><img src="./logo-mqi.png" alt="MQI" className="logo" /><span>Producción</span></div>
+        <div className="marca"><img src="./logo-mqi.png" alt="MQI" className="logo" /><span>{soloPagos ? 'Pagos' : 'Producción'}</span></div>
         <nav>
-          {perfil.rol === 'logistica' ? link('/', 'Logística') : <>
-          {link('/', 'Tablero de planta')}
-          {link('/programacion', 'Programación')}
-          {gestor && link('/indicadores', 'Indicadores')}
-          {gestor && link('/horas', 'Horas del personal')}
-          {gestor && link('/logistica', 'Logística')}
-          {gestor && link('/catalogos', 'Configuraciones')}
-          </>}
+          <Menu titulo="Producción" items={itemsProd} ruta={ruta} />
+          <Menu titulo="Pagos" items={itemsPagos} ruta={ruta} />
+          <Menu titulo="Configuración" items={itemsConfig} ruta={ruta} />
         </nav>
         <div className="usuario">
           {prueba && <SelectorVista {...prueba} />}
@@ -157,4 +203,4 @@ function Shell({ perfil, prueba }) {
   )
 }
 
-const ROLES = { admin: 'Administrador', direccion: 'Administrador', consulta: 'Consulta', tablet: 'Tablet', logistica: 'Logística', conductor: 'Conductor' }
+const ROLES = { admin: 'Administrador', direccion: 'Administrador', consulta: 'Consulta', tablet: 'Tablet', logistica: 'Logística', conductor: 'Conductor', rrhh: 'Recursos Humanos', contabilidad: 'Contabilidad', litografia: 'Litografía' }

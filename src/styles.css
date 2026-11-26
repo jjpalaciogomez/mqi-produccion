@@ -634,3 +634,53 @@ label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 5
 .etq-vuelta.entrega_recogida { background: #e6f4f6; color: #12707f; }
 .log-parada.entrega_recogida { border-left-color: #1a9bb0; }
 .cond-parada.entrega_recogida { border-left-color: #1a9bb0; }
+
+/* ----- Menú superior: Producción / Pagos / Configuración (se abre al pasar el mouse o con un toque) ----- */
+.barra-sup nav { align-items: center; }
+.menu-sup { position: relative; }
+.menu-titulo { background: none; border: none; color: #cfd6df; font: inherit; font-size: 14.5px; font-weight: 600; padding: 8px 14px; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.menu-titulo:hover, .menu-sup.abierto .menu-titulo { background: rgba(255,255,255,.12); color: #fff; }
+.menu-titulo.activo { color: #fff; box-shadow: inset 0 -2px 0 var(--acento); }
+.menu-flecha { font-size: 11px; opacity: .7; transition: transform .15s; }
+.menu-sup.abierto .menu-flecha { transform: rotate(180deg); }
+.menu-lista { display: none; position: absolute; top: 100%; left: 0; min-width: 230px; padding: 6px; background: #111; border: 1px solid #2a3340; border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.35); z-index: 50; }
+.menu-sup.abierto .menu-lista { display: block; }
+.menu-lista::before { content: ''; position: absolute; top: -8px; left: 0; right: 0; height: 8px; }
+.barra-sup nav .menu-lista a { display: block; padding: 9px 12px; border-radius: 7px; font-size: 14px; color: #dbe1e8; }
+.barra-sup nav .menu-lista a:hover { background: rgba(255,255,255,.1); color: #fff; }
+.barra-sup nav .menu-lista a.activo { background: rgba(255,255,255,.14); color: #fff; box-shadow: inset 3px 0 0 var(--acento); }
+@media (max-width: 700px) { .menu-lista { position: fixed; left: 10px; right: 10px; top: auto; } }
+
+/* ----- Pagos ----- */
+.pagos .barra-horas { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
+.pagos-dia { font-weight: 600; display: inline-flex; gap: 8px; align-items: center; text-transform: capitalize; }
+.tabla-pagos { font-size: 13.5px; }
+.tabla-pagos td, .tabla-pagos th { padding: 6px 8px; white-space: nowrap; }
+.tabla-pagos td.num, .tabla td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tabla-pagos input.hora { width: 68px; font-variant-numeric: tabular-nums; }
+.tabla-pagos input.num-in { width: 84px; text-align: right; }
+.tabla-pagos input.num-in.corto { width: 60px; }
+.tabla-pagos input.obs { width: 180px; }
+.tabla-pagos input.mal { border-color: var(--bad); background: #fdecec; }
+.tabla-pagos tr.fila-tenue td { opacity: .6; }
+.tabla-pagos tr.sel td { background: #f1f6ff; }
+.mal-txt { color: var(--bad); font-weight: 600; }
+.tarde { color: #8a5a00; font-size: 11.5px; }
+.tenue { color: var(--tenue); font-size: 12.5px; }
+.pagos-pie { display: flex; justify-content: flex-end; align-items: center; gap: 12px; flex-wrap: wrap; margin: 14px 0; }
+.pagos-pie > span { margin-right: auto; }
+.ayuda-txt { color: var(--tenue); font-size: 13px; }
+.form-pagos { margin-bottom: 14px; }
+.form-pagos h3 { margin-top: 0; }
+.form-pagos label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.form-pagos summary { cursor: pointer; }
+.check { display: inline-flex; gap: 6px; align-items: center; }
+.inline { display: inline-flex; gap: 6px; align-items: center; }
+.inline input { width: 70px; }
+.conc-ed { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.chip-factor { display: inline-flex; gap: 6px; align-items: center; background: #eef1f5; border-radius: 999px; padding: 4px 10px; margin: 3px; font-size: 13px; }
+.seg-envuelve { flex-wrap: wrap; }
+.barras { display: flex; align-items: flex-end; gap: 6px; height: 160px; padding: 10px 0 24px; border-bottom: 1px solid var(--linea); margin-bottom: 12px; overflow-x: auto; }
+.barra-col { flex: 1; min-width: 34px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; }
+.barra-val { width: 70%; background: var(--acento, #2563eb); border-radius: 4px 4px 0 0; min-height: 2px; }
+.barra-col span { position: absolute; bottom: -20px; font-size: 10.5px; color: var(--tenue); white-space: nowrap; }
