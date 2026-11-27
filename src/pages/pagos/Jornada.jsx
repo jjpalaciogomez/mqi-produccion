@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { sb, q } from '../../supabase.js'
 import { useEnVivo } from '../../vivo.js'
 import { Aviso, Badge, Cargando } from '../../ui.jsx'
@@ -27,7 +27,11 @@ export default function Jornada({ grupo, config, gestor }) {
   const [corrigiendo, setCorrigiendo] = useState(false) // un día ya guardado solo se consulta; Gerencia/Admin lo puede corregir
   const laboral = M.esDiaLaboralNormal(fecha, festivos)
 
-  const cargar = useCallback(async () => {
+  const cfgRef = useRef(cfg), festRef = useRef(festivos)
+  cfgRef.current = cfg; festRef.current = festivos
+  const sucioRef = useRef(false)
+  const cargar = useCallback(async (inicial = false) => {
+    const cfg = cfgRef.current, festivos = festRef.current
     try {
       const desde = M.fechaISOMasDias(M.viernesDeSemana(hoyCO()), -7)
       const [ps, reg, fechas, borr, borrs] = await Promise.all([
@@ -38,6 +42,7 @@ export default function Jornada({ grupo, config, gestor }) {
         q(sb.from('jornadas_borrador').select('fecha').eq('grupo', grupo).gte('fecha', desde)),
       ])
       setConAvance(borrs.map((b) => b.fecha))
+      if (sucioRef.current && !inicial) return // hay cambios sin guardar en pantalla: no se pisan
       const lista = [...ps].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'))
       // Quien ya tiene registro ese día aunque hoy no esté en la lista (p. ej. lo retiraron después) también aparece
       reg.forEach((r) => { if (!lista.some((p) => p.id === r.empleado_id)) lista.push({ id: r.empleado_id, nombre: r.nombre, area: r.area }) })
@@ -66,12 +71,21 @@ export default function Jornada({ grupo, config, gestor }) {
       }))
       setSucio(false); setError('')
     } catch (e) { setError(e.message) }
-  }, [grupo, fecha, festivos, cfg])
-  useEffect(() => { setPersonas(null); setOk(''); setCorrigiendo(false); cargar() }, [cargar])
+  }, [grupo, fecha])
+  useEffect(() => { sucioRef.current = false; setPersonas(null); setOk(''); setCorrigiendo(false); cargar(true) }, [cargar])
   // Una sola tabla mientras quepa en la pantalla; si no cabe, se parte en dos columnas para no desplazarse
   const [altoVentana, setAltoVentana] = useState(() => window.innerHeight)
   useEffect(() => { const f = () => setAltoVentana(window.innerHeight); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [])
-  useEnVivo(() => { if (!sucio) cargar() }, ['jornadas', 'jornadas_borrador'])
+  useEnVivo(() => { if (!sucioRef.current) cargar() }, ['jornadas', 'jornadas_borrador'])
+  useEffect(() => { sucioRef.current = sucio }, [sucio])
+  // Avisar antes de salir con cambios sin guardar
+  useEffect(() => {
+    if (!sucio) return
+    const f = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', f)
+    return () => window.removeEventListener('beforeunload', f)
+  }, [sucio])
+  const irA = (d) => { if (d === fecha) return; if (sucio && !window.confirm('Tienes cambios sin guardar en este día. Si cambias de fecha se pierden. ¿Continuar? (Puedes usar "Guardar avance" primero)')) return; setFecha(d) }
 
   // Guarda lo digitado hasta ahora, sin validar; el día sigue pendiente hasta "Guardar día"
   const guardarAvance = async () => {
@@ -81,12 +95,12 @@ export default function Jornada({ grupo, config, gestor }) {
       const filasAv = filas.map(({ id, estado, entrada, salida, observacion, segEntrada, segSalida, segSiguiente }) => ({ id, estado, entrada, salida, observacion, segEntrada, segSalida, segSiguiente }))
       await q(sb.from('jornadas_borrador').upsert({ grupo, fecha, filas: filasAv, actualizado: new Date().toISOString() }))
       setOk('Avance guardado. El día sigue pendiente (aparece en las alertas) hasta que pulses "Guardar día".')
-      setSucio(false); await cargar()
+      sucioRef.current = false; setSucio(false); await cargar()
     } catch (e) { setError(e.message) } finally { setGuardando(false) }
   }
 
   const cambiar = (i, campo, v) => {
-    setSucio(true); setOk('')
+    sucioRef.current = true; setSucio(true); setOk('')
     setFilas((fs) => fs.map((f, j) => {
       if (j !== i) return f
       const n = { ...f, [campo]: v }
@@ -144,12 +158,12 @@ export default function Jornada({ grupo, config, gestor }) {
       if (filasBD.length) await q(sb.from('jornadas').insert(filasBD))
       await q(sb.from('jornadas_borrador').delete().eq('grupo', grupo).eq('fecha', fecha))
       setOk(`Día guardado: ${filasBD.length} registro(s).`)
-      setSucio(false); setCorrigiendo(false)
+      sucioRef.current = false; setSucio(false); setCorrigiendo(false)
       await cargar()
     } catch (e) { setError(e.message) } finally { setGuardando(false) }
   }
 
-  const mover = (n) => setFecha(M.fechaISOMasDias(fecha, n))
+  const mover = (n) => irA(M.fechaISOMasDias(fecha, n))
   const bloq = yaExiste && !corrigiendo
   const total = filas.reduce((a, f) => a + (f.estado === 'Normal' ? M.calcularHorasLaboradas(f.entrada, f.salida, cfg, laboral) || 0 : 0), 0)
 
@@ -157,9 +171,9 @@ export default function Jornada({ grupo, config, gestor }) {
     <div>
       <div className="barra-horas">
         <button className="btn btn-sec btn-sm" onClick={() => mover(-1)}>‹ Día anterior</button>
-        <input type="date" value={fecha} onChange={(e) => e.target.value && setFecha(e.target.value)} />
+        <input type="date" value={fecha} onChange={(e) => e.target.value && irA(e.target.value)} />
         <button className="btn btn-sec btn-sm" onClick={() => mover(1)}>Día siguiente ›</button>
-        <button className="btn-link" onClick={() => setFecha(hoyCO())}>Hoy</button>
+        <button className="btn-link" onClick={() => irA(hoyCO())}>Hoy</button>
         <span className="pagos-dia">{fmtLarga(fecha)} {laboral ? <Badge tone="info">Día laboral</Badge> : <Badge tone="warn">{festivos.includes(fecha) ? 'Festivo' : M.diaSemana(fecha) === 0 ? 'Domingo' : 'Sábado'}</Badge>}
           {yaExiste && <Badge tone="ok">Ya registrado</Badge>}</span>
         {personas && <span className="empuja pagos-total" title={'Hora en formato 24 h (HH:MM). ' + (laboral ? `Se descuentan ${cfg.tiempoAlmuerzo} h de almuerzo.` : 'Día no laboral: quien no digite nada no trabajó y no se guarda.') + (industrial ? ' Segunda jornada (+): toda es tiempo extra; si termina después de medianoche marca la casilla.' : '')}>Total: <b>{Math.round(total * 100) / 100} h</b> <span className="ayuda-q">?</span></span>}
@@ -167,7 +181,7 @@ export default function Jornada({ grupo, config, gestor }) {
  {personas && !bloq && !corrigiendo && <button className="btn btn-sec btn-sm" disabled={guardando} onClick={guardarAvance} title="Guarda lo que llevas sin terminar; el día sigue pendiente hasta que pulses Guardar día">Guardar avance</button>}
         {personas && !bloq && <button className="btn btn-ok btn-sm" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : corrigiendo ? 'Guardar corrección' : 'Guardar día'}</button>}
       </div>
-      <AlertasFaltantes f={faltantes} onDia={setFecha} conAvance={conAvance} />
+      <AlertasFaltantes f={faltantes} onDia={irA} conAvance={conAvance} />
       {borrador && !yaExiste && <div className="aviso-avance">📝 Avance guardado el {new Date(borrador).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} — el día está <b>incompleto</b> y sigue pendiente hasta que pulses "Guardar día".</div>}
       {bloq && <div className="aviso-consulta">📋 Este día ya tiene un registro guardado. Se muestra solo para consulta{gestor ? ' — para cambiarlo usa "Corregir día".' : ' — no se puede modificar desde aquí.'}</div>}
       <Aviso>{error}</Aviso>

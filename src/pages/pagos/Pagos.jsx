@@ -23,7 +23,8 @@ export default function Pagos({ modulo, perfil, modulos }) {
   const cargar = useCallback(async () => {
     try {
       const [config, empleados] = await Promise.all([cargarConfig(), verEmpleados ? cargarEmpleados() : Promise.resolve([])])
-      setBase({ config, empleados }); setError('')
+      // Solo se reemplaza si algo cambió de verdad: así las pantallas no se recargan (ni pierden lo digitado) en cada revisión periódica
+      setBase((b) => (b && JSON.stringify(b.config) === JSON.stringify(config) && JSON.stringify(b.empleados) === JSON.stringify(empleados) ? b : { config, empleados })); setError('')
     } catch (e) { setError(e.message) }
   }, [verEmpleados])
   useEffect(() => { cargar() }, [cargar])
