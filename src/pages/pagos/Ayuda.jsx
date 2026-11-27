@@ -9,7 +9,8 @@ export const AYUDA = {
       'La lista trae solo al personal de Litografía que liquida horas extra, con la hora de entrada estándar ya puesta.',
       'Escribe la <b>hora de salida</b> en formato 24 h con dos puntos, ej. <b>16:00</b>.',
       'Si alguien no trabajó, cambia su <b>Estado</b> a Incapacitado o No asistió — sus horas se bloquean solas.',
-      'Pulsa <b>Guardar día</b> (arriba a la derecha).',
+      'Pulsa <b>Guardar día</b> (arriba a la derecha). Si no alcanzas a terminar, usa <b>Guardar avance</b> y continúa más tarde.',
+      'En <b>Horas extra de la semana</b> ves, solo para consulta, el total de horas extra de cada persona en la semana elegida (viernes a jueves), por tipo y sin valores en pesos.',
     ],
     notas: [
       'Las alertas de arriba muestran los días laborales sin registro de <b>esta semana</b> (hasta ayer) y de la <b>semana anterior</b> (viernes a jueves). Pulsa una fecha pendiente para ir a ella. Sábados, domingos y festivos no se marcan como pendientes.',

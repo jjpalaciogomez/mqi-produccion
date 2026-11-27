@@ -3,13 +3,80 @@ import { sb, q } from '../../supabase.js'
 import { useEnVivo } from '../../vivo.js'
 import { Aviso, Badge, Cargando } from '../../ui.jsx'
 import * as M from '../../nomina/motor.js'
-import { hoyCO, fechaCorta } from '../../nomina/datos.js'
+import { hoyCO, fechaCorta, num } from '../../nomina/datos.js'
 
 const ESTADOS = ['Normal', 'Incapacitado', 'No asistió', 'Vacaciones']
+const C = M.CATEGORIAS
+const NOMBRES_HE = { HED: 'Extra diurna', HEN: 'Extra nocturna', RN: 'Recargo nocturno', HDF: 'Dominical/festiva diurna', HNDF: 'Dominical/festiva nocturna', HEDF: 'Extra dominical/festiva diurna', HENF: 'Extra dominical/festiva nocturna' }
+
+// Jornada: registro diario y (en Litografía) consulta de las horas extra de la semana, solo lectura y sin valores en pesos
+export default function Jornada(props) {
+  const [vista, setVista] = useState('registro')
+  const conHoras = props.grupo === 'litografia'
+  return (
+    <div>
+      {conHoras && <div className="segmentado" style={{ marginBottom: 8 }}>
+        <button className={vista === 'registro' ? 'sel' : ''} onClick={() => setVista('registro')}>Registro diario</button>
+        <button className={vista === 'horas' ? 'sel' : ''} onClick={() => setVista('horas')}>Horas extra de la semana</button>
+      </div>}
+      <div style={{ display: vista === 'registro' ? 'block' : 'none' }}><RegistroJornada {...props} /></div>
+      {conHoras && vista === 'horas' && <HorasSemana grupo={props.grupo} config={props.config} />}
+    </div>
+  )
+}
+
+// Total de horas extra por persona en una semana (viernes a jueves), calculado de la jornada registrada
+function HorasSemana({ grupo, config }) {
+  const { cfg, festivos } = config
+  const hoy = hoyCO()
+  const semanas = useMemo(() => Array.from({ length: 26 }, (_, i) => M.fechaISOMasDias(M.viernesDeSemana(hoy), -7 * i)), [hoy])
+  const [inicio, setInicio] = useState(() => M.fechaISOMasDias(M.viernesDeSemana(hoy), -7))
+  const [jornadas, setJornadas] = useState(null)
+  const [error, setError] = useState('')
+  const fechas = useMemo(() => M.fechasDeSemana(inicio), [inicio])
+  const cargar = useCallback(async () => {
+    try { setJornadas(await q(sb.from('jornadas').select('*').eq('grupo', grupo).gte('fecha', M.fechaISOMasDias(inicio, -1)).lte('fecha', M.fechaISOMasDias(inicio, 7)))); setError('') } catch (e) { setError(e.message) }
+  }, [grupo, inicio])
+  useEffect(() => { setJornadas(null); cargar() }, [cargar])
+  useEnVivo(cargar, ['jornadas'])
+  const filas = useMemo(() => {
+    if (!jornadas) return []
+    const por = M.calcularHorasExtraDesdeJornada(jornadas, fechas, grupo, cfg, festivos)
+    const nombres = Object.fromEntries(jornadas.map((j) => [j.empleado_id, j.nombre]))
+    const dias = {}
+    jornadas.forEach((j) => { if (fechas.includes(j.fecha)) (dias[j.empleado_id] = dias[j.empleado_id] || new Set()).add(j.fecha) })
+    return Object.entries(por).map(([id, h]) => ({ id, nombre: nombres[id] || id, ...h, total: M.redondear2(C.reduce((a, c) => a + h[c], 0)) }))
+      .filter((f) => f.total > 0).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  }, [jornadas, fechas, grupo, cfg, festivos])
+  const registrados = jornadas ? new Set(jornadas.filter((j) => fechas.includes(j.fecha)).map((j) => j.fecha)).size : 0
+  const tot = Object.fromEntries([...C, 'total'].map((c) => [c, M.redondear2(filas.reduce((a, f) => a + f[c], 0))]))
+  const i = semanas.indexOf(inicio)
+  return (
+    <div>
+      <div className="barra-horas">
+        <button className="btn btn-sec btn-sm" disabled={i === semanas.length - 1} onClick={() => setInicio(semanas[i + 1])}>‹ Semana anterior</button>
+        <select value={inicio} onChange={(e) => setInicio(e.target.value)}>{semanas.map((s, k) => <option key={s} value={s}>{M.etiquetaSemana(s)}{k === 0 ? ' (en curso)' : ''}</option>)}</select>
+        <button className="btn btn-sec btn-sm" disabled={i <= 0} onClick={() => setInicio(semanas[i - 1])}>Semana siguiente ›</button>
+        <span className="empuja pagos-total">Total de la semana: <b>{num(tot.total)} h</b></span>
+      </div>
+      <div className="aviso-consulta">Solo consulta. Horas calculadas de la jornada registrada (viernes a jueves); días con registro en la semana: {registrados} de 7.</div>
+      <Aviso>{error}</Aviso>
+      {!jornadas ? <Cargando /> : (
+        <div className="tabla-cont"><table className="tabla tabla-pagos">
+          <thead><tr><th>Nombre</th>{C.map((c) => <th key={c} className="num" title={NOMBRES_HE[c]}>{c}</th>)}<th className="num">Total horas</th></tr></thead>
+          <tbody>{filas.map((f) => <tr key={f.id}><td><b>{f.nombre}</b></td>{C.map((c) => <td key={c} className="num">{f[c] ? num(f[c]) : ''}</td>)}<td className="num"><b>{num(f.total)}</b></td></tr>)}</tbody>
+          {filas.length > 0 && <tfoot><tr><td><b>Total</b></td>{C.map((c) => <td key={c} className="num"><b>{tot[c] ? num(tot[c]) : ''}</b></td>)}<td className="num"><b>{num(tot.total)}</b></td></tr></tfoot>}
+        </table>{!filas.length && <p className="tenue">No hay horas extra registradas en esa semana.</p>}</div>
+      )}
+      <p className="ayuda-txt">HED extra diurna · HEN extra nocturna · RN recargo nocturno · HDF / HNDF dominical o festiva diurna / nocturna · HEDF / HENF extra dominical o festiva diurna / nocturna.</p>
+    </div>
+  )
+}
+
 const fmtLarga = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
 // Registro diario de entrada y salida (Litografía o Industrial)
-export default function Jornada({ grupo, config, gestor }) {
+function RegistroJornada({ grupo, config, gestor }) {
   const { cfg, festivos } = config
   const industrial = grupo === 'industrial'
   const [fecha, setFecha] = useState(hoyCO())
